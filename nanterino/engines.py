@@ -52,6 +52,7 @@ class LLM:
         body = {"messages": messages, "stream": True, "temperature": 0.3, "max_tokens": max_tokens}
         with requests.post(self.url, json=body, stream=True, timeout=60) as r:
             r.raise_for_status()
+            r.encoding = "utf-8"  # SSE has no charset header; requests would guess Latin-1
             for line in r.iter_lines(decode_unicode=True):
                 if not line or not line.startswith("data: "):
                     continue
