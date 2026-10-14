@@ -1,0 +1,6 @@
+# Large or machine-specific files stay out of git (models are re-downloadable, venv is rebuildable).
+.venv/
+models/
+__pycache__/
+*.pyc
+config.json

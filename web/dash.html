@@ -1,0 +1,72 @@
+<!doctype html>
+<!-- Nanterino technical dashboard (open from the PC through Tailscale: http://100.83.93.27:8080/dash).
+     Offline page: no CDN. Live state via /ws, metrics and engines via /api/status every 2 s. -->
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nanterino — tableau technique</title>
+<style>
+  :root{--bg:#f6f8f7;--card:#fff;--ink:#14231d;--mute:#5b6b64;--ok:#1f9d63;--bad:#c63d3d;--line:#dfe6e2}
+  @media (prefers-color-scheme:dark){:root{--bg:#0f1714;--card:#17221e;--ink:#e6f2ec;--mute:#93a69d;--line:#2a3833}}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  h1{font-size:18px;margin:0} .pill{padding:3px 10px;border-radius:99px;background:var(--line);font-weight:600}
+  main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;padding:16px 20px}
+  section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute);margin:0 0 10px}
+  .row{display:flex;justify-content:space-between;padding:3px 0} .ok{color:var(--ok)} .bad{color:var(--bad)}
+  button{padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;font-weight:600}
+  button.primary{background:var(--ok);color:#fff;border:0} button.stop{background:var(--bad);color:#fff;border:0}
+  input,select{width:100%;box-sizing:border-box;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--ink)}
+  .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--ok)}
+  pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;margin:0;color:var(--mute)}
+  .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+</style></head><body>
+<header><h1>Nanterino</h1><span class="pill" id="state">…</span><span id="sub" style="color:var(--mute)"></span></header>
+<main>
+  <section><h2>Dialogue</h2>
+    <div class="btns"><button class="primary" onclick="ctl('start')">Démarrer</button>
+      <button class="stop" onclick="ctl('stop')">Stop</button></div>
+    <p style="margin:12px 0 4px">Poser une question (test sans micro)</p>
+    <input id="ask" placeholder="Où trouver un parc près d'ici ?" onkeydown="if(event.key==='Enter'){ctl('ask',{text:this.value});this.value=''}">
+    <p style="margin:12px 0 4px">Faire parler le robot</p>
+    <input id="say" placeholder="Bonjour !" onkeydown="if(event.key==='Enter'){ctl('say',{text:this.value});this.value=''}">
+  </section>
+  <section><h2>Audio</h2>
+    <div class="row"><span>Micro</span><span id="mic">–</span></div><div class="bar"><i id="micbar" style="width:0"></i></div>
+    <div class="row" style="margin-top:6px"><span>Sortie</span><span id="spk">–</span></div><div class="bar"><i id="outbar" style="width:0"></i></div>
+    <p style="margin:12px 0 4px">Volume <span id="vol"></span></p>
+    <input type="range" min="0" max="1" step="0.05" id="volume" onchange="ctl('volume',{value:this.value})">
+    <p style="margin:12px 0 4px">Micro (redémarrage requis)</p><select id="micdev" onchange="ctl('mic_device',{value:this.value})"></select>
+    <p style="margin:8px 0 4px">Sortie (redémarrage requis)</p><select id="outdev" onchange="ctl('out_device',{value:this.value})"></select>
+  </section>
+  <section><h2>Moteurs IA</h2><div id="engines"></div>
+    <div class="row"><span>Fiches du corpus</span><span id="sheets"></span></div>
+    <div class="btns"><button onclick="ctl('reload_corpus')">Recharger le corpus</button></div>
+    <h2 style="margin-top:14px">Latence fin de phrase → voix (objectif &lt; 5 s)</h2><div id="lat">–</div></section>
+  <section><h2>Matériel (tegrastats)</h2><div id="hw"></div></section>
+  <section style="grid-column:1/-1"><h2>Erreurs et avertissements récents (/var/log/robot/errors.log)</h2><pre id="err"></pre></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+function ctl(action, extra={}){ return fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})}).then(r=>r.json()).then(j=>{ if(j.note) alert(j.note); }); }
+function live(){ const ws=new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage=m=>{ const s=JSON.parse(m.data); $('state').textContent=s.state; $('sub').textContent=s.subtitle||'';
+    $('mic').textContent=s.mic_on?'actif':'coupé'; $('micbar').style.width=Math.min(100,s.mic_level*100)+'%';
+    $('spk').textContent=s.speaking?'parle':'silence'; $('outbar').style.width=Math.min(100,s.out_level*100)+'%';
+    const l=s.latencies_ms; $('lat').textContent = l.length ? `dernière ${l.at(-1)} ms · moyenne ${Math.round(l.reduce((a,b)=>a+b,0)/l.length)} ms · max ${Math.max(...l)} ms (${l.length} échanges)` : 'aucun échange mesuré'; };
+  ws.onclose=()=>setTimeout(live,1000); }
+async function poll(){
+  try{ const s=await (await fetch('/api/status')).json(); const m=s.metrics||{};
+    $('engines').innerHTML=Object.entries(s.engines).map(([k,v])=>`<div class="row"><span>${k.toUpperCase()}</span><span class="${v?'ok':'bad'}">${v?'prêt':'indisponible'}</span></div>`).join('');
+    $('sheets').textContent=s.sheets; $('vol').textContent=Math.round(s.volume*100)+' %';
+    if(document.activeElement!==$('volume')) $('volume').value=s.volume;
+    const t=m.temps||{};
+    $('hw').innerHTML=[['CPU',(m.cpu_pct??'–')+' %'],['GPU',(m.gpu_pct??'–')+' %'],['RAM',m.ram_used_mb?`${m.ram_used_mb} / ${m.ram_total_mb} Mo`:'–'],['Puissance',(m.power_w??'–')+' W'],
+      ...Object.entries(t).map(([k,v])=>[k,v+' °C'])].map(([k,v])=>`<div class="row"><span>${k}</span><span>${v}</span></div>`).join('');
+    $('err').textContent=await (await fetch('/api/errors')).text();
+  }catch(e){}
+}
+async function devices(){ const d=await (await fetch('/api/devices')).json(); const s=await (await fetch('/api/status')).json();
+  const opt=(list,cur)=>['<option value="">(défaut PipeWire)</option>',...list.map(x=>`<option ${cur&&x.name.includes(cur)?'selected':''}>${x.name}</option>`)].join('');
+  $('micdev').innerHTML=opt(d.filter(x=>x.inputs>0),s.config.mic_device); $('outdev').innerHTML=opt(d.filter(x=>x.outputs>0),s.config.out_device); }
+live(); poll(); devices(); setInterval(poll,2000);
+</script></body></html>

@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- Nanterino face for the head screen (kiosk, full screen). Offline: no external resources.
+     State and mouth level come from /ws at 10 Hz. Tapping the screen starts a conversation. -->
+<html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Nanterino</title>
+<style>
+  :root { --bg:#0b1d16; --face:#e8fff4; --accent:#3ddc97; }
+  html,body { margin:0; height:100%; background:var(--bg); overflow:hidden; font-family:system-ui,sans-serif; cursor:none; }
+  canvas { display:block; width:100vw; height:78vh; }
+  #sub { height:22vh; display:flex; align-items:center; justify-content:center; padding:0 5vw;
+         color:var(--face); font-size:4.2vh; line-height:1.25; text-align:center; }
+  #state { position:fixed; top:1.5vh; right:2vw; color:var(--accent); font-size:2vh; opacity:.6; }
+</style></head>
+<body>
+<canvas id="c"></canvas><div id="sub"></div><div id="state"></div>
+<script>
+const c = document.getElementById('c'), g = c.getContext('2d');
+let S = {state:'veille', subtitle:'', out_level:0, mic_level:0};
+let blink = 0, mouth = 0, look = 0;
+function resize(){ c.width = innerWidth*devicePixelRatio; c.height = innerHeight*0.78*devicePixelRatio; }
+addEventListener('resize', resize); resize();
+// Expression per state (cahier §2): eyes openness, smile, brows.
+const EXPR = {
+  veille:{eye:0.75, smile:0.15, brow:0},  accueil:{eye:1, smile:0.9, brow:0.2},
+  ecoute:{eye:1, smile:0.3, brow:0.1},    reponse:{eye:1, smile:0.45, brow:0.1},
+  relance:{eye:1.1, smile:0.35, brow:0.8}, cloture:{eye:0.9, smile:1, brow:0.2}
+};
+function draw(t){
+  const W=c.width, H=c.height, e=EXPR[S.state]||EXPR.veille, cx=W/2, cy=H*0.48, u=Math.min(W,H)/10;
+  g.fillStyle='#0b1d16'; g.fillRect(0,0,W,H);
+  // blink: slow in veille, regular otherwise
+  const period = S.state==='veille' ? 5000 : 3500;
+  blink = (t % period) < 140 ? 0.08 : 1;
+  look += ((S.state==='ecoute'? Math.sin(t/900)*0.15 : 0) - look) * 0.05;
+  const target = S.state==='reponse' || S.speaking ? Math.min(1, S.out_level*1.5) : 0;
+  mouth += (target - mouth) * 0.35;
+  g.fillStyle = '#e8fff4';
+  for (const side of [-1,1]) {           // eyes
+    const ex = cx + side*2.4*u + look*u, eh = 1.3*u*e.eye*blink;
+    g.beginPath(); g.ellipse(ex, cy-0.6*u, 0.85*u, Math.max(eh,0.06*u), 0, 0, Math.PI*2); g.fill();
+    g.fillStyle='#0b1d16'; g.beginPath(); g.arc(ex+look*u*0.6, cy-0.5*u, 0.32*u*Math.min(1,blink*2), 0, Math.PI*2); g.fill();
+    g.fillStyle='#e8fff4';
+    g.lineWidth=0.18*u; g.strokeStyle='#e8fff4'; g.beginPath();  // brows
+    g.moveTo(ex-0.8*u, cy-2.2*u-e.brow*0.6*u + side*0.1*u); g.lineTo(ex+0.8*u, cy-2.2*u-e.brow*0.6*u - side*0.1*u); g.stroke();
+  }
+  // mouth: smile curve + opening driven by the audio level actually played
+  g.lineWidth=0.22*u; g.strokeStyle='#3ddc97'; g.fillStyle='#123d2c';
+  const mw=2.2*u, my=cy+2.2*u, open=mouth*1.1*u, smile=e.smile*0.8*u;
+  g.beginPath(); g.moveTo(cx-mw, my); g.quadraticCurveTo(cx, my+smile+open, cx+mw, my);
+  if (open>0.05*u) { g.quadraticCurveTo(cx, my+smile-open*0.3, cx-mw, my); g.fill(); }
+  g.stroke();
+  if (S.state==='ecoute') {               // listening cue: mic level ring
+    g.strokeStyle='rgba(61,220,151,.5)'; g.lineWidth=0.08*u; g.beginPath();
+    g.arc(cx, my+2.4*u, 0.4*u + S.mic_level*1.2*u, 0, Math.PI*2); g.stroke();
+  }
+  requestAnimationFrame(draw);
+}
+requestAnimationFrame(draw);
+function connect(){
+  const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onmessage = m => { S = JSON.parse(m.data);
+    document.getElementById('sub').textContent = S.subtitle || '';
+    document.getElementById('state').textContent = S.state; };
+  ws.onclose = () => setTimeout(connect, 1000);
+}
+connect();
+addEventListener('click', () => fetch('/api/control', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({action:'start'})}));
+</script></body></html>

@@ -1,0 +1,17 @@
+# Nom du lieu
+
+<!-- Modèle (cahier des charges §4). Copier en `nom-du-lieu.md` (extension .md) pour l'ajouter
+     au corpus. Ce fichier .txt n'est pas chargé. Règle : un lieu sans source vérifiée
+     n'entre pas dans le corpus. Puis « Recharger le corpus » dans le tableau technique. -->
+
+- Catégorie : parc | lieu écologique | point de collecte | lieu remarquable
+- Adresse :
+- Horaires :
+- Description : (2 phrases, lues par le robot)
+- Ce qu'on y fait :
+  - 
+  - 
+  - 
+- Accès : (transport, à pied depuis le lieu d'installation)
+- Image : (facultatif, fichier local)
+- Source et date de vérification : nanterre.fr, JJ/MM/AAAA
