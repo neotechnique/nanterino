@@ -31,6 +31,7 @@
     <input id="say" placeholder="Bonjour !" onkeydown="if(event.key==='Enter'){ctl('say',{text:this.value});this.value=''}">
   </section>
   <section><h2>Audio</h2>
+    <div class="btns" style="margin:0 0 10px"><button id="pcbtn" onclick="togglePc()">🔈 Écouter sur ce PC : non</button></div>
     <div class="row"><span>Micro</span><span id="mic">–</span></div><div class="bar"><i id="micbar" style="width:0"></i></div>
     <div class="row" style="margin-top:6px"><span>Sortie</span><span id="spk">–</span></div><div class="bar"><i id="outbar" style="width:0"></i></div>
     <p style="margin:12px 0 4px">Volume <span id="vol"></span></p>
@@ -68,5 +69,13 @@ async function poll(){
 async function devices(){ const d=await (await fetch('/api/devices')).json(); const s=await (await fetch('/api/status')).json();
   const opt=(list,cur)=>['<option value="">(défaut PipeWire)</option>',...list.map(x=>`<option ${cur&&x.name.includes(cur)?'selected':''}>${x.name}</option>`)].join('');
   $('micdev').innerHTML=opt(d.filter(x=>x.inputs>0),s.config.mic_device); $('outdev').innerHTML=opt(d.filter(x=>x.outputs>0),s.config.out_device); }
+// PC listening: poll new clip ids, play them in order (same audio as the robot, RAM only).
+let pc=false, lastClip=null, playing=Promise.resolve();
+async function togglePc(){ pc=!pc; $('pcbtn').textContent='🔈 Écouter sur ce PC : '+(pc?'oui':'non');
+  if(pc && lastClip===null){ const ids=await (await fetch('/api/monitor?after=0')).json(); lastClip=ids.length?Math.max(...ids):0; } }
+async function pcPoll(){ if(!pc) return; try{ const ids=await (await fetch('/api/monitor?after='+lastClip)).json();
+  for(const id of ids){ lastClip=Math.max(lastClip,id);
+    playing=playing.then(()=>new Promise(res=>{ const a=new Audio('/api/monitor/'+id+'.wav'); a.onended=res; a.onerror=res; a.play().catch(res); })); } }catch(e){} }
+setInterval(pcPoll,300);
 live(); poll(); devices(); setInterval(poll,2000);
 </script></body></html>

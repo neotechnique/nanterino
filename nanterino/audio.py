@@ -8,9 +8,12 @@ Input: 16 kHz mono capture, webrtcvad end-of-speech detection. Captured audio ex
 only and is dropped right after transcription (privacy, cahier §7).
 """
 import collections
+import io
+import itertools
 import queue
 import threading
 import time
+import wave
 
 import numpy as np
 import sounddevice as sd
@@ -49,6 +52,9 @@ class AudioOut:
         self._lock = threading.Lock()
         self.level = 0.0
         self.stream = None
+        # Remote monitor (Pi "casque PC" equivalent): last clips as WAV bytes, RAM only, never on disk.
+        self.monitor = collections.deque(maxlen=10)
+        self._clip_ids = itertools.count(1)
 
     def start(self):
         self.close()
@@ -77,6 +83,10 @@ class AudioOut:
 
     def play(self, pcm: np.ndarray, rate: int):
         """Queue int16 PCM; resampled linearly if the voice rate differs from the stream."""
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate); w.writeframes(pcm.astype(np.int16).tobytes())
+        self.monitor.append((next(self._clip_ids), buf.getvalue()))
         x = pcm.astype(np.float32) / 32768.0
         if rate != self.rate and len(x):
             t = np.linspace(0, len(x), int(len(x) * self.rate / rate), endpoint=False)

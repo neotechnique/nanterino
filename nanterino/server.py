@@ -11,7 +11,7 @@ import subprocess
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from . import config
 from .audio import AudioOut, find_device, list_devices
@@ -78,6 +78,20 @@ def devices():
 def errors(lines: int = 30):
     r = subprocess.run(["tail", "-n", str(lines), "/var/log/robot/errors.log"], capture_output=True, text=True)
     return PlainTextResponse(r.stdout)
+
+
+@app.get("/api/monitor")
+def monitor(after: int = 0):
+    """Ids of clips spoken after `after` (the dashboard polls this when PC listening is on)."""
+    return [cid for cid, _ in list(out.monitor) if cid > after]
+
+
+@app.get("/api/monitor/{cid}.wav")
+def monitor_clip(cid: int):
+    for i, wav in list(out.monitor):
+        if i == cid:
+            return Response(wav, media_type="audio/wav")
+    return PlainTextResponse("gone", status_code=404)
 
 
 @app.post("/api/control")
