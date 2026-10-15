@@ -72,6 +72,12 @@ def engines() -> dict:
     return {"stt": stt.ready(), "llm": llm.ready(), "tts": True}
 
 
+@app.get("/api/live")
+def live():
+    """Cheap 10 Hz snapshot for the native UI (no engine health probes)."""
+    return brain.snapshot()
+
+
 @app.get("/api/devices")
 def devices():
     return list_devices()
