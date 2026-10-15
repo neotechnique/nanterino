@@ -36,6 +36,8 @@
     <div class="row" style="margin-top:6px"><span>Sortie</span><span id="spk">–</span></div><div class="bar"><i id="outbar" style="width:0"></i></div>
     <p style="margin:12px 0 4px">Volume <span id="vol"></span></p>
     <input type="range" min="0" max="1" step="0.05" id="volume" onchange="ctl('volume',{value:this.value})">
+    <p style="margin:12px 0 4px">Anti-veille de l'enceinte <span id="sink" style="color:var(--mute);font-size:12px"></span></p>
+    <select id="keepalive" onchange="ctl('keepalive_db',{value:this.value})"><option value="off">Désactivé (silence pur)</option><option>-90</option><option>-80</option><option>-70</option><option>-60</option><option>-50</option></select>
     <p style="margin:12px 0 4px">Micro (redémarrage requis)</p><select id="micdev" onchange="ctl('mic_device',{value:this.value})"></select>
     <p style="margin:8px 0 4px">Sortie (redémarrage requis)</p><select id="outdev" onchange="ctl('out_device',{value:this.value})"></select>
   </section>
@@ -58,7 +60,9 @@ function live(){ const ws=new WebSocket(`ws://${location.host}/ws`);
 async function poll(){
   try{ const s=await (await fetch('/api/status')).json(); const m=s.metrics||{};
     $('engines').innerHTML=Object.entries(s.engines).map(([k,v])=>`<div class="row"><span>${k.toUpperCase()}</span><span class="${v?'ok':'bad'}">${v?'prêt':'indisponible'}</span></div>`).join('');
-    $('sheets').textContent=s.sheets; $('vol').textContent=Math.round(s.volume*100)+' %';
+    $('sheets').textContent=s.sheets;
+    if(s.speaker){ $('sink').textContent='('+(s.speaker.sink||'?').replace(/^alsa_output\./,'').slice(0,40)+')';
+      if(document.activeElement!==$('keepalive')) $('keepalive').value = s.speaker.keepalive_noise_db==null?'off':String(s.speaker.keepalive_noise_db); } $('vol').textContent=Math.round(s.volume*100)+' %';
     if(document.activeElement!==$('volume')) $('volume').value=s.volume;
     const t=m.temps||{};
     $('hw').innerHTML=[['CPU',(m.cpu_pct??'–')+' %'],['GPU',(m.gpu_pct??'–')+' %'],['RAM',m.ram_used_mb?`${m.ram_used_mb} / ${m.ram_total_mb} Mo`:'–'],['Puissance',(m.power_w??'–')+' W'],

@@ -93,6 +93,10 @@ class AudioOut:
         outdata[:, 0] = block
         self.level = float(np.abs(block).mean()) * 8 if n else 0.0
 
+    def set_keepalive_db(self, db):
+        """Live change (no restart). None = digital silence; e.g. -70 = inaudible noise."""
+        self.noise_amp = 10 ** (db / 20) if db is not None else 0.0
+
     def play(self, pcm: np.ndarray, rate: int):
         """Queue int16 PCM; resampled linearly if the voice rate differs from the stream."""
         buf = io.BytesIO()
@@ -191,3 +195,57 @@ class AudioIn:
                 self.on_utterance(pcm, t_end)
             except Exception:
                 log.exception("utterance handler failed")
+
+
+def default_sink() -> str | None:
+    """PipeWire node.name of the default sink (e.g. alsa_output.usb-Jieli_..._UACDemoV1.0...)."""
+    import subprocess
+    try:
+        out = subprocess.run(["wpctl", "inspect", "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return None
+    for line in out.splitlines():
+        if "node.name" in line and "=" in line:
+            return line.split("=", 1)[1].strip().strip('"')
+    return None
+
+
+class SpeakerProfiles:
+    """Dynamic keep-alive: every 3 s, detect the default speaker and apply its profile live.
+
+    Profiles live in config["speaker_profiles"] keyed by PipeWire node.name; an unknown speaker gets
+    config["keepalive_noise_db"] (safe default) until calibrated. Survives hot-plug without restart.
+    """
+
+    def __init__(self, cfg, out: AudioOut, save):
+        self.cfg, self.out, self.save = cfg, out, save
+        self.current = None
+        threading.Thread(target=self._watch, daemon=True, name="speaker-watch").start()
+
+    def profile(self, sink=None) -> dict:
+        sink = sink or self.current
+        return {"keepalive_noise_db": self.cfg["keepalive_noise_db"], "volume": self.cfg["volume"],
+                **self.cfg.get("speaker_profiles", {}).get(sink or "", {})}
+
+    def update(self, **changes):
+        """Store changes for the current speaker and apply them now."""
+        if not self.current:
+            return
+        profiles = self.cfg.setdefault("speaker_profiles", {})
+        profiles.setdefault(self.current, {}).update(changes)
+        self.save({"speaker_profiles": profiles})
+        self._apply()
+
+    def _apply(self):
+        p = self.profile()
+        self.out.set_keepalive_db(p["keepalive_noise_db"])
+        self.out.volume = p["volume"]
+        log.info("speaker profile applied sink=%s keepalive_db=%s volume=%s", self.current, p["keepalive_noise_db"], p["volume"])
+
+    def _watch(self):
+        while True:
+            sink = default_sink()
+            if sink and sink != self.current:
+                self.current = sink
+                self._apply()
+            time.sleep(3)

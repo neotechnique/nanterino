@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from . import config
-from .audio import AudioOut, find_device, list_devices
+from .audio import AudioOut, SpeakerProfiles, find_device, list_devices
 from .brain import Brain
 from .corpus import Corpus
 from .engines import LLM, STT, TTS
@@ -29,6 +29,7 @@ tts = TTS(cfg["tts_voice"])
 out = AudioOut(find_device(cfg["out_device"], "output"), rate=tts.rate, volume=cfg["volume"],
                keepalive_noise_db=cfg["keepalive_noise_db"])
 out.start()
+speakers = SpeakerProfiles(cfg, out, config.save_overrides)
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"]), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)
 app = FastAPI(title="Nanterino")
@@ -62,7 +63,8 @@ def dash():
 @app.get("/api/status")
 def status():
     return {**brain.snapshot(), "metrics": metrics.data, "engines": engines(),
-            "volume": out.volume, "sheets": len(corpus.sheets), "config": {
+            "volume": out.volume, "sheets": len(corpus.sheets),
+            "speaker": {"sink": speakers.current, **speakers.profile()}, "config": {
                 k: cfg[k] for k in ("mic_device", "out_device", "barge_in", "spoken_sentences")}}
 
 
@@ -105,9 +107,11 @@ async def control(body: dict):
         brain.post("ask", text=body["text"])
     elif action == "say" and body.get("text"):
         out.play(tts.synth(body["text"]), tts.rate)
-    elif action == "volume":
-        out.volume = max(0.0, min(1.0, float(body.get("value", 0.8))))
-        config.save_overrides({"volume": out.volume})
+    elif action == "volume":  # stored in the current speaker's profile
+        speakers.update(volume=max(0.0, min(1.0, float(body.get("value", 0.8)))))
+    elif action == "keepalive_db":  # "off" = pure digital silence
+        v = body.get("value")
+        speakers.update(keepalive_noise_db=None if v in (None, "", "off") else float(v))
     elif action == "reload_corpus":
         corpus.reload()
     elif action in ("mic_device", "out_device"):

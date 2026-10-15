@@ -19,8 +19,11 @@ DEFAULTS = {
     "mic_device": "pipewire",
     "out_device": "pipewire",
     "volume": 0.8,
-    # Set to e.g. -70 if speaker-sleep-test shows the speaker sleeps despite digital silence.
-    "keepalive_noise_db": None,
+    # Default keep-alive for an uncalibrated speaker: inaudible noise. Many USB amps (e.g. Jieli
+    # UACDemo, 2026-10-15) mute on digital silence and clip the first syllable. None = pure silence.
+    "keepalive_noise_db": -70,
+    # Per-speaker overrides keyed by PipeWire node.name (written by the dashboard / calibration).
+    "speaker_profiles": {},
     # Dialogue timings (seconds) from §2 and D10.
     "silence_relance_s": 8,
     "silence_cloture_s": 15,
