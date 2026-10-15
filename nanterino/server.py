@@ -112,6 +112,12 @@ async def control(body: dict):
     elif action == "keepalive_db":  # "off" = pure digital silence
         v = body.get("value")
         speakers.update(keepalive_noise_db=None if v in (None, "", "off") else float(v))
+    elif action == "test_tone":  # used by speaker-calibrate; same path as speech
+        import numpy as np
+        t = np.arange(int(tts.rate * 0.4)) / tts.rate
+        tone = (0.5 * np.sin(2 * np.pi * 1000 * t) * 32767).astype(np.int16)
+        tone[:110] = (tone[:110] * np.linspace(0, 1, 110)).astype(np.int16)
+        out.play(tone, tts.rate)
     elif action == "preroll":  # {"ms": 300, "db": -45}
         speakers.update(preroll_ms=int(body.get("ms", 300)), preroll_db=float(body.get("db", -45)))
     elif action == "reload_corpus":

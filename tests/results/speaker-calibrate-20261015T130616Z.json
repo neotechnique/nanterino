@@ -1,0 +1,28 @@
+{
+  "sink": "alsa_output.usb-Jieli_Technology_UACDemoV1.0_4153303135383906-01.analog-stereo",
+  "reference": {
+    "heard": true,
+    "onset_ms": 690,
+    "dur_ms": 520
+  },
+  "results": {
+    "off": {
+      "ok": true,
+      "shots": [
+        {
+          "heard": true,
+          "onset_ms": 690,
+          "dur_ms": 520,
+          "clipped_ms": 0
+        },
+        {
+          "heard": true,
+          "onset_ms": 700,
+          "dur_ms": 500,
+          "clipped_ms": 20
+        }
+      ]
+    }
+  },
+  "chosen": "off"
+}
