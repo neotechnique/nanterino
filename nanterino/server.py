@@ -34,9 +34,9 @@ speakers = SpeakerProfiles(cfg, out, config.save_overrides)
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"]), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)
 vision = Vision()
-# F01 auto-greeting (face within 3 m wakes the robot) stays opt-in during development.
-if cfg.get("auto_greet_on_face"):
-    vision.on_face = lambda dist: brain.post("visage")
+# F01 auto-greeting: a new face within 3 m wakes the robot (only from veille; ignored when off).
+# The flag is read at each event so it can be toggled without restarting.
+vision.on_face = lambda dist: cfg.get("auto_greet_on_face") and brain.post("visage")
 app = FastAPI(title="Nanterino")
 
 
@@ -138,6 +138,9 @@ async def control(body: dict):
         out.play(tone, tts.rate)
     elif action == "preroll":  # {"ms": 300, "db": -45}
         speakers.update(preroll_ms=int(body.get("ms", 300)), preroll_db=float(body.get("db", -45)))
+    elif action == "auto_greet":  # value true/false
+        cfg["auto_greet_on_face"] = bool(body.get("value", True))
+        config.save_overrides({"auto_greet_on_face": cfg["auto_greet_on_face"]})
     elif action == "reload_corpus":
         corpus.reload()
     elif action in ("mic_device", "out_device"):

@@ -1,31 +1,41 @@
-"""Friendly robot face (companion-robot style): two glowing rounded eyes, no pupils, no brows.
+"""Friendly robot face (companion-robot style): two glowing rounded eyes with moving round pupils.
 
 logging: robotlog via nanterino_ui.app (this module only draws; it logs nothing itself).
-Design notes (user feedback 2026-10-15: the first face with slanted brows and small fixed pupils
-looked angry and "staring"): no brows, no pupils, soft cyan glow, happy "^ ^" eyes when greeting,
-pink cheeks, a small smile that opens with the audio level actually played.
+
+Design decisions (user feedback, 2026-10-15):
+- first face (slanted brows, small fixed pupils) looked angry/staring -> no brows;
+- fixed white highlight read as pupils staring one way -> no white dot anywhere;
+- eyes keep a constant WIDE shape in every state (no breathing / half-closed lids); only the
+  blink and the "eteint" state close them; round blue pupils move INSIDE the eyes;
+- ONE consistent glow recipe for every element (crisp solid shape + identical soft halo), so
+  eyes, pupils, cheeks, mouth and listening dots have the same balance (no element "blurrier").
 """
 import math
+import random
 import time
 
 from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPainterPathStroker, QPen
 from PySide6.QtWidgets import QWidget
 
 BG = QColor("#0a1220")
 EYE = QColor("#6ff5dc")
-CHEEK = QColor(255, 143, 177, 55)
+PUPIL = QColor("#1e90ff")           # saturated luminous blue, no whitish centre
+CHEEK = QColor(255, 110, 165, 200)  # crisp pink, same glow as everything else
 TEXT = QColor("#eafffa")
 
-# Per state: eye height factor, happy arcs, eye scale, mouth smile amount.
-STATES = {
-    "veille":  {"h": 0.55, "happy": False, "scale": 0.95, "smile": 0.25},
-    "accueil": {"h": 1.0,  "happy": True,  "scale": 1.0,  "smile": 1.0},
-    "ecoute":  {"h": 1.0,  "happy": False, "scale": 1.08, "smile": 0.4},
-    "reponse": {"h": 0.95, "happy": False, "scale": 1.0,  "smile": 0.5},
-    "relance": {"h": 1.0,  "happy": False, "scale": 1.0,  "smile": 0.3},
-    "cloture": {"h": 1.0,  "happy": True,  "scale": 1.0,  "smile": 1.0},
-    "eteint":  {"h": 0.07, "happy": False, "scale": 0.9,  "smile": 0.0},  # eyes closed: clearly "off"
+# Shared glow recipe: halo width relative to the face unit `u`, three layers (wide -> tight).
+GLOW_U = 0.30
+GLOW_LAYERS = ((1.0, 22), (0.66, 40), (0.33, 70))
+
+STATES = {  # constant eye size in every state; only blink / eteint close the eyes
+    "veille":  {"happy": False, "smile": 0.25},
+    "accueil": {"happy": True,  "smile": 1.0},
+    "ecoute":  {"happy": False, "smile": 0.4},
+    "reponse": {"happy": False, "smile": 0.5},
+    "relance": {"happy": False, "smile": 0.3},
+    "cloture": {"happy": True,  "smile": 1.0},
+    "eteint":  {"happy": False, "smile": 0.0, "closed": True},
 }
 
 
@@ -35,9 +45,9 @@ class FaceWidget(QWidget):
         self.on_click = on_click
         self.s = {"state": "veille", "subtitle": "", "out_level": 0, "mic_level": 0, "speaking": False}
         self.online = False
-        self.mouth = self.look = 0.0
-        self.eye_h = 0.55  # smoothed, so state changes morph instead of jumping
-        # Natural gaze: both eyes move together to a random target every 2-5 s (saccades).
+        self.mouth = 0.0
+        self.eye_open = 1.0  # smoothed (closing when switched off is animated)
+        # Natural gaze = pupil position in [-1, 1] inside the eye; random saccades every 2-5 s.
         self.gaze = [0.0, 0.0]; self.gaze_target = [0.0, 0.0]; self.next_saccade = 0.0
         self.t0 = time.monotonic()
         QTimer(self, timeout=self.update, interval=16).start()
@@ -46,26 +56,58 @@ class FaceWidget(QWidget):
     def mousePressEvent(self, _event):
         self.on_click()
 
-    # ------------------------------------------------------------------ drawing helpers
-    def _glow_rect(self, p: QPainter, rect: QRectF, radius: float):
-        for i, alpha in ((3, 18), (2, 30), (1, 55)):  # soft halo, then the solid eye
-            g = QColor(EYE); g.setAlpha(alpha)
-            p.setBrush(g)
-            p.drawRoundedRect(rect.adjusted(-i * radius * 0.18, -i * radius * 0.18, i * radius * 0.18, i * radius * 0.18),
-                              radius * 1.1, radius * 1.1)
-        p.setBrush(EYE)
-        p.drawRoundedRect(rect, radius, radius)
-        # No highlight dot: a fixed white spot read as pupils staring in one direction (user, 2026-10-15).
+    # ------------------------------------------------------------------ one glow recipe for all
+    def _glow(self, p: QPainter, path: QPainterPath, color: QColor, u: float):
+        """Crisp filled `path` + identical soft halo (strokes centred on its outline)."""
+        p.setBrush(Qt.NoBrush)
+        for k, alpha in GLOW_LAYERS:
+            c = QColor(color); c.setAlpha(int(alpha * color.alphaF()))
+            p.setPen(QPen(c, GLOW_U * u * k * 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
+            p.drawPath(path)
+        p.setPen(Qt.NoPen); p.setBrush(color)
+        p.drawPath(path)
+
+    @staticmethod
+    def _stroke(path: QPainterPath, width: float) -> QPainterPath:
+        """Turn a line (smile, happy-eye arc) into a fillable shape so it uses the same glow."""
+        s = QPainterPathStroker(); s.setWidth(width); s.setCapStyle(Qt.RoundCap)
+        return s.createStroke(path)
+
+    def _eye(self, p: QPainter, rect: QRectF, radius: float, u: float, with_pupil: bool):
+        shape = QPainterPath(); shape.addRoundedRect(rect, radius, radius)
+        self._glow(p, shape, EYE, u)
+        if not with_pupil or rect.height() < rect.width() * 0.25:
+            return  # eye (almost) closed: no pupil
+        r = min(rect.width(), rect.height()) * 0.30
+        px = rect.center().x() + self.gaze[0] * (rect.width() / 2 - r * 1.15)
+        py = rect.center().y() + self.gaze[1] * (rect.height() / 2 - r * 1.15)
+        pupil = QPainterPath(); pupil.addEllipse(QPointF(px, py), r, r)
+        p.save(); p.setClipPath(shape)  # the pupil (and its halo) never leaves the eye
+        self._glow(p, pupil, PUPIL, u * 0.6)  # same recipe, scaled to the pupil size
+        p.restore()
 
     def _happy_eye(self, p: QPainter, cx: float, cy: float, u: float):
-        p.setBrush(Qt.NoBrush)  # stroke only: a leftover brush would fill the arc (pink artifact seen in review)
-        path = QPainterPath(QPointF(cx - 1.0 * u, cy + 0.35 * u))
-        path.quadTo(QPointF(cx, cy - 1.0 * u), QPointF(cx + 1.0 * u, cy + 0.35 * u))
-        for w, a in ((0.75, 40), (0.5, 255)):
-            c = QColor(EYE); c.setAlpha(a)
-            p.setPen(QPen(c, w * u, Qt.SolidLine, Qt.RoundCap))
-            p.drawPath(path)
-        p.setPen(Qt.NoPen)
+        arc = QPainterPath(QPointF(cx - 1.0 * u, cy + 0.35 * u))
+        arc.quadTo(QPointF(cx, cy - 1.0 * u), QPointF(cx + 1.0 * u, cy + 0.35 * u))
+        self._glow(p, self._stroke(arc, 0.45 * u), EYE, u)
+
+    # ------------------------------------------------------------------ gaze
+    def _update_gaze(self, st: str, t: float):
+        face = self.s.get("face") or {}
+        if st == "eteint":  # eyes closed: no tracking, no wandering
+            self.gaze_target = [0.0, 0.0]; self.next_saccade = t + 1.0
+        elif face.get("present"):
+            # Look AT the person: a person facing the screen appears mirrored in the camera image.
+            self.gaze_target = [max(-1, min(1, -face.get("x", 0) * 1.6)), max(-1, min(1, face.get("y", 0) * 1.4))]
+            self.next_saccade = t + 1.5  # resume wandering 1.5 s after the face disappears
+        elif t >= self.next_saccade:
+            if st in ("ecoute", "reponse"):  # attending: small drift only
+                self.gaze_target = [random.uniform(-0.15, 0.15), random.uniform(-0.1, 0.1)]
+            else:
+                self.gaze_target = [random.uniform(-0.8, 0.8), random.uniform(-0.5, 0.4)]
+            self.next_saccade = t + random.uniform(2.0, 5.0)
+        for i in (0, 1):
+            self.gaze[i] += (self.gaze_target[i] - self.gaze[i]) * 0.18
 
     # ------------------------------------------------------------------ paint
     def paintEvent(self, _event):
@@ -81,64 +123,42 @@ class FaceWidget(QWidget):
         u = min(w, face_h) / 10
         cx, cy = w / 2, face_h * 0.45
 
-        target_h = cfg["h"] + (0.04 * math.sin(t * 1.3) if st == "veille" else 0)  # breathing while idle
-        self.eye_h += (target_h - self.eye_h) * 0.15
-        period = 5.0 if st == "veille" else 3.8
-        blink = 0.12 if (t % period) < 0.13 else 1.0
-        face = self.s.get("face") or {}
-        if face.get("present"):
-            # Look AT the person: camera image x is mirrored for someone facing the screen
-            # (a person on the screen side of the viewer appears on the opposite image side).
-            self.gaze_target = [-face.get("x", 0) * 0.75, face.get("y", 0) * 0.35]
-            self.next_saccade = t + 1.5  # resume wandering 1.5 s after the face disappears
-        elif t >= self.next_saccade:
-            import random
-            if st in ("ecoute", "reponse"):  # attending the person: look at them, tiny drift only
-                self.gaze_target = [random.uniform(-0.12, 0.12), random.uniform(-0.06, 0.06)]
-            else:
-                self.gaze_target = [random.uniform(-0.6, 0.6), random.uniform(-0.25, 0.2)]
-            self.next_saccade = t + random.uniform(2.0, 5.0)
-        for i in (0, 1):  # quick but smooth eye movement
-            self.gaze[i] += (self.gaze_target[i] - self.gaze[i]) * 0.18
-        self.look = self.gaze[0]
+        self.eye_open += ((0.07 if cfg.get("closed") else 1.0) - self.eye_open) * 0.15
+        blink = 0.12 if (t % (5.0 if st == "veille" else 3.8)) < 0.13 else 1.0
+        self._update_gaze(st, t)
         speaking = st == "reponse" or self.s.get("speaking")
         target_m = min(1.0, self.s.get("out_level", 0) * 1.6) if speaking else 0.0
         self.mouth += (target_m - self.mouth) * 0.35
 
-        ew, eh_full = 2.1 * u * cfg["scale"], 2.6 * u * cfg["scale"]
+        ew, eh_full = 2.2 * u, 1.45 * u  # wide eyes, constant size
         for side in (-1, 1):
-            ex = cx + side * 2.3 * u + self.look * u
+            ex = cx + side * 2.3 * u
             if cfg["happy"]:
-                self._happy_eye(p, ex, cy, u * cfg["scale"])
+                self._happy_eye(p, ex, cy, u)
             else:
-                tilt = 0.85 if (st == "relance" and side > 0) else 1.0  # curious look when prompting
-                eh = max(eh_full * self.eye_h * blink * tilt, 0.18 * u)
-                ey = cy + self.gaze[1] * u
-                self._glow_rect(p, QRectF(ex - ew / 2, ey - eh / 2, ew, eh), min(ew, eh) * 0.42)
-            p.setBrush(CHEEK)
-            p.drawEllipse(QPointF(cx + side * 3.5 * u, cy + 2.15 * u), 0.75 * u, 0.42 * u)
+                eh = max(eh_full * self.eye_open * blink, 0.18 * u)
+                rect = QRectF(ex - ew / 2, cy - eh / 2, ew, eh)
+                self._eye(p, rect, min(ew, eh) * 0.42, u, with_pupil=not cfg.get("closed"))
+            cheek = QPainterPath(); cheek.addEllipse(QPointF(cx + side * 3.5 * u, cy + 2.15 * u), 0.62 * u, 0.36 * u)
+            self._glow(p, cheek, CHEEK, u)
 
         my = cy + 2.5 * u
-        if self.mouth > 0.06:  # talking: rounded capsule opening with the sound
+        if self.mouth > 0.06:  # talking: capsule opening with the sound actually played
             mh = 0.25 * u + self.mouth * 0.9 * u
-            p.setBrush(EYE)
-            p.drawRoundedRect(QRectF(cx - 0.8 * u, my - mh / 2, 1.6 * u, mh), mh / 2, mh / 2)
-        else:  # resting: small smile
+            cap = QPainterPath(); cap.addRoundedRect(QRectF(cx - 0.8 * u, my - mh / 2, 1.6 * u, mh), mh / 2, mh / 2)
+            self._glow(p, cap, EYE, u)
+        else:  # resting smile
             sm = cfg["smile"] * 0.45 * u
-            path = QPainterPath(QPointF(cx - 0.75 * u, my))
-            path.quadTo(QPointF(cx, my + sm), QPointF(cx + 0.75 * u, my))
-            p.setPen(QPen(EYE, 0.22 * u, Qt.SolidLine, Qt.RoundCap))
-            p.setBrush(Qt.NoBrush)
-            p.drawPath(path)
-            p.setPen(Qt.NoPen)
+            line = QPainterPath(QPointF(cx - 0.75 * u, my))
+            line.quadTo(QPointF(cx, my + sm), QPointF(cx + 0.75 * u, my))
+            self._glow(p, self._stroke(line, 0.22 * u), EYE, u)
 
         if st == "ecoute":  # three dots pulsing with the microphone level
             lvl = min(1.0, self.s.get("mic_level", 0) * 2)
             for i in (-1, 0, 1):
-                r = 0.12 * u + 0.12 * u * abs(math.sin(t * 4 + i)) + lvl * 0.15 * u
-                c = QColor(EYE); c.setAlpha(150)
-                p.setBrush(c)
-                p.drawEllipse(QPointF(cx + i * 0.85 * u, my + 1.1 * u), r, r)
+                r = 0.10 * u + 0.08 * u * abs(math.sin(t * 4 + i)) + lvl * 0.10 * u
+                dot = QPainterPath(); dot.addEllipse(QPointF(cx + i * 0.85 * u, my + 1.1 * u), r, r)
+                self._glow(p, dot, EYE, u * 0.6)
 
         if self.s.get("muted"):  # discreet indicator so a silent robot is not mistaken for a broken one
             p.setPen(QColor(255, 255, 255, 120)); p.setFont(QFont("Sans", max(10, int(h * 0.025))))
