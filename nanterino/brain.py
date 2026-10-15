@@ -50,6 +50,7 @@ class Brain:
         self.gen = 0        # bumped on every cancellation; threads compare with their own copy
         self._busy = False  # an utterance is being transcribed
         self.turns = 0      # exchanges in the current conversation (MAX_TURNS guard)
+        self.deaf = bool(cfg.get("deaf", False))  # "Sourd": microphone forced off (tests), persisted
         self.mic = AudioIn(self._on_utterance, self._on_speech_start,
                            device=find_device(cfg["mic_device"], "input"),
                            silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"])
@@ -62,7 +63,20 @@ class Brain:
     def snapshot(self) -> dict:
         return {"state": self.state, "subtitle": self.subtitle, "mic_on": self.mic.active,
                 "mic_level": round(self.mic.level, 3), "out_level": round(self.out.level, 3),
-                "speaking": self.out.busy, "muted": self.out.muted, "latencies_ms": list(self.latencies)}
+                "speaking": self.out.busy, "muted": self.out.muted, "deaf": self.deaf, "latencies_ms": list(self.latencies)}
+
+    def set_deaf(self, deaf: bool):
+        self.deaf = deaf
+        if deaf:
+            self.mic.stop()
+        elif self.state in (VEILLE, ECOUTE) or (self.state == RELANCE and not self.out.busy):
+            self.mic.start()
+        log.info("deaf=%s", deaf)
+
+    def _mic_on(self):
+        """Every mic opening goes through here so the deaf mode can never be bypassed."""
+        if not self.deaf:
+            self.mic.start()
 
     # ------------------------------------------------------------------ cancellation
     def _cancel_all(self):
@@ -107,7 +121,7 @@ class Brain:
         cfg = self.cfg
         if state == VEILLE:
             self.history.clear(); self.turns = 0; self.subtitle = ""
-            self.mic.start()  # listens only for the call word while idle
+            self._mic_on()  # listens only for the call word while idle
         elif state == ETEINT:
             self.history.clear(); self.turns = 0; self.subtitle = ""
             self.mic.stop()   # really off: nothing captured, nothing said
@@ -117,7 +131,7 @@ class Brain:
         elif state == ECOUTE:
             self.subtitle = "Je vous écoute"
             self.last_speech = time.monotonic()
-            self.mic.start()
+            self._mic_on()
         elif state == RELANCE:
             self.mic.stop()
             self._speak_then(cfg["relance"], "relance_done")
@@ -191,7 +205,7 @@ class Brain:
             self._go(ECOUTE, "greeting_done")
         elif kind == "relance_done" and s == RELANCE:
             self.last_speech = time.monotonic()
-            self.mic.start()  # 15 s window for an answer
+            self._mic_on()  # 15 s window for an answer
         elif kind == "goodbye_done" and s == CLOTURE:
             time.sleep(self.cfg["cloture_to_veille_s"])
             if self.state == CLOTURE:

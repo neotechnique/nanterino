@@ -16,7 +16,7 @@ PY = "/opt/robot/nanterino/.venv/bin/python"
 ROOT = "/opt/robot/nanterino"
 
 ACTIONS = [
-    ("🙂  Visage (plein écran)", [PY, "-m", "nanterino_ui.app"]),
+    ("🙂  Visage (F11 = plein écran)", [PY, "-m", "nanterino_ui.app"]),
     ("📊  Tableau technique", [PY, "-m", "nanterino_ui.app", "--dash"]),
     ("🔄  Redémarrer Nanterino", ["gnome-terminal", "--", "bash", "-c",
                                  "systemctl --user restart nanterino-stt nanterino-llm nanterino; sleep 15; "

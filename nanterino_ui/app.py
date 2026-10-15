@@ -2,11 +2,13 @@
 
 logging: robotlog -> /var/log/robot/nanterino-ui.log (actions and errors only, never dialogue text).
 
+Options: --dash (start on the dashboard), --kiosk (full screen face for the robot screen).
 Keys: Tab = switch face / dashboard · F11 = toggle full screen · Esc = leave full screen.
 A click on the face starts a conversation (same as the "Démarrer" button).
 Data: /api/live polled at 10 Hz (state, subtitle, audio levels), /api/status every 2 s.
 """
 import json
+import os
 import sys
 import time
 
@@ -82,7 +84,9 @@ class Dashboard(QWidget):
         self.power = QPushButton("⏻ Éteindre"); self.power.setStyleSheet("padding:10px;font-weight:700")
         self.power.clicked.connect(lambda: self.api.post({"action": "on" if self._off else "off"}))
         self._off = False
-        row2.addWidget(hush); row2.addWidget(self.mute); row2.addWidget(self.power)
+        self.deaf = QPushButton("🙉 Sourd : non"); self.deaf.setCheckable(True); self.deaf.setStyleSheet("padding:10px;font-weight:700")
+        self.deaf.clicked.connect(lambda checked: self.api.post({"action": "deaf", "value": checked}))
+        row2.addWidget(hush); row2.addWidget(self.mute); row2.addWidget(self.deaf); row2.addWidget(self.power)
         self.ask = QLineEdit(placeholderText="Poser une question (test sans micro) puis Entrée")
         self.ask.returnPressed.connect(lambda: self._send("ask", self.ask))
         self.say = QLineEdit(placeholderText="Faire parler le robot puis Entrée")
@@ -135,6 +139,7 @@ class Dashboard(QWidget):
         self._off = s.get("state") == "eteint"
         self.power.setText("⏻ Allumer" if self._off else "⏻ Éteindre")
         self.sub.setText(s.get("subtitle", ""))
+        self.deaf.setChecked(bool(s.get("deaf"))); self.deaf.setText("🙉 Sourd : " + ("oui" if s.get("deaf") else "non"))
         self.mute.setChecked(bool(s.get("muted"))); self.mute.setText("🔇 Muet : " + ("oui" if s.get("muted") else "non"))
         self.mic.setValue(int(min(1, s.get("mic_level", 0)) * 100))
         self.out.setValue(int(min(1, s.get("out_level", 0)) * 100))
@@ -201,12 +206,18 @@ class Main(QMainWindow):
 
 
 def main():
+    kiosk = "--kiosk" in sys.argv
+    if not kiosk:
+        # Normal window: use XWayland so GNOME draws real title bars (move / resize / minimise).
+        # Qt's own Wayland decorations were hard to use (user, 2026-10-15). Kiosk keeps Wayland.
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     app = QApplication(sys.argv)
     win = Main(start_dash="--dash" in sys.argv)
-    if "--windowed" in sys.argv or "--dash" in sys.argv:
-        win.resize(1100, 760); win.show()
+    win.setMinimumSize(480, 320)
+    if kiosk:
+        win.showFullScreen()  # robot screen: full screen face (F11 / Échap still work)
     else:
-        win.showFullScreen()
+        win.resize(1100, 760); win.show()
     log.info("ui started mode=%s", "dash" if "--dash" in sys.argv else "face")
     sys.exit(app.exec())
 

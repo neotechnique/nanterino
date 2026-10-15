@@ -160,9 +160,10 @@ class FaceWidget(QWidget):
                 dot = QPainterPath(); dot.addEllipse(QPointF(cx + i * 0.85 * u, my + 1.1 * u), r, r)
                 self._glow(p, dot, EYE, u * 0.6)
 
-        if self.s.get("muted"):  # discreet indicator so a silent robot is not mistaken for a broken one
+        flags = [txt for key, txt in (("muted", "🔇 muet"), ("deaf", "🙉 sourd")) if self.s.get(key)]
+        if flags:  # discreet indicators so a silent/deaf robot is not mistaken for a broken one
             p.setPen(QColor(255, 255, 255, 120)); p.setFont(QFont("Sans", max(10, int(h * 0.025))))
-            p.drawText(QRectF(0, 8, w - 16, h * 0.05), Qt.AlignRight, "🔇 muet")
+            p.drawText(QRectF(0, 8, w - 16, h * 0.05), Qt.AlignRight, "   ".join(flags))
 
         p.setPen(TEXT)
         p.setFont(QFont("Sans", max(12, int(h * 0.042))))

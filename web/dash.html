@@ -27,6 +27,7 @@
       <button class="stop" onclick="ctl('stop')">Stop</button>
       <button onclick="ctl('hush')">🤫 Tais-toi</button>
       <button id="powerbtn" onclick="ctl(window._off?'on':'off')">⏻ Éteindre</button>
+      <button id="deafbtn" onclick="ctl('deaf')">🙉 Sourd : non</button>
       <button id="mutebtn" onclick="ctl('mute')">🔇 Muet : non</button></div>
     <p style="margin:12px 0 4px">Poser une question (test sans micro)</p>
     <input id="ask" placeholder="Où trouver un parc près d'ici ?" onkeydown="if(event.key==='Enter'){ctl('ask',{text:this.value});this.value=''}">
@@ -56,7 +57,7 @@ const $ = id => document.getElementById(id);
 function ctl(action, extra={}){ return fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,...extra})}).then(r=>r.json()).then(j=>{ if(j.note) alert(j.note); }); }
 function live(){ const ws=new WebSocket(`ws://${location.host}/ws`);
   ws.onmessage=m=>{ const s=JSON.parse(m.data); $('state').textContent=s.state; $('sub').textContent=s.subtitle||'';
-    $('mic').textContent=s.mic_on?'actif':'coupé'; window._off=s.state==='eteint'; $('powerbtn').textContent=window._off?'⏻ Allumer':'⏻ Éteindre'; $('mutebtn').textContent='🔇 Muet : '+(s.muted?'oui':'non'); $('micbar').style.width=Math.min(100,s.mic_level*100)+'%';
+    $('mic').textContent=s.mic_on?'actif':'coupé'; window._off=s.state==='eteint'; $('powerbtn').textContent=window._off?'⏻ Allumer':'⏻ Éteindre'; $('deafbtn').textContent='🙉 Sourd : '+(s.deaf?'oui':'non'); $('mutebtn').textContent='🔇 Muet : '+(s.muted?'oui':'non'); $('micbar').style.width=Math.min(100,s.mic_level*100)+'%';
     $('spk').textContent=s.speaking?'parle':'silence'; $('outbar').style.width=Math.min(100,s.out_level*100)+'%';
     const l=s.latencies_ms; $('lat').textContent = l.length ? `dernière ${l.at(-1)} ms · moyenne ${Math.round(l.reduce((a,b)=>a+b,0)/l.length)} ms · max ${Math.max(...l)} ms (${l.length} échanges)` : 'aucun échange mesuré'; };
   ws.onclose=()=>setTimeout(live,1000); }

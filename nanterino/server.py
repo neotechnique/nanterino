@@ -140,6 +140,10 @@ async def control(body: dict):
         out.play(tone, tts.rate)
     elif action == "preroll":  # {"ms": 300, "db": -45}
         speakers.update(preroll_ms=int(body.get("ms", 300)), preroll_db=float(body.get("db", -45)))
+    elif action == "deaf":  # value true/false; default toggles. Persisted like mute.
+        v = body.get("value")
+        brain.set_deaf((not brain.deaf) if v is None else bool(v))
+        config.save_overrides({"deaf": brain.deaf})
     elif action == "auto_greet":  # value true/false
         cfg["auto_greet_on_face"] = bool(body.get("value", True))
         config.save_overrides({"auto_greet_on_face": cfg["auto_greet_on_face"]})
