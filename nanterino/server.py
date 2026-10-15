@@ -31,6 +31,7 @@ out = AudioOut(find_device(cfg["out_device"], "output"), rate=tts.rate, volume=c
                keepalive_noise_db=cfg["keepalive_noise_db"])
 out.start()
 speakers = SpeakerProfiles(cfg, out, config.save_overrides)
+out.muted = bool(cfg.get("muted", False))  # mute state is persisted like power
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"]), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)
 vision = Vision()
@@ -119,6 +120,7 @@ async def control(body: dict):
     elif action == "mute":  # value true/false; default toggles
         v = body.get("value")
         out.muted = (not out.muted) if v is None else bool(v)
+        config.save_overrides({"muted": out.muted})  # survives restarts (user: "laisse en muet")
         if out.muted:
             out.stop()
     elif action == "ask" and body.get("text"):
