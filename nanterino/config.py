@@ -29,6 +29,8 @@ DEFAULTS = {
     "speaker_profiles": {},
     # "off" = Éteint (mic closed, silent) and kept off across restarts; set from the UI.
     "power": "on",
+    # F01: a face within 3 m starts the greeting automatically (off while developing).
+    "auto_greet_on_face": False,
     # Dialogue timings (seconds) from §2 and D10.
     "silence_relance_s": 8,
     "silence_cloture_s": 15,

@@ -20,6 +20,7 @@ from .corpus import Corpus
 from .engines import LLM, STT, TTS
 from .log import log
 from .metrics import Metrics
+from .vision import Vision
 
 cfg = config.load()
 WEB = os.path.join(config.ROOT, "web")
@@ -32,6 +33,10 @@ out.start()
 speakers = SpeakerProfiles(cfg, out, config.save_overrides)
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"]), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)
+vision = Vision()
+# F01 auto-greeting (face within 3 m wakes the robot) stays opt-in during development.
+if cfg.get("auto_greet_on_face"):
+    vision.on_face = lambda dist: brain.post("visage")
 app = FastAPI(title="Nanterino")
 
 
@@ -75,7 +80,7 @@ def engines() -> dict:
 @app.get("/api/live")
 def live():
     """Cheap 10 Hz snapshot for the native UI (no engine health probes)."""
-    return brain.snapshot()
+    return {**brain.snapshot(), "face": vision.state}
 
 
 @app.get("/api/devices")

@@ -85,7 +85,13 @@ class FaceWidget(QWidget):
         self.eye_h += (target_h - self.eye_h) * 0.15
         period = 5.0 if st == "veille" else 3.8
         blink = 0.12 if (t % period) < 0.13 else 1.0
-        if t >= self.next_saccade:
+        face = self.s.get("face") or {}
+        if face.get("present"):
+            # Look AT the person: camera image x is mirrored for someone facing the screen
+            # (a person on the screen side of the viewer appears on the opposite image side).
+            self.gaze_target = [-face.get("x", 0) * 0.75, face.get("y", 0) * 0.35]
+            self.next_saccade = t + 1.5  # resume wandering 1.5 s after the face disappears
+        elif t >= self.next_saccade:
             import random
             if st in ("ecoute", "reponse"):  # attending the person: look at them, tiny drift only
                 self.gaze_target = [random.uniform(-0.12, 0.12), random.uniform(-0.06, 0.06)]
