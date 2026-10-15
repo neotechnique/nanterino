@@ -54,6 +54,7 @@ class AudioOut:
         self._lock = threading.Lock()
         self.level = 0.0
         self.stream = None
+        self.muted = False  # "Muet": audio keeps flowing (state machine unchanged) but nothing is heard
         # Remote monitor (Pi "casque PC" equivalent): last clips as WAV bytes, RAM only, never on disk.
         self.monitor = collections.deque(maxlen=10)
         self._clip_ids = itertools.count(1)
@@ -88,6 +89,8 @@ class AudioOut:
             block = np.zeros(frames, dtype=np.float32)
             block[:n] = self._buf[:n] * self.volume
             self._buf = self._buf[n:]
+        if self.muted:
+            block[:] = 0.0
         if self.noise_amp and n < frames:  # fill only the idle part, never on top of speech
             block[n:] = np.random.uniform(-self.noise_amp, self.noise_amp, frames - n).astype(np.float32)
         outdata[:, 0] = block

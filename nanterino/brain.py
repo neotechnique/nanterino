@@ -40,7 +40,7 @@ class Brain:
     def snapshot(self) -> dict:
         return {"state": self.state, "subtitle": self.subtitle, "mic_on": self.mic.active,
                 "mic_level": round(self.mic.level, 3), "out_level": round(self.out.level, 3),
-                "speaking": self.out.busy, "latencies_ms": list(self.latencies)}
+                "speaking": self.out.busy, "muted": self.out.muted, "latencies_ms": list(self.latencies)}
 
     # ------------------------------------------------------------------ audio callbacks
     def _on_speech_start(self):
@@ -145,6 +145,10 @@ class Brain:
             self._go(VEILLE, "cloture_done")
         elif kind == "answer_done" and s == REPONSE:
             self._go(ECOUTE, "answer_done")
+        elif kind == "hush":  # "Tais-toi": stop the current sentence; keep the conversation going
+            self._cancel.set(); self.out.stop()
+            if s == REPONSE:
+                self._go(ECOUTE, "hush")
         elif kind == "barge_in" and s == REPONSE:
             self._cancel.set(); self.out.stop()
             self._go(ECOUTE, "barge_in")

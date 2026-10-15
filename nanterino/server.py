@@ -107,8 +107,13 @@ def monitor_clip(cid: int):
 async def control(body: dict):
     action = body.get("action")
     log.info("ui action=%s", action)  # the action name only, never typed text
-    if action in ("start", "stop"):
+    if action in ("start", "stop", "hush"):
         brain.post(action, source="ui")
+    elif action == "mute":  # value true/false; default toggles
+        v = body.get("value")
+        out.muted = (not out.muted) if v is None else bool(v)
+        if out.muted:
+            out.stop()
     elif action == "ask" and body.get("text"):
         brain.post("ask", text=body["text"])
     elif action == "say" and body.get("text"):
