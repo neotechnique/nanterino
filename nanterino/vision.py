@@ -17,6 +17,7 @@ import numpy as np
 from .log import log
 
 MODEL = "/opt/robot/nanterino/models/vision/face_detection_yunet_2023mar.onnx"
+TRT_ENGINE = "/opt/robot/nanterino/models/vision/yunet_640_fp16.engine"  # GPU path (build-yunet-trt)
 W, H, FPS = 640, 480, 15  # 15 fps is plenty for gaze following; 30 fps cost ~1.75 CPU cores
 DETECT_W = 320          # detection runs on a half-size image: ~4x cheaper, enough at 3 m
 LOST_AFTER_S = 0.6      # keep the last position briefly so the eyes do not jump on a missed frame
@@ -58,16 +59,25 @@ class Vision:
         scale = prof.get_device().first_depth_sensor().get_depth_scale()
         align = rs.align(rs.stream.color)
         dh = int(H * DETECT_W / W)
-        det = cv2.FaceDetectorYN.create(MODEL, "", (DETECT_W, dh), score_threshold=0.75)
-        k = W / DETECT_W
-        log.info("vision started camera=RealSense %dx%d@%d detect_w=%d", W, H, FPS, DETECT_W)
+        # GPU first (TensorRT, full resolution, ~8% CPU); CPU OpenCV at half resolution as fallback.
+        try:
+            from .yunet_trt import YuNetTRT
+            gpu = YuNetTRT(TRT_ENGINE)
+            detect, k, backend = gpu.detect, 1.0, "tensorrt-gpu"
+        except Exception as e:
+            log.warning("tensorrt detector unavailable (%s): using CPU fallback", e)
+            det = cv2.FaceDetectorYN.create(MODEL, "", (DETECT_W, dh), score_threshold=0.75)
+            detect = lambda img: det.detect(cv2.resize(img, (DETECT_W, dh)))[1]  # noqa: E731
+            k, backend = W / DETECT_W, "opencv-cpu"
+        self.state["backend"] = backend
+        log.info("vision started camera=RealSense %dx%d@%d backend=%s", W, H, FPS, backend)
         frames, t_fps = 0, time.monotonic()
         try:
             while True:
                 fs = align.process(pipe.wait_for_frames(5000))
                 color = np.asanyarray(fs.get_color_frame().get_data())
                 depth = np.asanyarray(fs.get_depth_frame().get_data())
-                _, faces = det.detect(cv2.resize(color, (DETECT_W, dh)))
+                faces = detect(color)
                 self._update(faces, depth, scale, k)
                 del color, depth  # nothing kept beyond this frame
                 frames += 1
