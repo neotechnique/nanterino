@@ -26,7 +26,8 @@ WEB = os.path.join(config.ROOT, "web")
 NETS = [ipaddress.ip_network(n) for n in cfg["allowed_nets"]]
 
 tts = TTS(cfg["tts_voice"])
-out = AudioOut(find_device(cfg["out_device"], "output"), rate=tts.rate, volume=cfg["volume"])
+out = AudioOut(find_device(cfg["out_device"], "output"), rate=tts.rate, volume=cfg["volume"],
+               keepalive_noise_db=cfg["keepalive_noise_db"])
 out.start()
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"]), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)

@@ -13,10 +13,14 @@ DEFAULTS = {
     "llm_url": "http://127.0.0.1:8179/v1/chat/completions",
     "tts_voice": f"{ROOT}/models/piper/fr_FR-siwis-medium.onnx",
     "fiches_dir": f"{ROOT}/fiches",
-    # Audio devices: None = PipeWire default. Names are matched as substrings.
-    "mic_device": None,
-    "out_device": None,
+    # Audio devices, matched as substrings of PortAudio names. "pipewire" routes through PipeWire,
+    # whose default sink/source are chosen with wpctl (PortAudio's own default is the first raw ALSA
+    # card, which bypasses PipeWire and grabbed the Trust mic's headphone jack on 2026-10-15).
+    "mic_device": "pipewire",
+    "out_device": "pipewire",
     "volume": 0.8,
+    # Set to e.g. -70 if speaker-sleep-test shows the speaker sleeps despite digital silence.
+    "keepalive_noise_db": None,
     # Dialogue timings (seconds) from §2 and D10.
     "silence_relance_s": 8,
     "silence_cloture_s": 15,

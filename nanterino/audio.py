@@ -45,8 +45,10 @@ def find_device(name: str | None, kind: str):
 class AudioOut:
     """Persistent, interruptible player. `level` drives the mouth animation."""
 
-    def __init__(self, device=None, rate: int = 22050, volume: float = 0.8):
+    def __init__(self, device=None, rate: int = 22050, volume: float = 0.8, keepalive_noise_db=None):
         self.device, self.rate, self.volume = device, rate, volume
+        # None = digital silence when idle; e.g. -70 = inaudible noise that keeps signal-sensing amps awake.
+        self.noise_amp = 10 ** (keepalive_noise_db / 20) if keepalive_noise_db is not None else 0.0
         self._chunks: queue.Queue = queue.Queue()
         self._buf = np.zeros(0, dtype=np.float32)
         self._lock = threading.Lock()
@@ -58,8 +60,16 @@ class AudioOut:
 
     def start(self):
         self.close()
-        self.stream = sd.OutputStream(samplerate=self.rate, channels=1, dtype="float32",
-                                      device=self.device, blocksize=1024, callback=self._callback)
+        try:
+            self.stream = sd.OutputStream(samplerate=self.rate, channels=1, dtype="float32",
+                                          device=self.device, blocksize=1024, callback=self._callback)
+        except sd.PortAudioError:
+            # Raw USB DACs often accept only 44.1/48 kHz: use the device rate, play() resamples.
+            fallback = int(sd.query_devices(self.device, "output")["default_samplerate"])
+            log.warning("audio out rate %s refused, falling back to %s", self.rate, fallback)
+            self.rate = fallback
+            self.stream = sd.OutputStream(samplerate=self.rate, channels=1, dtype="float32",
+                                          device=self.device, blocksize=1024, callback=self._callback)
         self.stream.start()
         log.info("audio out open device=%s rate=%s", self.device, self.rate)
 
@@ -78,6 +88,8 @@ class AudioOut:
             block = np.zeros(frames, dtype=np.float32)
             block[:n] = self._buf[:n] * self.volume
             self._buf = self._buf[n:]
+        if self.noise_amp and n < frames:  # fill only the idle part, never on top of speech
+            block[n:] = np.random.uniform(-self.noise_amp, self.noise_amp, frames - n).astype(np.float32)
         outdata[:, 0] = block
         self.level = float(np.abs(block).mean()) * 8 if n else 0.0
 

@@ -1,0 +1,55 @@
+{
+  "utc": "2026-10-14T21:01:47Z",
+  "out": null,
+  "mic": null,
+  "results": {
+    "off": [
+      {
+        "idle_s": 0,
+        "heard": false
+      },
+      {
+        "idle_s": 1.0,
+        "heard": false,
+        "verdict": "?"
+      },
+      {
+        "idle_s": 2.0,
+        "heard": false,
+        "verdict": "?"
+      }
+    ],
+    "silence": [
+      {
+        "idle_s": 0,
+        "heard": false
+      },
+      {
+        "idle_s": 1.0,
+        "heard": false,
+        "verdict": "?"
+      },
+      {
+        "idle_s": 2.0,
+        "heard": false,
+        "verdict": "?"
+      }
+    ],
+    "noise": [
+      {
+        "idle_s": 0,
+        "heard": false
+      },
+      {
+        "idle_s": 1.0,
+        "heard": false,
+        "verdict": "?"
+      },
+      {
+        "idle_s": 2.0,
+        "heard": false,
+        "verdict": "?"
+      }
+    ]
+  }
+}
