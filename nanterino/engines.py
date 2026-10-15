@@ -89,11 +89,27 @@ class TTS:
         t0 = time.monotonic()
         self.voice = PiperVoice.load(voice_path)
         self.rate = self.voice.config.sample_rate
-        log.info("tts voice loaded rate=%s took_ms=%d", self.rate, (time.monotonic() - t0) * 1000)
+        # GPU path (CPU front + TensorRT vocoder, ~5x faster, parity corr >= 0.999); CPU fallback.
+        self.gpu = None
+        try:
+            from .tts_trt import PiperTRT
+            self.gpu = PiperTRT(self.voice)
+        except Exception as e:
+            log.warning("piper gpu unavailable (%s): CPU voice", e)
+        self.backend = "tensorrt-gpu" if self.gpu else "onnx-cpu"
+        log.info("tts voice loaded rate=%s backend=%s took_ms=%d", self.rate, self.backend, (time.monotonic() - t0) * 1000)
         self.synth("Bonjour.")  # warm-up: the first ONNX run is ~2x slower than the next ones
 
     def synth(self, text: str) -> np.ndarray:
         t0 = time.monotonic()
+        if self.gpu is not None:
+            try:
+                pcm = self.gpu.synth(text)
+                log.info("tts done backend=gpu chars=%d audio_s=%.1f took_ms=%d", len(text), len(pcm) / self.rate,
+                         (time.monotonic() - t0) * 1000)
+                return pcm
+            except Exception as e:  # e.g. very long sentence beyond the engine profile
+                log.warning("piper gpu failed (%s): CPU for this sentence", e)
         if hasattr(self.voice, "synthesize") and not hasattr(self.voice, "synthesize_stream_raw"):
             # piper-tts >= 1.3: iterable of AudioChunk
             pcm = np.concatenate([c.audio_int16_array for c in self.voice.synthesize(text)])
