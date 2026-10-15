@@ -93,6 +93,8 @@ class AudioOut:
         outdata[:, 0] = block
         self.level = float(np.abs(block).mean()) * 8 if n else 0.0
 
+    preroll_ms, preroll_db = 0, -45.0  # set from the speaker profile
+
     def set_keepalive_db(self, db):
         """Live change (no restart). None = digital silence; e.g. -70 = inaudible noise."""
         self.noise_amp = 10 ** (db / 20) if db is not None else 0.0
@@ -107,6 +109,13 @@ class AudioOut:
         if rate != self.rate and len(x):
             t = np.linspace(0, len(x), int(len(x) * self.rate / rate), endpoint=False)
             x = np.interp(t, np.arange(len(x)), x).astype(np.float32)
+        if not self.busy and self.preroll_ms:
+            # Wake-up pre-roll: rising low noise so signal-gated amps open BEFORE the first syllable.
+            # Divided by volume because the callback multiplies everything queued by self.volume.
+            n = int(self.rate * self.preroll_ms / 1000)
+            amp = 10 ** (self.preroll_db / 20) / max(self.volume, 0.05)
+            pre = np.random.uniform(-1, 1, n).astype(np.float32) * np.linspace(0.2, 1, n, dtype=np.float32) * amp
+            x = np.concatenate([pre, x])
         self._chunks.put(x)
 
     def stop(self):
@@ -225,6 +234,7 @@ class SpeakerProfiles:
     def profile(self, sink=None) -> dict:
         sink = sink or self.current
         return {"keepalive_noise_db": self.cfg["keepalive_noise_db"], "volume": self.cfg["volume"],
+                "preroll_ms": self.cfg["preroll_ms"], "preroll_db": self.cfg["preroll_db"],
                 **self.cfg.get("speaker_profiles", {}).get(sink or "", {})}
 
     def update(self, **changes):
@@ -239,8 +249,9 @@ class SpeakerProfiles:
     def _apply(self):
         p = self.profile()
         self.out.set_keepalive_db(p["keepalive_noise_db"])
+        self.out.preroll_ms, self.out.preroll_db = p["preroll_ms"], p["preroll_db"]
         self.out.volume = p["volume"]
-        log.info("speaker profile applied sink=%s keepalive_db=%s volume=%s", self.current, p["keepalive_noise_db"], p["volume"])
+        log.info("speaker profile applied sink=%s keepalive_db=%s preroll_ms=%s preroll_db=%s volume=%s", self.current, p["keepalive_noise_db"], p["preroll_ms"], p["preroll_db"], p["volume"])
 
     def _watch(self):
         while True:

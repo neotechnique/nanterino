@@ -22,6 +22,9 @@ DEFAULTS = {
     # Default keep-alive for an uncalibrated speaker: inaudible noise. Many USB amps (e.g. Jieli
     # UACDemo, 2026-10-15) mute on digital silence and clip the first syllable. None = pure silence.
     "keepalive_noise_db": -70,
+    # Wake-up pre-roll before speech after silence (ms of rising noise, peak level in dBFS).
+    "preroll_ms": 300,
+    "preroll_db": -45,
     # Per-speaker overrides keyed by PipeWire node.name (written by the dashboard / calibration).
     "speaker_profiles": {},
     # Dialogue timings (seconds) from §2 and D10.

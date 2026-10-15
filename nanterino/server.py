@@ -112,6 +112,8 @@ async def control(body: dict):
     elif action == "keepalive_db":  # "off" = pure digital silence
         v = body.get("value")
         speakers.update(keepalive_noise_db=None if v in (None, "", "off") else float(v))
+    elif action == "preroll":  # {"ms": 300, "db": -45}
+        speakers.update(preroll_ms=int(body.get("ms", 300)), preroll_db=float(body.get("db", -45)))
     elif action == "reload_corpus":
         corpus.reload()
     elif action in ("mic_device", "out_device"):
