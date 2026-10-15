@@ -27,6 +27,8 @@ DEFAULTS = {
     "preroll_db": -45,
     # Per-speaker overrides keyed by PipeWire node.name (written by the dashboard / calibration).
     "speaker_profiles": {},
+    # "off" = Éteint (mic closed, silent) and kept off across restarts; set from the UI.
+    "power": "on",
     # Dialogue timings (seconds) from §2 and D10.
     "silence_relance_s": 8,
     "silence_cloture_s": 15,

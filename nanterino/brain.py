@@ -3,9 +3,15 @@
 logging: robotlog via nanterino.log. Only states, transitions and latencies are logged.
 Conversation history lives in RAM and is wiped at every Clôture (no memory between people).
 
-States: veille -> accueil -> ecoute <-> reponse ; ecoute -> relance -> (ecoute | cloture) -> veille.
+States: veille -> accueil -> ecoute <-> reponse ; ecoute -> relance -> (ecoute | cloture) -> veille,
+plus "eteint" (OFF): mic closed, no listening, no speech, until "start"/"on".
 Exits from veille: UI "start" (button / face tap), the word "Nanterino" heard while in veille
 (STT-based stand-in until the openWakeWord model of step 9), or `visage` events (step 6).
+
+Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
+was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
+again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
+running answers missed it and kept talking after "Stop".)
 """
 import collections
 import queue
@@ -15,7 +21,22 @@ import time
 from .audio import AudioIn, find_device
 from .log import log
 
-VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE = "veille", "accueil", "ecoute", "reponse", "relance", "cloture"
+VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
+    "veille", "accueil", "ecoute", "reponse", "relance", "cloture", "eteint")
+
+# Typical Whisper hallucinations on noise/silence (French YouTube-subtitle artefacts).
+PHANTOMS = ("sous-titres", "sous titres", "merci d'avoir regardé", "abonnez-vous", "amara.org",
+            "merci de votre attention", "♪", "[musique]", "(musique)")
+MAX_TURNS = 12  # safety net: a conversation never loops forever
+
+
+def is_phantom(text: str, keep_words=()) -> bool:
+    low = text.lower().strip(" .!?…")
+    if any(p in low for p in PHANTOMS) or not any(c.isalpha() for c in low):
+        return True
+    if len(low.split()) < 2 and low not in keep_words:  # single words are noise unless "stop"/"oui"...
+        return True
+    return False
 
 
 class Brain:
@@ -26,8 +47,9 @@ class Brain:
         self.history: list[dict] = []
         self.latencies = collections.deque(maxlen=20)  # ms, end of user speech -> first sound
         self.events: queue.Queue = queue.Queue()
-        self._cancel = threading.Event()
-        self._busy = False  # an utterance is being processed
+        self.gen = 0        # bumped on every cancellation; threads compare with their own copy
+        self._busy = False  # an utterance is being transcribed
+        self.turns = 0      # exchanges in the current conversation (MAX_TURNS guard)
         self.mic = AudioIn(self._on_utterance, self._on_speech_start,
                            device=find_device(cfg["mic_device"], "input"),
                            silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"])
@@ -42,6 +64,15 @@ class Brain:
                 "mic_level": round(self.mic.level, 3), "out_level": round(self.out.level, 3),
                 "speaking": self.out.busy, "muted": self.out.muted, "latencies_ms": list(self.latencies)}
 
+    # ------------------------------------------------------------------ cancellation
+    def _cancel_all(self):
+        """Silence now and invalidate every running speak/answer thread."""
+        self.gen += 1
+        self.out.stop()
+
+    def _alive(self, gen: int) -> bool:
+        return gen == self.gen
+
     # ------------------------------------------------------------------ audio callbacks
     def _on_speech_start(self):
         self.last_speech = time.monotonic()
@@ -49,7 +80,7 @@ class Brain:
             self.post("barge_in")
 
     def _on_utterance(self, pcm, t_end):
-        if self._busy:
+        if self._busy or self.state == ETEINT:
             return
         self._busy = True
         try:
@@ -60,6 +91,9 @@ class Brain:
         finally:
             self._busy = False
         self.last_speech = time.monotonic()
+        if text and is_phantom(text, keep_words=set(self.cfg["refusal_words"]) | {"nanterino", "oui", "non"}):
+            log.info("utterance rejected reason=phantom words=%d", len(text.split()))  # never the text itself
+            return
         if text:
             self.post("utterance", text=text, t_end=t_end)
 
@@ -72,9 +106,11 @@ class Brain:
     def _enter(self, state: str):
         cfg = self.cfg
         if state == VEILLE:
-            self.history.clear()
-            self.subtitle = ""
+            self.history.clear(); self.turns = 0; self.subtitle = ""
             self.mic.start()  # listens only for the call word while idle
+        elif state == ETEINT:
+            self.history.clear(); self.turns = 0; self.subtitle = ""
+            self.mic.stop()   # really off: nothing captured, nothing said
         elif state == ACCUEIL:
             self.mic.stop()
             self._speak_then(cfg["greeting"], "greeting_done")
@@ -92,26 +128,35 @@ class Brain:
 
     def _speak_then(self, text: str, done_event: str):
         self.subtitle = text
+        gen = self.gen
 
         def run():
             try:
-                self.out.play(self.tts.synth(text), self.tts.rate)
-                self._wait_audio()
+                pcm = self.tts.synth(text)
+                if self._alive(gen):
+                    self.out.play(pcm, self.tts.rate)
+                    self._wait_audio(gen)
             except Exception:
                 log.exception("speak failed")
-            self.post(done_event)
+            if self._alive(gen):  # a cancelled thread never moves the state machine
+                self.post(done_event, gen=gen)
         threading.Thread(target=run, daemon=True).start()
 
-    def _wait_audio(self):
+    def _wait_audio(self, gen: int):
         time.sleep(0.15)
-        while self.out.busy and not self._cancel.is_set():
+        while self.out.busy and self._alive(gen):
             time.sleep(0.05)
 
     def _loop(self):
-        self._enter(VEILLE)
+        # Power state survives restarts: an "off" robot stays off after a reboot (user request).
+        if self.cfg.get("power") == "off":
+            self.state = ETEINT
+        self._enter(self.state)
         while True:
             try:
                 kind, kw = self.events.get(timeout=0.25)
+                if "gen" in kw and kw["gen"] != self.gen:
+                    continue  # late event from a cancelled thread
                 self._handle(kind, kw)
             except queue.Empty:
                 pass
@@ -128,11 +173,18 @@ class Brain:
 
     def _handle(self, kind: str, kw: dict):
         s = self.state
-        if kind == "stop":  # UI / emergency button: silence now, back to veille
-            self._cancel.set(); self.out.stop(); self._cancel.clear()
+        if kind == "stop":  # UI / emergency button: silence now, back to veille (still listening for its name)
+            self._cancel_all()
             self._go(VEILLE, "stop")
-        elif kind == "start" and s == VEILLE:
+        elif kind == "off":  # "Éteindre": silence now, mic closed, ignores everything until "on"/"start"
+            self._cancel_all()
+            self._go(ETEINT, "off")
+        elif kind == "on" and s == ETEINT:
+            self._go(VEILLE, "on")
+        elif kind == "start" and s in (VEILLE, ETEINT):
             self._go(ACCUEIL, kw.get("source", "ui"))
+        elif s == ETEINT:
+            return  # nothing else may wake the robot while it is off
         elif kind == "visage" and s == VEILLE:
             self._go(ACCUEIL, "visage")
         elif kind == "greeting_done" and s == ACCUEIL:
@@ -142,15 +194,18 @@ class Brain:
             self.mic.start()  # 15 s window for an answer
         elif kind == "goodbye_done" and s == CLOTURE:
             time.sleep(self.cfg["cloture_to_veille_s"])
-            self._go(VEILLE, "cloture_done")
+            if self.state == CLOTURE:
+                self._go(VEILLE, "cloture_done")
         elif kind == "answer_done" and s == REPONSE:
             self._go(ECOUTE, "answer_done")
         elif kind == "hush":  # "Tais-toi": stop the current sentence; keep the conversation going
-            self._cancel.set(); self.out.stop()
-            if s == REPONSE:
+            self._cancel_all()
+            if s in (REPONSE, ACCUEIL, RELANCE):
                 self._go(ECOUTE, "hush")
+            elif s == CLOTURE:
+                self._go(VEILLE, "hush")
         elif kind == "barge_in" and s == REPONSE:
-            self._cancel.set(); self.out.stop()
+            self._cancel_all()
             self._go(ECOUTE, "barge_in")
         elif kind == "utterance":
             self._on_text(kw["text"], kw["t_end"])
@@ -170,13 +225,16 @@ class Brain:
         if any(w in low for w in self.cfg["refusal_words"]):
             self._go(CLOTURE, "refus")
             return
+        self.turns += 1
+        if self.turns > MAX_TURNS:
+            self._go(CLOTURE, "max_turns")
+            return
         self._go(REPONSE, "phrase")
         if not self.cfg["barge_in"]:
             self.mic.stop()  # without echo cancellation the robot would hear itself
-        self._cancel.clear()
-        threading.Thread(target=self._answer, args=(text, t_end), daemon=True).start()
+        threading.Thread(target=self._answer, args=(text, t_end, self.gen), daemon=True).start()
 
-    def _answer(self, question: str, t_end: float):
+    def _answer(self, question: str, t_end: float, gen: int):
         cfg = self.cfg
         sheets = self.corpus.search(question)
         context = "\n\n---\n\n".join(s["text"] for s in sheets) or "AUCUNE FICHE PERTINENTE."
@@ -187,12 +245,15 @@ class Brain:
         full, spoken, first = [], 0, True
         try:
             for sentence in self.llm.sentences(messages):
-                if self._cancel.is_set():
-                    break
+                if not self._alive(gen):
+                    return  # cancelled: no audio, no history, no event
                 full.append(sentence)
                 self.subtitle = " ".join(full)  # full detail on screen, only N sentences spoken
                 if spoken < cfg["spoken_sentences"]:
-                    self.out.play(self.tts.synth(sentence), self.tts.rate)
+                    pcm = self.tts.synth(sentence)
+                    if not self._alive(gen):
+                        return
+                    self.out.play(pcm, self.tts.rate)
                     spoken += 1
                     if first:
                         ms = int((time.monotonic() - t_end) * 1000)
@@ -202,6 +263,9 @@ class Brain:
         except Exception:
             log.exception("answer pipeline failed")
             self.subtitle = "Désolé, j'ai eu un problème."
+        if not self._alive(gen):
+            return
         self.history += [{"role": "user", "content": question}, {"role": "assistant", "content": " ".join(full)}]
-        self._wait_audio()
-        self.post("answer_done")
+        self._wait_audio(gen)
+        if self._alive(gen):
+            self.post("answer_done", gen=gen)

@@ -79,7 +79,10 @@ class Dashboard(QWidget):
         hush.clicked.connect(lambda: self.api.post({"action": "hush"}))
         self.mute = QPushButton("🔇 Muet : non"); self.mute.setCheckable(True); self.mute.setStyleSheet("padding:10px;font-weight:700")
         self.mute.clicked.connect(lambda checked: self.api.post({"action": "mute", "value": checked}))
-        row2.addWidget(hush); row2.addWidget(self.mute)
+        self.power = QPushButton("⏻ Éteindre"); self.power.setStyleSheet("padding:10px;font-weight:700")
+        self.power.clicked.connect(lambda: self.api.post({"action": "on" if self._off else "off"}))
+        self._off = False
+        row2.addWidget(hush); row2.addWidget(self.mute); row2.addWidget(self.power)
         self.ask = QLineEdit(placeholderText="Poser une question (test sans micro) puis Entrée")
         self.ask.returnPressed.connect(lambda: self._send("ask", self.ask))
         self.say = QLineEdit(placeholderText="Faire parler le robot puis Entrée")
@@ -129,6 +132,8 @@ class Dashboard(QWidget):
 
     def live(self, s):
         self.state.setText(s.get("state", "?"))
+        self._off = s.get("state") == "eteint"
+        self.power.setText("⏻ Allumer" if self._off else "⏻ Éteindre")
         self.sub.setText(s.get("subtitle", ""))
         self.mute.setChecked(bool(s.get("muted"))); self.mute.setText("🔇 Muet : " + ("oui" if s.get("muted") else "non"))
         self.mic.setValue(int(min(1, s.get("mic_level", 0)) * 100))

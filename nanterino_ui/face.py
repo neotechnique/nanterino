@@ -25,6 +25,7 @@ STATES = {
     "reponse": {"h": 0.95, "happy": False, "scale": 1.0,  "smile": 0.5},
     "relance": {"h": 1.0,  "happy": False, "scale": 1.0,  "smile": 0.3},
     "cloture": {"h": 1.0,  "happy": True,  "scale": 1.0,  "smile": 1.0},
+    "eteint":  {"h": 0.07, "happy": False, "scale": 0.9,  "smile": 0.0},  # eyes closed: clearly "off"
 }
 
 
@@ -36,6 +37,8 @@ class FaceWidget(QWidget):
         self.online = False
         self.mouth = self.look = 0.0
         self.eye_h = 0.55  # smoothed, so state changes morph instead of jumping
+        # Natural gaze: both eyes move together to a random target every 2-5 s (saccades).
+        self.gaze = [0.0, 0.0]; self.gaze_target = [0.0, 0.0]; self.next_saccade = 0.0
         self.t0 = time.monotonic()
         QTimer(self, timeout=self.update, interval=16).start()
         self.setCursor(Qt.BlankCursor)
@@ -52,10 +55,7 @@ class FaceWidget(QWidget):
                               radius * 1.1, radius * 1.1)
         p.setBrush(EYE)
         p.drawRoundedRect(rect, radius, radius)
-        hl = QColor(255, 255, 255, 170)  # small highlight: makes the eye look alive, not empty
-        p.setBrush(hl)
-        p.drawEllipse(QPointF(rect.left() + rect.width() * 0.3, rect.top() + min(rect.height(), rect.width()) * 0.28),
-                      rect.width() * 0.09, rect.width() * 0.09)
+        # No highlight dot: a fixed white spot read as pupils staring in one direction (user, 2026-10-15).
 
     def _happy_eye(self, p: QPainter, cx: float, cy: float, u: float):
         p.setBrush(Qt.NoBrush)  # stroke only: a leftover brush would fill the arc (pink artifact seen in review)
@@ -85,7 +85,16 @@ class FaceWidget(QWidget):
         self.eye_h += (target_h - self.eye_h) * 0.15
         period = 5.0 if st == "veille" else 3.8
         blink = 0.12 if (t % period) < 0.13 else 1.0
-        self.look += ((math.sin(t * 0.9) * 0.25 if st == "ecoute" else 0.0) - self.look) * 0.05
+        if t >= self.next_saccade:
+            import random
+            if st in ("ecoute", "reponse"):  # attending the person: look at them, tiny drift only
+                self.gaze_target = [random.uniform(-0.12, 0.12), random.uniform(-0.06, 0.06)]
+            else:
+                self.gaze_target = [random.uniform(-0.6, 0.6), random.uniform(-0.25, 0.2)]
+            self.next_saccade = t + random.uniform(2.0, 5.0)
+        for i in (0, 1):  # quick but smooth eye movement
+            self.gaze[i] += (self.gaze_target[i] - self.gaze[i]) * 0.18
+        self.look = self.gaze[0]
         speaking = st == "reponse" or self.s.get("speaking")
         target_m = min(1.0, self.s.get("out_level", 0) * 1.6) if speaking else 0.0
         self.mouth += (target_m - self.mouth) * 0.35
@@ -98,7 +107,8 @@ class FaceWidget(QWidget):
             else:
                 tilt = 0.85 if (st == "relance" and side > 0) else 1.0  # curious look when prompting
                 eh = max(eh_full * self.eye_h * blink * tilt, 0.18 * u)
-                self._glow_rect(p, QRectF(ex - ew / 2, cy - eh / 2, ew, eh), min(ew, eh) * 0.42)
+                ey = cy + self.gaze[1] * u
+                self._glow_rect(p, QRectF(ex - ew / 2, ey - eh / 2, ew, eh), min(ew, eh) * 0.42)
             p.setBrush(CHEEK)
             p.drawEllipse(QPointF(cx + side * 3.5 * u, cy + 2.15 * u), 0.75 * u, 0.42 * u)
 

@@ -146,6 +146,10 @@ class AudioIn:
         self.frame_len = self.RATE * self.FRAME_MS // 1000
         self.stream = None
         self.level = 0.0
+        self.noise_floor = 300.0   # mean |int16| of non-speech frames, adapted continuously
+        self.snr = 2.5             # utterance must be this many times louder than the floor
+        self.min_energy = 400.0    # absolute minimum mean |int16|
+        self.rejected = 0
         self._out: queue.Queue = queue.Queue()
         self._reset()
         threading.Thread(target=self._worker, daemon=True, name="stt-dispatch").start()
@@ -181,8 +185,11 @@ class AudioIn:
         frame = bytes(indata)
         if len(frame) != self.frame_len * 2:
             return
-        self.level = float(np.abs(np.frombuffer(frame, dtype=np.int16)).mean()) / 3000
+        energy = float(np.abs(np.frombuffer(frame, dtype=np.int16)).mean())
+        self.level = energy / 3000
         speech = self.vad.is_speech(frame, self.RATE)
+        if not speech and not self._in_speech:  # slow EMA of the room noise (fans, venue noise)
+            self.noise_floor = 0.98 * self.noise_floor + 0.02 * energy
         if not self._in_speech:
             self._pre.append(frame)
             if speech:
@@ -196,7 +203,15 @@ class AudioIn:
         if self._silent_ms >= self.silence_ms or too_long:
             pcm = np.frombuffer(b"".join(self._speech), dtype=np.int16)
             self._reset()
-            if len(pcm) > self.RATE * 0.4:  # ignore clicks shorter than 400 ms
+            loud = float(np.abs(pcm).mean())
+            # Real speech must be clearly above the noise floor; otherwise Whisper "hears" phantom
+            # sentences in noise (2026-10-15: 13 self-triggered exchanges in a loop).
+            if len(pcm) <= self.RATE * 0.4:
+                pass  # click shorter than 400 ms
+            elif loud < max(self.min_energy, self.noise_floor * self.snr):
+                self.rejected += 1
+                log.info("utterance rejected reason=energy loud=%d floor=%d", loud, self.noise_floor)
+            else:
                 self._out.put((pcm, time.monotonic()))
 
     def _worker(self):

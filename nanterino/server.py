@@ -107,8 +107,10 @@ def monitor_clip(cid: int):
 async def control(body: dict):
     action = body.get("action")
     log.info("ui action=%s", action)  # the action name only, never typed text
-    if action in ("start", "stop", "hush"):
+    if action in ("start", "stop", "hush", "off", "on"):
         brain.post(action, source="ui")
+        if action in ("off", "on", "start"):
+            config.save_overrides({"power": "off" if action == "off" else "on"})
     elif action == "mute":  # value true/false; default toggles
         v = body.get("value")
         out.muted = (not out.muted) if v is None else bool(v)
