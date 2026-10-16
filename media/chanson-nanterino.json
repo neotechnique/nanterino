@@ -1,9 +1,8 @@
 {
  "title": "Nanterino, le petit robot",
- "duration_s": 87.11,
+ "duration_s": 82.31,
  "voice": {
-  "model": "fr_FR-upmc-medium.onnx",
-  "speaker": "jessica"
+  "model": "fr_FR-siwis-medium.onnx"
  },
  "lines": [
   {
@@ -19,59 +18,59 @@
    "text": "J'ai deux grands yeux qui brillent"
   },
   {
-   "t": 19.2,
+   "t": 16.8,
    "text": "Et le cœur tout vert"
   },
   {
-   "t": 24.0,
+   "t": 21.6,
    "text": "Nanterino, Nanterino"
   },
   {
-   "t": 28.8,
+   "t": 24.0,
    "text": "Le petit robot rigolo"
+  },
+  {
+   "t": 26.4,
+   "text": "Triez vos déchets, prenez le vélo"
   },
   {
    "t": 31.2,
-   "text": "Triez vos déchets, prenez le vélo"
-  },
-  {
-   "t": 36.0,
    "text": "Prenez soin de la planète, oh oh"
   },
   {
-   "t": 40.8,
+   "t": 38.4,
    "text": "Les parcs, la Seine et les jardins"
   },
   {
-   "t": 45.6,
+   "t": 43.2,
    "text": "Je connais tous les chemins"
   },
   {
-   "t": 48.0,
+   "t": 45.6,
    "text": "Le verre va dans sa borne"
   },
   {
-   "t": 50.4,
+   "t": 48.0,
    "text": "Le jaune pour les emballages"
   },
   {
-   "t": 55.2,
+   "t": 52.8,
    "text": "Nanterino, Nanterino"
   },
   {
-   "t": 60.0,
+   "t": 55.2,
    "text": "Le petit robot rigolo"
   },
   {
-   "t": 62.4,
+   "t": 57.6,
    "text": "Triez vos déchets, prenez le vélo"
   },
   {
-   "t": 67.2,
+   "t": 62.4,
    "text": "Prenez soin de la planète, oh oh"
   },
   {
-   "t": 74.4,
+   "t": 69.6,
    "text": "À bientôt les amis"
   }
  ]

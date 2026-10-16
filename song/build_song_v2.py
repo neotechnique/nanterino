@@ -30,6 +30,7 @@ from nanterino.log import log  # noqa: E402
 
 ROOT = "/opt/robot/nanterino"
 VOCAL_RMS, MUSIC_GAIN, DUCK = 0.30, 0.75, 0.6
+TAKES = 4  # max takes per distinct line (best one by Whisper word error rate)
 HOLD_S = 0.45  # final vowel held this long (sung feel) when the bar leaves room
 
 
@@ -55,7 +56,7 @@ def sing(singer, text, pitches, transpose):
     f0, sp, ap = singer.analyse(text)
     fr = FRAME_MS / 1000
     voiced = np.flatnonzero(f0 > 0)
-    first = max(0, voiced[0] - int(0.10 / fr))
+    first = max(0, voiced[0] - int(0.18 / fr))  # keep unvoiced onsets ("Tr" of "Triez")
     last = min(len(f0) - 1, voiced[-1] + int(0.08 / fr))
     p = np.round(nuclei(f0, sp, len(pitches)) / fr).astype(int)
     seg = np.arange(first, last + 1)  # natural timing: no stretch at all
@@ -113,9 +114,29 @@ def main():
              for si, sec in enumerate(spec["sections"]) for li, ln in enumerate(sec.get("lines", []))]
     transpose = auto_transpose(singer, lines) if spec.get("vocal_transpose", "auto") == "auto" else spec["vocal_transpose"]
 
-    # 1) Voice first: render every line at its natural speed.
+    # 1) Voice first: render every line at its natural speed. Piper is random (noise sampling),
+    # so each distinct line is sung TAKES times and the take Whisper understands best is kept;
+    # repeated lines (refrains) reuse that same best take (2026-10-16: refrain 1 perfect,
+    # refrain 2 garbled with the same text).
+    from listen_song import wer
+    from nanterino.engines import STT
+    stt = STT("http://127.0.0.1:8178/inference")
+    best = {}
     for ln in lines:
-        ln["audio"], ln["lead"], ln["events"] = sing(singer, ln["say"], ln["pitches"], transpose)
+        key = (ln["say"], tuple(ln["pitches"]))
+        if key not in best:
+            takes = []
+            for _ in range(TAKES):
+                y, lead, ev = sing(singer, ln["say"], ln["pitches"], transpose)
+                x16 = y[np.linspace(0, len(y), int(len(y) * 16000 / singer.rate), endpoint=False).astype(int)]
+                heard = stt.transcribe((np.clip(x16, -1, 1) * 32767).astype(np.int16), 16000)
+                takes.append((wer(ln["text"].replace("-", ""), heard), y, lead, ev))
+                if takes[-1][0] == 0:
+                    break  # perfect take: no need for more
+            takes.sort(key=lambda t: t[0])
+            best[key] = takes[0][1:]
+            log.info("song take chosen wer=%.2f of %d takes", takes[0][0], len(takes))
+        ln["audio"], ln["lead"], ln["events"] = best[key]
         ln["dur"] = len(ln["audio"]) / singer.rate - ln["lead"]
 
     # 2) Arrangement around the voice: whole bars per line, chords follow the line.
