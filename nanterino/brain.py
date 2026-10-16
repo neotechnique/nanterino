@@ -30,11 +30,17 @@ PHANTOMS = ("sous-titres", "sous titres", "merci d'avoir regardé", "abonnez-vou
 MAX_TURNS = 12  # safety net: a conversation never loops forever
 
 
+# Single words Whisper typically invents on breath/noise; other single words are real answers
+# ("Parc ?", "Musée", "Horaires") and are now accepted (2026-10-16, user: interact better).
+SINGLE_NOISE = {"merci", "bon", "ah", "oh", "euh", "hum", "hein", "voilà", "bah", "ok"}
+
+
 def is_phantom(text: str, keep_words=()) -> bool:
-    low = text.lower().strip(" .!?…")
+    low = text.lower().strip(" .!?…,")
     if any(p in low for p in PHANTOMS) or not any(c.isalpha() for c in low):
         return True
-    if len(low.split()) < 2 and low not in keep_words:  # single words are noise unless "stop"/"oui"...
+    words = low.split()
+    if len(words) < 2 and low not in keep_words and (len(low) < 3 or low in SINGLE_NOISE):
         return True
     return False
 
@@ -51,9 +57,13 @@ class Brain:
         self._busy = False  # an utterance is being transcribed
         self.turns = 0      # exchanges in the current conversation (MAX_TURNS guard)
         self.deaf = bool(cfg.get("deaf", False))  # "Sourd": microphone forced off (tests), persisted
+        self.repairs = 0           # consecutive "pardon ?" (max 2, then the normal timers act)
+        self._relance_text = None  # one-shot text for the next RELANCE (used by the repair)
+        self.stt.prompt = cfg.get("stt_prompt", "")
         self.mic = AudioIn(self._on_utterance, self._on_speech_start,
                            device=find_device(cfg["mic_device"], "input"),
-                           silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"])
+                           silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"],
+                           source_match=cfg.get("mic_source_match", ""))
         threading.Thread(target=self._loop, daemon=True, name="brain").start()
 
     # ------------------------------------------------------------------ public API (UI / sensors)
@@ -105,11 +115,13 @@ class Brain:
         finally:
             self._busy = False
         self.last_speech = time.monotonic()
-        if text and is_phantom(text, keep_words=set(self.cfg["refusal_words"]) | {"nanterino", "oui", "non"}):
-            log.info("utterance rejected reason=phantom words=%d", len(text.split()))  # never the text itself
+        if not text or is_phantom(text, keep_words=set(self.cfg["refusal_words"]) | {"nanterino", "oui", "non"}):
+            log.info("utterance rejected reason=%s words=%d", "phantom" if text else "empty", len(text.split()))  # never the text itself
+            # Loud enough to be someone talking, but nothing usable: ask to repeat instead of
+            # staying silent (silence felt like "the robot does not understand").
+            self.post("not_understood")
             return
-        if text:
-            self.post("utterance", text=text, t_end=t_end)
+        self.post("utterance", text=text, t_end=t_end)
 
     # ------------------------------------------------------------------ state machine
     def _go(self, state: str, reason: str):
@@ -120,7 +132,7 @@ class Brain:
     def _enter(self, state: str):
         cfg = self.cfg
         if state == VEILLE:
-            self.history.clear(); self.turns = 0; self.subtitle = ""
+            self.history.clear(); self.turns = 0; self.subtitle = ""; self.repairs = 0
             self._mic_on()  # listens only for the call word while idle
         elif state == ETEINT:
             self.history.clear(); self.turns = 0; self.subtitle = ""
@@ -134,7 +146,8 @@ class Brain:
             self._mic_on()
         elif state == RELANCE:
             self.mic.stop()
-            self._speak_then(cfg["relance"], "relance_done")
+            text, self._relance_text = self._relance_text or cfg["relance"], None
+            self._speak_then(text, "relance_done")
         elif state == CLOTURE:
             self.mic.stop()
             self.history.clear()
@@ -223,6 +236,11 @@ class Brain:
             self._go(ECOUTE, "barge_in")
         elif kind == "utterance":
             self._on_text(kw["text"], kw["t_end"])
+        elif kind == "not_understood" and s in (ECOUTE, RELANCE) and not self.out.busy:
+            self.repairs += 1
+            if self.repairs <= 2:
+                self._relance_text = self.cfg.get("repair_text") or self.cfg["relance"]
+                self._go(RELANCE, "pas_compris")
         elif kind == "ask":  # typed question from the dashboard (tests without a microphone)
             if s == VEILLE:
                 self.state = ECOUTE
@@ -239,6 +257,7 @@ class Brain:
         if any(w in low for w in self.cfg["refusal_words"]):
             self._go(CLOTURE, "refus")
             return
+        self.repairs = 0
         self.turns += 1
         if self.turns > MAX_TURNS:
             self._go(CLOTURE, "max_turns")

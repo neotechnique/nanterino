@@ -38,6 +38,13 @@ DEFAULTS = {
     "lost_face_s": 10,
     "vad_silence_ms": 800,
     "max_utterance_s": 10,
+    # Microphone pinned by PipeWire description (2026-10-16: the default source had silently
+    # become the Jetson's built-in input, where nothing is plugged -> the robot heard nothing).
+    "mic_source_match": "Trust GXT",
+    # Vocabulary hint for Whisper (names/places it otherwise mishears).
+    "stt_prompt": "Nanterino, Nanterre, mairie, parc, point de collecte, déchetterie, lieu à visiter, horaires, musée, bibliothèque.",
+    # Said when someone clearly spoke but nothing usable was transcribed (max 2 in a row).
+    "repair_text": "Pardon, je n'ai pas bien entendu. Pouvez-vous répéter, un peu plus fort ?",
     "spoken_sentences": 2,
     "history_turns": 6,
     # Barge-in needs echo cancellation (speakerphone); off with a plain speaker.

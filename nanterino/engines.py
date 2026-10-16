@@ -20,8 +20,9 @@ SENTENCE_END = re.compile(r"(?<=[.!?…])\s+")
 
 
 class STT:
-    def __init__(self, url: str):
+    def __init__(self, url: str, prompt: str = ""):
         self.url = url
+        self.prompt = prompt  # optional vocabulary hint (whisper.cpp server "prompt" field)
 
     def transcribe(self, pcm: np.ndarray, rate: int = 16000) -> str:
         buf = io.BytesIO()
@@ -30,11 +31,14 @@ class STT:
             w.writeframes(pcm.tobytes())
         t0 = time.monotonic()
         r = requests.post(self.url, files={"file": ("u.wav", buf.getvalue(), "audio/wav")},
-                          data={"language": "fr", "temperature": "0", "response_format": "json"},
+                          data={"language": "fr", "temperature": "0", "response_format": "json",
+                                **({"prompt": self.prompt} if self.prompt else {})},
                           timeout=30)
         r.raise_for_status()
-        log.info("stt done audio_s=%.1f took_ms=%d", len(pcm) / rate, (time.monotonic() - t0) * 1000)
-        return r.json().get("text", "").strip()
+        text = r.json().get("text", "").strip()
+        # Privacy (spec §7): word count only, never the text.
+        log.info("stt done audio_s=%.1f took_ms=%d words=%d", len(pcm) / rate, (time.monotonic() - t0) * 1000, len(text.split()))
+        return text
 
     def ready(self) -> bool:
         try:

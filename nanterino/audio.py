@@ -133,14 +133,44 @@ class AudioOut:
         return len(self._buf) > 0 or not self._chunks.empty()
 
 
+def ensure_default_source(match: str) -> str | None:
+    """Make the PipeWire source whose description contains `match` the default one.
+
+    Returns the description of the default source after the check (None if unknown). PortAudio's
+    "pipewire" device follows the default source when the stream opens, so this pins the mic.
+    """
+    import re
+    import subprocess
+    try:
+        out = subprocess.run(["wpctl", "status"], capture_output=True, text=True, timeout=3).stdout
+    except Exception:
+        return None
+    audio = out.split("Video", 1)[0]          # the Video section also has "Sources:"
+    block = audio.split("Sources:", 1)[-1].split("Filters:", 1)[0].split("Source endpoints:", 1)[0]
+    current, wanted = None, None
+    for star, node_id, desc in re.findall(r"(\*)?\s*(\d+)\.\s+(.+?)\s+\[", block):
+        if star:
+            current = desc
+        if match and match.lower() in desc.lower() and wanted is None:
+            wanted = (node_id, desc)
+    if wanted and current != wanted[1]:
+        subprocess.run(["wpctl", "set-default", wanted[0]], timeout=3)
+        log.warning("default mic was %r -> switched to %r", current, wanted[1])
+        return wanted[1]
+    if match and not wanted:
+        log.warning("preferred mic %r not found; using %r", match, current)
+    return current
+
+
 class AudioIn:
     """Microphone -> VAD -> complete utterances (int16 @16 kHz) via callbacks. Starts OFF."""
 
     RATE, FRAME_MS = 16000, 30
 
     def __init__(self, on_utterance, on_speech_start=None, device=None,
-                 silence_ms: int = 800, max_s: int = 10, aggressiveness: int = 2):
+                 silence_ms: int = 800, max_s: int = 10, aggressiveness: int = 2, source_match: str = ""):
         self.on_utterance, self.on_speech_start = on_utterance, on_speech_start
+        self.source_match = source_match  # PipeWire mic description to pin (see ensure_default_source)
         self.device, self.silence_ms, self.max_s = device, silence_ms, max_s
         self.vad = webrtcvad.Vad(aggressiveness)
         self.frame_len = self.RATE * self.FRAME_MS // 1000
@@ -168,11 +198,12 @@ class AudioIn:
         if self.stream:
             return
         self._reset()
+        source = ensure_default_source(self.source_match) if self.source_match else None
         self.stream = sd.RawInputStream(samplerate=self.RATE, channels=1, dtype="int16",
                                         blocksize=self.frame_len, device=self.device,
                                         callback=self._callback)
         self.stream.start()
-        log.info("mic open device=%s", self.device)
+        log.info("mic open device=%s source=%r", self.device, source)
 
     def stop(self):
         if self.stream:
@@ -203,15 +234,25 @@ class AudioIn:
         if self._silent_ms >= self.silence_ms or too_long:
             pcm = np.frombuffer(b"".join(self._speech), dtype=np.int16)
             self._reset()
-            loud = float(np.abs(pcm).mean())
+            # Loudness of the voiced part only: mean of the loudest half of the 30 ms frames.
+            # The whole-clip mean was diluted by the 300 ms pre-roll and 800 ms trailing silence,
+            # so normal speech at 1-1.5 m was often rejected as "too quiet" (2026-10-16).
+            frames = np.abs(pcm[: len(pcm) // self.frame_len * self.frame_len].astype(np.float32))
+            per = np.sort(frames.reshape(-1, self.frame_len).mean(axis=1)) if len(frames) else np.zeros(1)
+            loud = float(per[len(per) // 2:].mean())
+            need = max(self.min_energy, self.noise_floor * self.snr)
+            end = "max" if too_long else "silence"
             # Real speech must be clearly above the noise floor; otherwise Whisper "hears" phantom
             # sentences in noise (2026-10-15: 13 self-triggered exchanges in a loop).
             if len(pcm) <= self.RATE * 0.4:
-                pass  # click shorter than 400 ms
-            elif loud < max(self.min_energy, self.noise_floor * self.snr):
+                log.info("utterance ignored reason=short dur_s=%.2f", len(pcm) / self.RATE)
+            elif loud < need:
                 self.rejected += 1
-                log.info("utterance rejected reason=energy loud=%d floor=%d", loud, self.noise_floor)
+                log.info("utterance rejected reason=energy dur_s=%.1f loud=%d need=%d floor=%d end=%s",
+                         len(pcm) / self.RATE, loud, need, self.noise_floor, end)
             else:
+                log.info("utterance accepted dur_s=%.1f loud=%d need=%d floor=%d end=%s",
+                         len(pcm) / self.RATE, loud, need, self.noise_floor, end)
                 self._out.put((pcm, time.monotonic()))
 
     def _worker(self):
