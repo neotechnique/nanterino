@@ -126,7 +126,7 @@ class Dashboard(QWidget):
         box = QGroupBox("Erreurs et avertissements récents"); self.err = QPlainTextEdit(readOnly=True)
         QVBoxLayout(box).addWidget(self.err)
         grid.addWidget(box, 2, 0, 1, 2)
-        hint = QLabel("Tab : visage / tableau · H : tais-toi · M : muet · F11 : plein écran · Échap : quitter le plein écran")
+        hint = QLabel("Tab : visage / tableau · H : tais-toi · M : muet · D : sourd · I : masquer muet/sourd · F11 : plein écran · Échap : quitter le plein écran")
         hint.setStyleSheet("color:gray"); grid.addWidget(hint, 3, 0, 1, 2)
 
     def _send(self, action, field: QLineEdit):
@@ -170,7 +170,8 @@ class Main(QMainWindow):
         super().__init__()
         self.setWindowTitle("Nanterino")
         self.api = Api()
-        self.face = FaceWidget(lambda: self.api.post({"action": "start"}))
+        self.face = FaceWidget(lambda: self.api.post({"action": "start"}),
+                               lambda action: self.api.post({"action": action}))  # toggles
         self.dash = Dashboard(self.api)
         self.stack = QStackedWidget(); self.stack.addWidget(self.face); self.stack.addWidget(self.dash)
         self.setCentralWidget(self.stack)
@@ -195,6 +196,10 @@ class Main(QMainWindow):
             self.stack.setCurrentIndex(1 - self.stack.currentIndex())
         elif e.key() == Qt.Key_M:
             self.api.post({"action": "mute"})
+        elif e.key() == Qt.Key_D:  # deaf toggle (server toggles when no value is given)
+            self.api.post({"action": "deaf"})
+        elif e.key() == Qt.Key_I:  # show/hide the mute/deaf badges of the face
+            self.face.toggle_flags()
         elif e.key() == Qt.Key_H:
             self.api.post({"action": "hush"})
         elif e.key() == Qt.Key_F11:

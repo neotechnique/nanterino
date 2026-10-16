@@ -14,8 +14,8 @@ import math
 import random
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPainterPathStroker, QPen
+from PySide6.QtCore import QPointF, QRectF, QSettings, Qt, QTimer
+from PySide6.QtGui import QColor, QFont, QFontMetricsF, QPainter, QPainterPath, QPainterPathStroker, QPen
 from PySide6.QtWidgets import QWidget
 
 BG = QColor("#0a1220")
@@ -40,9 +40,15 @@ STATES = {  # constant eye size in every state; only blink / eteint close the ey
 
 
 class FaceWidget(QWidget):
-    def __init__(self, on_click):
+    def __init__(self, on_click, on_toggle=None):
         super().__init__()
         self.on_click = on_click
+        # on_toggle("mute" | "deaf"): called when the matching badge (top right) is clicked.
+        self.on_toggle = on_toggle
+        # Badges can be hidden (key I) for demos; remembered locally across restarts.
+        self._settings = QSettings("nanterino", "ui")
+        self.show_flags = self._settings.value("show_flags", True, type=bool)
+        self._flag_rects = {}  # action -> QRectF of the badge drawn in the last frame
         self.s = {"state": "veille", "subtitle": "", "out_level": 0, "mic_level": 0, "speaking": False}
         self.online = False
         self.mouth = 0.0
@@ -51,10 +57,28 @@ class FaceWidget(QWidget):
         self.gaze = [0.0, 0.0]; self.gaze_target = [0.0, 0.0]; self.next_saccade = 0.0
         self.t0 = time.monotonic()
         QTimer(self, timeout=self.update, interval=16).start()
+        # Kiosk face: cursor hidden, but shown while the mouse moves (remote control, badges),
+        # then hidden again after 3 s without movement.
         self.setCursor(Qt.BlankCursor)
+        self.setMouseTracking(True)
+        self._cursor_timer = QTimer(self, singleShot=True, interval=3000,
+                                    timeout=lambda: self.setCursor(Qt.BlankCursor))
 
-    def mousePressEvent(self, _event):
+    def mouseMoveEvent(self, _event):
+        self.setCursor(Qt.ArrowCursor)
+        self._cursor_timer.start()
+
+    def mousePressEvent(self, event):
+        pos = event.position()
+        for action, rect in self._flag_rects.items():
+            if rect.contains(pos) and self.on_toggle:
+                self.on_toggle(action)
+                return
         self.on_click()
+
+    def toggle_flags(self):
+        self.show_flags = not self.show_flags
+        self._settings.setValue("show_flags", self.show_flags)
 
     # ------------------------------------------------------------------ one glow recipe for all
     def _glow(self, p: QPainter, path: QPainterPath, color: QColor, u: float):
@@ -160,10 +184,23 @@ class FaceWidget(QWidget):
                 dot = QPainterPath(); dot.addEllipse(QPointF(cx + i * 0.85 * u, my + 1.1 * u), r, r)
                 self._glow(p, dot, EYE, u * 0.6)
 
-        flags = [txt for key, txt in (("muted", "🔇 muet"), ("deaf", "🙉 sourd")) if self.s.get(key)]
-        if flags:  # discreet indicators so a silent/deaf robot is not mistaken for a broken one
-            p.setPen(QColor(255, 255, 255, 120)); p.setFont(QFont("Sans", max(10, int(h * 0.025))))
-            p.drawText(QRectF(0, 8, w - 16, h * 0.05), Qt.AlignRight, "   ".join(flags))
+        # Clickable badges, right to left: deaf then mute. Active = bright (so a silent/deaf
+        # robot is not mistaken for a broken one), inactive = faint. Hidden with key I.
+        self._flag_rects = {}
+        if self.show_flags:
+            font = QFont("Sans", max(10, int(h * 0.025))); p.setFont(font)
+            fm = QFontMetricsF(font)
+            x = w - 16.0
+            for key, action, on_txt, off_txt in (("deaf", "deaf", "🙉 sourd", "👂 écoute"),
+                                                 ("muted", "mute", "🔇 muet", "🔊 son")):
+                active = bool(self.s.get(key))
+                txt = on_txt if active else off_txt
+                tw = fm.horizontalAdvance(txt) + 16
+                rect = QRectF(x - tw, 8, tw, fm.height() + 8)
+                p.setPen(QColor(255, 255, 255, 200 if active else 70))
+                p.drawText(rect, Qt.AlignCenter, txt)
+                self._flag_rects[action] = rect
+                x -= tw + 12
 
         p.setPen(TEXT)
         p.setFont(QFont("Sans", max(12, int(h * 0.042))))
