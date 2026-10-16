@@ -140,31 +140,60 @@ def nuclei(f0, sp, n):
     return np.array(chosen) * FRAME_MS / 1000
 
 
-def sing_line(tts, text, notes, spb, transpose):
-    """Return (rate, float32 mono) of `text` sung on `notes` (beats), starting at t=0."""
+def analyse(tts, text):
+    """Piper speech of `text` -> WORLD parameters (f0, spectral envelope, aperiodicity)."""
     pcm = tts.synth(text.replace("-", "")).astype(np.float64) / 32768
     fs = tts.rate
     f0, t = pyworld.harvest(pcm, fs, frame_period=FRAME_MS, f0_floor=70, f0_ceil=600)
-    sp = pyworld.cheaptrick(pcm, f0, t, fs)
-    ap = pyworld.d4c(pcm, f0, t, fs)
-    t_in_end = len(f0) * FRAME_MS / 1000
+    return fs, f0, pyworld.cheaptrick(pcm, f0, t, fs), pyworld.d4c(pcm, f0, t, fs)
+
+
+def sing_line(tts, text, notes, spb, transpose):
+    """Return (rate, float32 mono, lead_s): `text` sung on `notes` (beats).
+
+    lead_s = audio before the first note onset (the consonant before the first vowel), so the
+    caller places the line at onset - lead_s.
+
+    v2 (user feedback 2026-10-16: "voix qui se pince le nez, lente, shootée"): the whole line is
+    no longer stretched to the notes. Each syllable keeps its NATURAL speed (consonants crisp);
+    only its vowel is held (frames looped around the energy peak) to fill a long note, and the
+    syllable is sped up only if it is longer than its note. The melody is also transposed near
+    the voice's own register (caller), which removes the pinched/nasal sound of a big pitch-up.
+    """
+    fs, f0, sp, ap = analyse(tts, text)
+    n_in, fr = len(f0), FRAME_MS / 1000
     onsets = np.cumsum([0] + [b * spb for _, b in notes])  # note k starts at onsets[k]
-    total = onsets[-1] + 0.25
-    p = nuclei(f0, sp, len(notes))
-    q = onsets[:-1] + 0.06  # vowel nucleus slightly after the note onset
-    # Piecewise-linear time map output -> input through (q_k, p_k), monotonic.
-    anchors_out = np.concatenate([[0.0], q, [total]])
-    anchors_in = np.concatenate([[max(0.0, p[0] - 0.08)], p, [min(t_in_end, p[-1] + 0.35)]])
-    anchors_in = np.maximum.accumulate(anchors_in + np.arange(len(anchors_in)) * 1e-6)
-    n_out = int(total * 1000 / FRAME_MS)
-    t_out = np.arange(n_out) * FRAME_MS / 1000
-    idx = np.clip(np.round(np.interp(t_out, anchors_out, anchors_in) * 1000 / FRAME_MS).astype(int), 0, len(f0) - 1)
-    sp_o, ap_o, voiced = sp[idx], ap[idx], f0[idx] > 0
+    p = np.round(nuclei(f0, sp, len(notes)) / fr).astype(int)  # nucleus frame per syllable
+    voiced = np.flatnonzero(f0 > 0)
+    first = max(0, (voiced[0] if len(voiced) else 0) - int(0.12 / fr))  # keep leading consonant
+    last = min(n_in - 1, (voiced[-1] if len(voiced) else n_in - 1) + int(0.10 / fr))
+    bounds = np.concatenate([[first], (p[:-1] + p[1:]) // 2, [last]])  # syllable k = [b_k, b_k+1)
+    lead = (p[0] - bounds[0]) * fr + 0.04  # nucleus lands 40 ms after the note onset
+    idx, k_of = [], []
+    for k in range(len(notes)):
+        b0, b1, pk = bounds[k], bounds[k + 1], p[k]
+        # Output length of syllable k: from its start to the next syllable's start (nucleus-aligned).
+        start = onsets[k] + 0.04 - (pk - b0) * fr
+        nxt = (onsets[k + 1] + 0.04 - (p[k + 1] - bounds[k + 1]) * fr) if k + 1 < len(notes) else onsets[-1] + 0.15
+        target = max(2, int(round((nxt - start) / fr)))
+        natural = b1 - b0
+        if natural >= target:  # syllable longer than its note: speed it up evenly
+            seg = np.linspace(b0, b1 - 1, target).round().astype(int)
+        else:  # hold the vowel: natural onset, loop frames around the nucleus, natural ending
+            h1 = min(b1 - 1, pk + 6)  # ~30 ms of vowel after the peak
+            loop = np.arange(max(b0, pk - 4), h1 + 1)
+            loop = np.concatenate([loop, loop[::-1]])  # ping-pong: no click at the loop point
+            hold = np.resize(loop, target - natural)
+            seg = np.concatenate([np.arange(b0, h1 + 1), hold, np.arange(h1 + 1, b1)])
+        idx.extend(seg.tolist())
+        k_of.extend([k] * len(seg))
+    idx, k_of = np.array(idx), np.array(k_of)
+    sp_o, ap_o, voiced_o = sp[idx], ap[idx], f0[idx] > 0
+    t_out = np.arange(len(idx)) * fr - lead  # time relative to the first note onset
     # Melody f0 with short glide between notes and gentle vibrato on long notes.
-    k_of = np.clip(np.searchsorted(onsets, t_out, side="right") - 1, 0, len(notes) - 1)
     target = np.array([440 * 2 ** ((notes[k][0] + transpose - 69) / 12) for k in k_of])
     since = t_out - onsets[k_of]
-    vib = np.where(since > 0.25, 0.35 * np.sin(2 * np.pi * 5.5 * since), 0.0)  # semitones
+    vib = np.where(since > 0.3, 0.25 * np.sin(2 * np.pi * 5.5 * since), 0.0)  # semitones
     target = target * 2 ** (vib / 12)
     glide = np.empty_like(target)
     a = 1 - np.exp(-FRAME_MS / 25.0)  # 25 ms portamento
@@ -172,9 +201,23 @@ def sing_line(tts, text, notes, spb, transpose):
     for i, v in enumerate(target):
         g += a * (v - g)
         glide[i] = g
-    f0_o = np.where(voiced, glide, 0.0)
+    f0_o = np.where(voiced_o, glide, 0.0)
     y = pyworld.synthesize(np.ascontiguousarray(f0_o), np.ascontiguousarray(sp_o), np.ascontiguousarray(ap_o), fs, FRAME_MS)
-    return fs, y.astype(np.float32)
+    return fs, y.astype(np.float32), lead
+
+
+def auto_transpose(tts, lines):
+    """Octave shift (multiple of 12) that brings the melody near the voice's speaking pitch.
+
+    A WORLD pitch-up of an octave or more keeps the speech formants and sounds pinched/nasal;
+    singing about 3 semitones above the natural speaking pitch sounds natural.
+    """
+    _, f0, _, _ = analyse(tts, lines[0]["text"])
+    voice_midi = 69 + 12 * np.log2(np.median(f0[f0 > 0]) / 440)
+    melody_midi = np.median([m for ln in lines for m, _ in ln["notes"]])
+    shift = int(12 * round((voice_midi + 3 - melody_midi) / 12))
+    log.info("song auto transpose voice_midi=%.1f melody_midi=%.1f shift=%d", voice_midi, melody_midi, shift)
+    return shift
 
 
 def resample(x, src, dst):
@@ -206,10 +249,15 @@ def main():
     tts = TTS(cfg["tts_voice"])
     voice = np.zeros(len(music) + rate * 2, dtype=np.float32)
     timings = []
+    transpose = spec.get("vocal_transpose", "auto")
+    if transpose == "auto":
+        transpose = auto_transpose(tts, lines)
     for ln in lines:
-        fs, y = sing_line(tts, ln["text"], ln["notes"], spb, spec.get("vocal_transpose", 0))
+        fs, y, lead = sing_line(tts, ln["text"], ln["notes"], spb, transpose)
         y = resample(y, fs, rate)
-        start = int(round(ln["beat"] * spb * rate))
+        start = int(round((ln["beat"] * spb - lead) * rate))
+        if start < 0:  # very first line: drop the part before the song start
+            y, start = y[-start:], 0
         voice[start:start + len(y)] += y[: len(voice) - start]
         timings.append({"t": round(ln["beat"] * spb, 3), "text": ln["text"].replace("-", "")})
     voice = voice[: len(music)]

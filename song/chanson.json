@@ -1,8 +1,8 @@
 {
   "_doc": "Nanterino song spec (2026-10-16). Each sung line spans 2 bars (8 beats) over 2 chords; 'notes' has ONE note per spoken syllable of 'text' (hyphens only mark syllables for reading). build_song.py turns this into a soundgen song (music) and a sung vocal (Piper + WORLD).",
   "title": "Nanterino, le petit robot",
-  "bpm": 96,
-  "vocal_transpose": 0,
+  "bpm": 100,
+  "vocal_transpose": "auto",
   "sections": [
     {"name": "intro", "chords": ["C", "Am", "F", "G"], "drums": false},
     {"name": "couplet 1", "chords": ["C", "Am", "F", "G", "C", "Am", "F", "C"], "lines": [
