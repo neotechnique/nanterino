@@ -4,7 +4,8 @@
      au corpus. Ce fichier .txt n'est pas chargé. Règle : un lieu sans source vérifiée
      n'entre pas dans le corpus. Puis « Recharger le corpus » dans le tableau technique. -->
 
-- Catégorie : parc | lieu écologique | point de collecte | lieu remarquable
+- Catégorie : parc | lieu écologique | point de collecte | lieu remarquable | bonne pratique
+- Mots-clés : (mots que les visiteurs peuvent dire : jardin, pique-nique, poubelle jaune...)
 - Adresse :
 - Horaires :
 - Description : (2 phrases, lues par le robot)

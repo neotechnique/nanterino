@@ -55,8 +55,8 @@ DEFAULTS = {
     # HTTP UI: only these client networks may connect (localhost, Tailscale, USB-C link).
     "http_port": 8080,
     "allowed_nets": ["127.0.0.0/8", "100.64.0.0/10", "192.168.55.0/24"],
-    "greeting": "Bonjour, je suis Nanterino. Je connais les parcs et les lieux écologiques de Nanterre. Que cherchez-vous ?",
-    "relance": "Voulez-vous un parc, un point de collecte ou un lieu à visiter ?",
+    "greeting": "Bonjour, je suis Nanterino. Je connais les lieux de Nanterre et les bons gestes pour la planète. Que cherchez-vous ?",
+    "relance": "Voulez-vous un parc, un lieu à visiter, ou un conseil pour trier vos déchets ?",
     "goodbye": "Bonne journée !",
     "refusal_words": ["non merci", "stop", "au revoir", "arrête", "arrete"],
     # Why (2026-10-16): with the old text the model replied "je ne peux pas entendre" (it thought
@@ -81,8 +81,8 @@ DEFAULTS = {
         "devine le sens le plus probable ; si c'est vraiment incompréhensible, demande gentiment "
         "de reformuler. Vouvoie le visiteur. Réponds en français, de façon chaleureuse et naturelle, en deux phrases "
         "courtes maximum, sans listes ni emojis. Aux salutations ou à la conversation, réponds "
-        "simplement puis propose ton aide sur les parcs, les points de collecte ou les lieux à "
-        "visiter de Nanterre. Pour les faits, utilise uniquement les fiches fournies ; si la réponse "
+        "simplement puis propose ton aide sur les parcs, les lieux remarquables de Nanterre ou "
+        "les bons gestes écologiques (tri, compost, économies d'eau et d'énergie). Pour les faits, utilise uniquement les fiches fournies ; si la réponse "
         "n'y est pas, dis-le simplement et pose une question pour rester sur le sujet du visiteur. "
         "N'invente jamais de lieu, d'adresse ni d'horaire."
     ),

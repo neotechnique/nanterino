@@ -16,10 +16,28 @@ STOP = set("le la les un une des de du d l a au aux et ou en dans sur pour par a
            "bonjour merci svp s il plait".split())
 
 
+def _stem(w: str) -> str:
+    """Crude French plural folding so "piles"/"pile" and "jardins"/"jardin" match."""
+    if len(w) > 4 and w.endswith("aux"):
+        return w[:-3] + "al"        # animaux -> animal
+    if len(w) > 3 and w[-1] in "sx":
+        return w[:-1]
+    return w
+
+
 def _tokens(text: str) -> list[str]:
     text = unicodedata.normalize("NFD", text.lower())
     text = "".join(c for c in text if unicodedata.category(c) != "Mn")
-    return [w for w in re.findall(r"[a-z0-9]+", text) if len(w) > 2 and w not in STOP]
+    return [_stem(w) for w in re.findall(r"[a-z0-9]+", text) if len(w) > 2 and w not in STOP]
+
+
+def _keywords(text: str) -> str:
+    """Content of the "- Mots-clés :" line (synonyms visitors may say), weighted like the title."""
+    for line in text.splitlines():
+        low = line.lower()
+        if "mots-cl" in low and ":" in line:
+            return line.split(":", 1)[1]
+    return ""
 
 
 class Corpus:
@@ -35,7 +53,8 @@ class Corpus:
                 text = f.read()
             title = next((l.lstrip("# ").strip() for l in text.splitlines() if l.strip()), os.path.basename(path))
             self.sheets.append({"file": os.path.basename(path), "title": title, "text": text,
-                                "title_tokens": set(_tokens(title)), "tokens": set(_tokens(text))})
+                                "title_tokens": set(_tokens(title)) | set(_tokens(_keywords(text))),
+                                "tokens": set(_tokens(text))})
         log.info("corpus loaded sheets=%d", len(self.sheets))
 
     def search(self, question: str, k: int = 3) -> list[dict]:
