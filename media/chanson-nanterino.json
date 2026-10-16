@@ -1,6 +1,6 @@
 {
  "title": "Nanterino, le petit robot",
- "duration_s": 82.31,
+ "duration_s": 81.98,
  "voice": {
   "model": "fr_FR-siwis-medium.onnx"
  },
