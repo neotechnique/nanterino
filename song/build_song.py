@@ -31,6 +31,11 @@ from nanterino.log import log
 ROOT = "/opt/robot/nanterino"
 SOUNDGEN = "/opt/robot/tools/sound/soundgen.py"
 FRAME_MS = 5.0
+# Mix balance: vocal RMS level, music gain, and how much the music ducks under the voice
+# (0.6 = -8 dB). Tuned so the lyrics stay intelligible on the small robot speaker.
+VOCAL_RMS = 0.30
+MUSIC_GAIN = 0.75
+DUCK = 0.6
 
 CHORDS = {  # voicing (piano/pad) and bass root
     "C": ("C4+E4+G4", "C2"), "Am": ("A3+C4+E4", "A1"), "F": ("F3+A3+C4", "F1"),
@@ -98,10 +103,11 @@ def music_spec(spec, bars, lines, total_beats):
         "space": {"reverb": {"mix": 0.2, "size": 0.55, "damp": 0.55, "width": 1}, "width": 1.1},
         "tracks": [
             {"instrument": "kit-lofi", "volume": 0.5, "notes": " ".join(drums)},
-            {"instrument": "pno-epiano", "volume": 0.42, "notes": " ".join(keys)},
+            {"instrument": "pno-epiano", "volume": 0.32, "notes": " ".join(keys)},
             {"instrument": "gtr-bass", "volume": 0.55, "notes": " ".join(bass)},
             {"instrument": "str-slow", "volume": 0.16, "pan": -0.2, "notes": " ".join(pad)},
-            {"instrument": "mal-vibraphone", "volume": 0.2, "pan": 0.25, "notes": " ".join(mel)},
+            # Melody doubling kept quiet: it guides the ear without masking the words.
+            {"instrument": "mal-vibraphone", "volume": 0.1, "pan": 0.25, "notes": " ".join(mel)},
         ],
     }
 
@@ -207,8 +213,18 @@ def main():
         voice[start:start + len(y)] += y[: len(voice) - start]
         timings.append({"t": round(ln["beat"] * spb, 3), "text": ln["text"].replace("-", "")})
     voice = voice[: len(music)]
-    voice *= 0.25 / max(1e-6, np.sqrt(np.mean(voice[voice != 0] ** 2)))  # vocal level
-    mix = music * 0.9 + voice[:, None]
+    # Lyrics must be understood (user, 2026-10-16: "paroles et chanson au même niveau"):
+    # voice clearly louder, and the music ducks ~8 dB while Nanterino sings.
+    voice *= VOCAL_RMS / max(1e-6, np.sqrt(np.mean(voice[np.abs(voice) > 1e-4] ** 2)))
+    env = np.abs(voice)
+    att, rel = 1 - np.exp(-1 / (0.02 * rate)), 1 - np.exp(-1 / (0.35 * rate))
+    smooth = np.empty_like(env)
+    level = 0.0
+    for i, v in enumerate(env):  # peak follower: fast attack, slow release
+        level += (att if v > level else rel) * (v - level)
+        smooth[i] = level
+    duck = 1 - DUCK * np.clip(smooth / (0.5 * VOCAL_RMS), 0, 1)
+    mix = music * (MUSIC_GAIN * duck)[:, None] + voice[:, None]
     mix *= 0.89 / max(1e-6, np.abs(mix).max())  # peak -1 dBFS
     mono = mix.mean(axis=1)  # the robot speaker path is mono
     out = f"{ROOT}/media/chanson-nanterino.wav"
