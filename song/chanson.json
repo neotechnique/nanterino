@@ -12,10 +12,10 @@
       {"text": "Et le cœur tout vert", "notes": "A4 G4 F4 F4 E4:4"}
     ]},
     {"name": "refrain", "chords": ["C", "G", "Am", "F", "C", "G", "F", "G", "C"], "lines": [
-      {"text": "Nan-te-ri-no, Nan-te-ri-no", "notes": "C5 B4 A4 G4 D5 C5 B4 G4"},
+      {"text": "Nan-te-ri-no, Nan-te-ri-no", "say": "Nan-té-ri-no, Nan-té-ri-no", "notes": "C5 B4 A4 G4 D5 C5 B4 G4"},
       {"text": "Le pe-tit ro-bot ri-go-lo", "notes": "A4 A4 C5 C5 E5 D5 C5 A4"},
-      {"text": "Trie tes dé-chets, prends ton vé-lo", "notes": "E5 E5 D5 C5 D5 D5 B4 G4"},
-      {"text": "Prends soin de la pla-nète, oh oh", "notes": "A4 A4 A4 A4 C5 A4 B4 C5"}
+      {"text": "Triez vos dé-chets, pre-nez le vé-lo", "notes": "E5:1/2 E5:1/2 D5 C5 D5 D5 C5 B4 G4"},
+      {"text": "Pre-nez soin de la pla-nète, oh oh", "notes": "A4:1/2 A4:1/2 A4 A4 A4 C5 A4 B4 C5"}
     ]},
     {"name": "couplet 2", "chords": ["C", "Am", "F", "G", "C", "Am", "F", "C"], "lines": [
       {"text": "Les parcs, la Seine et les jar-dins", "notes": "E4 E4 G4 G4 A4 A4 G4 E4"},
@@ -24,10 +24,10 @@
       {"text": "Le jaune pour les em-bal-lages", "notes": "A4 A4 G4 F4 E4 D4 C4:2"}
     ]},
     {"name": "refrain", "chords": ["C", "G", "Am", "F", "C", "G", "F", "G", "C"], "lines": [
-      {"text": "Nan-te-ri-no, Nan-te-ri-no", "notes": "C5 B4 A4 G4 D5 C5 B4 G4"},
+      {"text": "Nan-te-ri-no, Nan-te-ri-no", "say": "Nan-té-ri-no, Nan-té-ri-no", "notes": "C5 B4 A4 G4 D5 C5 B4 G4"},
       {"text": "Le pe-tit ro-bot ri-go-lo", "notes": "A4 A4 C5 C5 E5 D5 C5 A4"},
-      {"text": "Trie tes dé-chets, prends ton vé-lo", "notes": "E5 E5 D5 C5 D5 D5 B4 G4"},
-      {"text": "Prends soin de la pla-nète, oh oh", "notes": "A4 A4 A4 A4 C5 A4 B4 C5"}
+      {"text": "Triez vos dé-chets, pre-nez le vé-lo", "notes": "E5:1/2 E5:1/2 D5 C5 D5 D5 C5 B4 G4"},
+      {"text": "Pre-nez soin de la pla-nète, oh oh", "notes": "A4:1/2 A4:1/2 A4 A4 A4 C5 A4 B4 C5"}
     ]},
     {"name": "fin", "chords": ["C", "G", "C", "C"], "drums": false, "lines": [
       {"text": "À bien-tôt les a-mis", "notes": "G4 G4 E4:2 D4 D4 C4:2"}

@@ -72,7 +72,9 @@ def build_timeline(spec):
             notes = parse_notes(ln["notes"])
             if abs(sum(b for _, b in notes) - 8) > 1e-6:
                 sys.exit(f"line '{ln['text']}' does not last 8 beats")
-            lines.append({"text": ln["text"], "notes": notes, "beat": beat + 8 * i})
+            # "say" = text given to Piper (pronunciation fixes, e.g. "Nan-té-ri-no"); hyphens kept there.
+            say = ln.get("say") or ln["text"].replace("-", "")
+            lines.append({"text": ln["text"], "say": say, "notes": notes, "beat": beat + 8 * i})
         beat += 4 * len(sec["chords"])
     return bars, lines, beat
 
@@ -142,7 +144,7 @@ def nuclei(f0, sp, n):
 
 def analyse(tts, text):
     """Piper speech of `text` -> WORLD parameters (f0, spectral envelope, aperiodicity)."""
-    pcm = tts.synth(text.replace("-", "")).astype(np.float64) / 32768
+    pcm = tts.synth(text).astype(np.float64) / 32768
     fs = tts.rate
     f0, t = pyworld.harvest(pcm, fs, frame_period=FRAME_MS, f0_floor=70, f0_ceil=600)
     return fs, f0, pyworld.cheaptrick(pcm, f0, t, fs), pyworld.d4c(pcm, f0, t, fs)
@@ -246,7 +248,7 @@ def auto_transpose(tts, lines):
     A WORLD pitch-up of an octave or more keeps the speech formants and sounds pinched/nasal;
     singing about 3 semitones above the natural speaking pitch sounds natural.
     """
-    _, f0, _, _ = analyse(tts, lines[0]["text"])
+    _, f0, _, _ = analyse(tts, lines[0]["say"])
     voice_midi = 69 + 12 * np.log2(np.median(f0[f0 > 0]) / 440)
     melody_midi = np.median([m for ln in lines for m, _ in ln["notes"]])
     shift = int(12 * round((voice_midi + 3 - melody_midi) / 12))
@@ -288,7 +290,7 @@ def main():
         transpose = auto_transpose(tts, lines)
     for ln in lines:
         render = slam_line if spec.get("vocal_style", "sing") == "slam" else sing_line
-        fs, y, lead = render(tts, ln["text"], ln["notes"], spb, transpose)
+        fs, y, lead = render(tts, ln["say"], ln["notes"], spb, transpose)
         y = resample(y, fs, rate)
         start = int(round((ln["beat"] * spb - lead) * rate))
         if start < 0:  # very first line: drop the part before the song start
