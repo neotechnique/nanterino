@@ -242,6 +242,59 @@ def slam_line(tts, text, notes, spb, transpose):
     return fs, y.astype(np.float32), 0.05
 
 
+def melodic_line(tts, text, notes, spb, transpose):
+    """Return (rate, float32 mono, lead_s): sung-spoken line (style "melodic").
+
+    User 2026-10-16: slam was clear but "trop plat, pas assez chantant"; note-by-note singing
+    was musical but unintelligible (syllable timing guessed). Middle ground:
+      - the speech keeps its own timing, only uniformly slowed down (max x1.3) -> intelligible;
+      - each syllable region (between energy-peak midpoints) takes ITS melody note -> melodic;
+        a wrong syllable split only moves a note, it never smears consonants;
+      - the last vowel is held with one steady timbre until the end of the 2 bars.
+    """
+    fs, f0, sp, ap = analyse(tts, text)
+    fr = FRAME_MS / 1000
+    voiced = np.flatnonzero(f0 > 0)
+    first = max(0, (voiced[0] if len(voiced) else 0) - int(0.10 / fr))
+    last = min(len(f0) - 1, (voiced[-1] if len(voiced) else len(f0) - 1) + int(0.08 / fr))
+    p = np.round(nuclei(f0, sp, len(notes)) / fr).astype(int)
+    natural = last - first + 1
+    room = int(8 * spb * 0.92 / fr)
+    stretch = float(np.clip(room * 0.7 / natural, 0.75, 1.3))  # leave ~30 % of the bars for the final hold
+    n_main = int(natural * stretch)
+    src = np.linspace(first, last, n_main)  # output frame -> input frame (uniform stretch)
+    seg = src.round().astype(int)
+    log_sp = np.log(sp + 1e-12)
+    sp_o, ap_o, vo_o = log_sp[seg], ap[seg], f0[seg] > 0
+    bounds = np.concatenate([[first], (p[:-1] + p[1:]) / 2, [last + 1]])
+    k_of = np.clip(np.searchsorted(bounds, src, side="right") - 1, 0, len(notes) - 1)
+    # Final hold: steady average of the last vowel, entered with a short crossfade.
+    pk = p[-1]
+    n_hold = max(0, room - n_main)
+    if n_hold > 0:
+        v0, v1 = max(first, pk - 3), min(last + 1, pk + 4)
+        vowel_sp, vowel_ap = log_sp[v0:v1].mean(axis=0), ap[v0:v1].mean(axis=0)
+        cut = int(np.searchsorted(src, pk + 4))  # keep speech up to just after the last nucleus
+        tail_ramp = np.clip(np.arange(n_hold) / 6.0, 0, 1)[:, None]
+        fade = np.clip((n_hold - np.arange(n_hold)) / 20.0, 0, 1)  # soft release
+        hold_sp = (1 - tail_ramp) * sp_o[min(cut, len(sp_o) - 1)] + tail_ramp * vowel_sp + np.log(fade + 1e-3)[:, None] * 0.5
+        sp_o = np.concatenate([sp_o[:cut], hold_sp])
+        ap_o = np.concatenate([ap_o[:cut], np.repeat(vowel_ap[None], n_hold, 0)])
+        vo_o = np.concatenate([vo_o[:cut], np.ones(n_hold, bool)])
+        k_of = np.concatenate([k_of[:cut], np.full(n_hold, len(notes) - 1)])
+    target = np.array([440 * 2 ** ((notes[k][0] + transpose - 69) / 12) for k in k_of])
+    t_hold = np.arange(len(target)) * fr
+    vib = np.where(np.arange(len(target)) > len(target) - n_hold + 40, 0.12 * np.sin(2 * np.pi * 5.0 * t_hold), 0.0)
+    target = target * 2 ** (vib / 12)
+    glide, g, a = np.empty_like(target), target[0], 1 - np.exp(-FRAME_MS / 35.0)
+    for i, v in enumerate(target):
+        g += a * (v - g)
+        glide[i] = g
+    f0_o = np.where(vo_o, glide, 0.0)
+    y = pyworld.synthesize(np.ascontiguousarray(f0_o), np.ascontiguousarray(np.exp(sp_o)), np.ascontiguousarray(np.clip(ap_o, 0, 1)), fs, FRAME_MS)
+    return fs, y.astype(np.float32), 0.05
+
+
 def auto_transpose(tts, lines):
     """Octave shift (multiple of 12) that brings the melody near the voice's speaking pitch.
 
@@ -289,7 +342,7 @@ def main():
     if transpose == "auto":
         transpose = auto_transpose(tts, lines)
     for ln in lines:
-        render = slam_line if spec.get("vocal_style", "sing") == "slam" else sing_line
+        render = {"slam": slam_line, "melodic": melodic_line}.get(spec.get("vocal_style", "sing"), sing_line)
         fs, y, lead = render(tts, ln["say"], ln["notes"], spb, transpose)
         y = resample(y, fs, rate)
         start = int(round((ln["beat"] * spb - lead) * rate))
