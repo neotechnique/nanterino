@@ -169,7 +169,9 @@ def sing_line(tts, text, notes, spb, transpose):
     last = min(n_in - 1, (voiced[-1] if len(voiced) else n_in - 1) + int(0.10 / fr))
     bounds = np.concatenate([[first], (p[:-1] + p[1:]) // 2, [last]])  # syllable k = [b_k, b_k+1)
     lead = (p[0] - bounds[0]) * fr + 0.04  # nucleus lands 40 ms after the note onset
-    idx, k_of = [], []
+    log_sp = np.log(sp + 1e-12)
+    voiced_in = f0 > 0
+    sp_l, ap_l, vo_l, k_l = [], [], [], []
     for k in range(len(notes)):
         b0, b1, pk = bounds[k], bounds[k + 1], p[k]
         # Output length of syllable k: from its start to the next syllable's start (nucleus-aligned).
@@ -179,22 +181,29 @@ def sing_line(tts, text, notes, spb, transpose):
         natural = b1 - b0
         if natural >= target:  # syllable longer than its note: speed it up evenly
             seg = np.linspace(b0, b1 - 1, target).round().astype(int)
-        else:  # hold the vowel: natural onset, loop frames around the nucleus, natural ending
-            h1 = min(b1 - 1, pk + 6)  # ~30 ms of vowel after the peak
-            loop = np.arange(max(b0, pk - 4), h1 + 1)
-            loop = np.concatenate([loop, loop[::-1]])  # ping-pong: no click at the loop point
-            hold = np.resize(loop, target - natural)
-            seg = np.concatenate([np.arange(b0, h1 + 1), hold, np.arange(h1 + 1, b1)])
-        idx.extend(seg.tolist())
-        k_of.extend([k] * len(seg))
-    idx, k_of = np.array(idx), np.array(k_of)
-    sp_o, ap_o, voiced_o = sp[idx], ap[idx], f0[idx] > 0
-    t_out = np.arange(len(idx)) * fr - lead  # time relative to the first note onset
-    # Melody f0 with short glide between notes and gentle vibrato on long notes.
+            sp_l.append(log_sp[seg]); ap_l.append(ap[seg]); vo_l.append(voiced_in[seg])
+        else:
+            # Hold the vowel with ONE steady timbre (v4, user 2026-10-16: "la voix barbote, comme
+            # sous l'eau"): looping 5 ms frames made the timbre wobble ~9 Hz. Now the vowel is the
+            # average envelope around the nucleus, entered/left with short log-domain crossfades.
+            h1 = min(b1 - 1, pk + 4)
+            v0, v1 = max(b0, pk - 3), min(b1, pk + 4)
+            vowel_sp = log_sp[v0:v1].mean(axis=0)
+            vowel_ap = ap[v0:v1].mean(axis=0)
+            n_hold = target - natural
+            ramp = np.clip(np.minimum(np.arange(n_hold) + 1, n_hold - np.arange(n_hold)) / 6.0, 0, 1)[:, None]
+            hold_sp = (1 - ramp) * np.where(np.arange(n_hold)[:, None] < n_hold / 2, log_sp[h1], log_sp[min(h1 + 1, b1 - 1)]) + ramp * vowel_sp
+            hold_ap = (1 - ramp) * ap[h1] + ramp * vowel_ap
+            pre, post = np.arange(b0, h1 + 1), np.arange(h1 + 1, b1)
+            sp_l += [log_sp[pre], hold_sp, log_sp[post]]
+            ap_l += [ap[pre], hold_ap, ap[post]]
+            vo_l += [voiced_in[pre], np.ones(n_hold, bool), voiced_in[post]]
+        k_l.append(np.full(sum(len(a) for a in vo_l) - sum(len(a) for a in k_l), k))
+    sp_o, ap_o = np.exp(np.concatenate(sp_l)), np.clip(np.concatenate(ap_l), 0, 1)
+    voiced_o, k_of = np.concatenate(vo_l), np.concatenate(k_l)
+    t_out = np.arange(len(k_of)) * fr - lead  # time relative to the first note onset
+    # Melody f0 with a short glide between notes; no vibrato (v4: the vibrato read as "shaky").
     target = np.array([440 * 2 ** ((notes[k][0] + transpose - 69) / 12) for k in k_of])
-    since = t_out - onsets[k_of]
-    vib = np.where(since > 0.3, 0.25 * np.sin(2 * np.pi * 5.5 * since), 0.0)  # semitones
-    target = target * 2 ** (vib / 12)
     glide = np.empty_like(target)
     a = 1 - np.exp(-FRAME_MS / 25.0)  # 25 ms portamento
     g = target[0]
