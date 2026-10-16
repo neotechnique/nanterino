@@ -14,6 +14,8 @@ again or post a late "done" event. (The previous set()+clear() of a shared Event
 running answers missed it and kept talking after "Stop".)
 """
 import re
+import numpy as np
+import os
 import collections
 import queue
 import threading
@@ -254,6 +256,11 @@ class Brain:
         elif kind == "barge_in" and s == REPONSE:
             self._cancel_all()
             self._go(ECOUTE, "barge_in")
+        elif kind == "sing":  # UI button or "chante" request: the Nanterino song
+            self._cancel_all()
+            self.mic.stop()  # no echo cancellation: never listen to its own song
+            self._go(REPONSE, "chanson")
+            threading.Thread(target=self._sing, args=(self.gen,), daemon=True).start()
         elif kind == "utterance":
             self._on_text(kw["text"], kw["t_end"])
         elif kind == "not_understood" and s in (ECOUTE, RELANCE) and not self.out.busy:
@@ -277,6 +284,10 @@ class Brain:
         if any(w in low for w in self.cfg["refusal_words"]):
             self._go(CLOTURE, "refus")
             return
+        if "chant" in low:  # "chante", "une chanson", "tu sais chanter ?"
+            self.repairs = 0
+            self._handle("sing", {})
+            return
         self.repairs = 0
         self.turns += 1
         if self.turns > MAX_TURNS:
@@ -286,6 +297,37 @@ class Brain:
         if not self.cfg["barge_in"]:
             self.mic.stop()  # without echo cancellation the robot would hear itself
         threading.Thread(target=self._answer, args=(text, t_end, self.gen), daemon=True).start()
+
+    def _sing(self, gen: int):
+        """Play the pre-built song (song/build_song.py) with line-by-line subtitles."""
+        import json
+        import wave
+        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media", "chanson-nanterino.wav")
+        try:
+            with wave.open(path) as w:
+                rate = w.getframerate()
+                pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+            lines = json.load(open(path.replace(".wav", ".json"), encoding="utf-8"))["lines"]
+        except Exception:
+            log.exception("song not available (build it with song/build_song.py)")
+            self.subtitle = "Je n'ai pas encore appris ma chanson."
+            time.sleep(2)
+            if self._alive(gen):
+                self.post("answer_done", gen=gen)
+            return
+        log.info("song start s=%.1f", len(pcm) / rate)
+        self.out.play(pcm, rate)
+        t0 = time.monotonic() + self.out.preroll_ms / 1000  # first sample after the wake-up pre-roll
+        time.sleep(0.15)
+        while self.out.busy and self._alive(gen):
+            now = time.monotonic() - t0
+            current = [l["text"] for l in lines if l["t"] - 0.3 <= now]
+            self.subtitle = "🎵 " + current[-1] if current else "🎵"
+            time.sleep(0.05)
+        if self._alive(gen):  # finished normally (stop/hush bump gen and silence it)
+            log.info("song end")
+            self.subtitle = ""
+            self.post("answer_done", gen=gen)
 
     def _answer(self, question: str, t_end: float, gen: int):
         cfg = self.cfg

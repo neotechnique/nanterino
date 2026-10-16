@@ -158,6 +158,8 @@ async def control(body: dict):
     elif action == "face_scale":  # {"value": 0.5..1.6}
         cfg["face_scale"] = max(0.5, min(1.6, float(body.get("value", 1.0))))
         config.save_overrides({"face_scale": cfg["face_scale"]})
+    elif action == "sing":  # the Nanterino song (media/chanson-nanterino.wav)
+        brain.post("sing")
     elif action == "reload_corpus":
         corpus.reload()
     elif action in ("mic_device", "out_device"):

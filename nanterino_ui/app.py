@@ -86,6 +86,9 @@ class Dashboard(QWidget):
         self._off = False
         self.deaf = QPushButton("🙉 Sourd : non"); self.deaf.setCheckable(True); self.deaf.setStyleSheet("padding:10px;font-weight:700")
         self.deaf.clicked.connect(lambda checked: self.api.post({"action": "deaf", "value": checked}))
+        sing = QPushButton("🎵 Chanter"); sing.setStyleSheet("padding:10px;font-weight:700")
+        sing.clicked.connect(lambda: self.api.post({"action": "sing"}))
+        row2.addWidget(sing)
         row2.addWidget(hush); row2.addWidget(self.mute); row2.addWidget(self.deaf); row2.addWidget(self.power)
         self.ask = QLineEdit(placeholderText="Poser une question (test sans micro) puis Entrée")
         self.ask.returnPressed.connect(lambda: self._send("ask", self.ask))
