@@ -1,6 +1,6 @@
 {
  "title": "Nanterino, le petit robot",
- "duration_s": 81.98,
+ "duration_s": 86.78,
  "voice": {
   "model": "fr_FR-siwis-medium.onnx"
  },
@@ -26,51 +26,51 @@
    "text": "Nanterino, Nanterino"
   },
   {
-   "t": 24.0,
+   "t": 26.4,
    "text": "Le petit robot rigolo"
   },
   {
-   "t": 26.4,
+   "t": 28.8,
    "text": "Triez vos déchets, prenez le vélo"
   },
   {
-   "t": 31.2,
+   "t": 33.6,
    "text": "Prenez soin de la planète, oh oh"
   },
   {
-   "t": 38.4,
+   "t": 40.8,
    "text": "Les parcs, la Seine et les jardins"
   },
   {
-   "t": 43.2,
+   "t": 45.6,
    "text": "Je connais tous les chemins"
   },
   {
-   "t": 45.6,
+   "t": 48.0,
    "text": "Le verre va dans sa borne"
   },
   {
-   "t": 48.0,
+   "t": 50.4,
    "text": "Le jaune pour les emballages"
   },
   {
-   "t": 52.8,
+   "t": 55.2,
    "text": "Nanterino, Nanterino"
   },
   {
-   "t": 55.2,
+   "t": 60.0,
    "text": "Le petit robot rigolo"
   },
   {
-   "t": 57.6,
+   "t": 62.4,
    "text": "Triez vos déchets, prenez le vélo"
   },
   {
-   "t": 62.4,
+   "t": 67.2,
    "text": "Prenez soin de la planète, oh oh"
   },
   {
-   "t": 69.6,
+   "t": 74.4,
    "text": "À bientôt les amis"
   }
  ]

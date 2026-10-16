@@ -136,11 +136,34 @@ def warm_voice(x, rate):
     return (x + double + wet).astype(np.float32)
 
 
+def tr(notes: str, shift: int) -> str:
+    """Transpose note names (space- or +-separated) by `shift` semitones -> frequencies in Hz."""
+    def one(n):
+        return f"{440 * 2 ** ((midi(n) + shift - 69) / 12):.3f}"
+    return " ".join("+".join(one(n) for n in tok.split("+")) for tok in notes.split())
+
+
+def compress(x, rate, thresh_db=-24.0, ratio=3.0, attack=0.005, release=0.08):
+    """Feed-forward compressor + make-up: evens out syllables so none sinks (v4)."""
+    from scipy.signal import lfilter
+    env = np.abs(x)
+    a_att, a_rel = np.exp(-1 / (attack * rate)), np.exp(-1 / (release * rate))
+    # Peak follower: one-pole release smoothing, then a short attack smoothing.
+    env = lfilter([1 - a_rel], [1, -a_rel], env)
+    env = np.maximum(env, lfilter([1 - a_att], [1, -a_att], np.abs(x)))
+    lvl = 20 * np.log10(env + 1e-9)
+    gain_db = np.where(lvl > thresh_db, (thresh_db - lvl) * (1 - 1 / ratio), 0.0)
+    return (x * 10 ** (gain_db / 20)).astype(np.float32)
+
+
 def auto_transpose(singer, lines):
     f0, _, _ = singer.analyse(lines[0]["say"])
     voice_midi = 69 + 12 * np.log2(np.median(f0[f0 > 0]) / 440)
     melody_midi = np.median([m for ln in lines for m in ln["pitches"]])
-    shift = int(12 * round((voice_midi + 3 - melody_midi) / 12))
+    # v4 (user: "des morceaux de mots tombent trop bas"): an octave-only shift put the low
+    # notes near 130 Hz, too low for this female voice (weak, unclear). Now ANY semitone shift
+    # puts the melody median 2 semitones above the speaking pitch; the music is transposed too.
+    shift = int(round(voice_midi + 2 - melody_midi))
     log.info("song v2 transpose voice_midi=%.1f melody_midi=%.1f shift=%d", voice_midi, melody_midi, shift)
     return shift
 
@@ -224,16 +247,19 @@ def main():
     # v3 arrangement (user: "tout au même niveau, trop creux, pas assez chaleureux"):
     # warm 7th chords, acoustic piano + nylon guitar arpeggios, sustained bass in verses,
     # strings + soft "ooh" choir + full drums only in the refrains -> real dynamics.
+    # Music in the same key as the transposed voice, kept in a sensible register (-6..+5).
+    mshift = (transpose + 6) % 12 - 6
     piano, guitar, bass, drums, strings, choir = [], [], [], [], [], []
     for b in bars:
         root_name, kind = b["chord"], b["kind"]
-        voicing, arp, root = WARM[root_name]
+        voicing, arp, root = (tr(x, mshift) for x in WARM[root_name])
         vel = {"soft": 0.6, "verse": 0.8, "chorus": 1.0}[kind]
         piano.append(f"{voicing}:2!{vel:.2f} {voicing}:2!{vel * 0.7:.2f}")
         a = arp.split()
         guitar.append(" ".join(f"{n}:1/2!{0.55 if kind == 'chorus' else 0.75}" for n in (a + a[-2:0:-1])[:8])
                       if kind != "soft" else "r:4")
-        bass.append(f"{root}:4!{vel:.2f}" if kind != "chorus" else f"{root}:2 {root[0]}{int(root[-1]) + 1}:1 {root}:1")
+        root_up = tr(WARM[root_name][2], mshift + 12)
+        bass.append(f"{root}:4!{vel:.2f}" if kind != "chorus" else f"{root}:2 {root_up}:1 {root}:1")
         if not b["drums"] or kind == "soft":
             drums.append("r:4")
         elif kind == "verse":  # light: kick + soft hats, no snare
@@ -241,7 +267,7 @@ def main():
         else:
             drums.append("C2+F#2:1 F#2:1!0.6 D2+F#2:1 F#2:1/2!0.6 C2:1/2!0.8")
         strings.append(f"{voicing}:4" if kind == "chorus" else "r:4")
-        choir.append(f"{CHORDS[root_name][0]}:4" if kind == "chorus" else "r:4")
+        choir.append(f"{tr(CHORDS[root_name][0], mshift)}:4" if kind == "chorus" else "r:4")
     music = {
         "mode": "song", "name": "chanson-nanterino-v3", "bpm": bpm, "gain": 0.6, "seed": 7,
         "eq": {"bass": 2.5, "bassFreq": 200, "treble": -4, "trebleFreq": 6500},  # warmer, less harsh
@@ -274,7 +300,7 @@ def main():
         n = min(len(y), len(voice) - start)
         voice[start:start + n] += y[:n]
         timings.append({"t": round(b0 * bar_s, 3), "text": ln["text"].replace("-", "")})
-    voice = warm_voice(voice, rate)
+    voice = warm_voice(compress(voice / max(1e-6, np.abs(voice).max()), rate), rate)
     voice *= VOCAL_RMS / max(1e-6, np.sqrt(np.mean(voice[np.abs(voice) > 1e-4] ** 2)))
     env, level = np.abs(voice), 0.0
     att, rel = 1 - np.exp(-1 / (0.02 * rate)), 1 - np.exp(-1 / (0.35 * rate))
