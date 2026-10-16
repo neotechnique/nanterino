@@ -215,6 +215,31 @@ def sing_line(tts, text, notes, spb, transpose):
     return fs, y.astype(np.float32), lead
 
 
+def slam_line(tts, text, notes, spb, transpose):
+    """Return (rate, float32 mono, lead_s): `text` SPOKEN in rhythm, gently tuned.
+
+    Measured 2026-10-16 (Whisper on the mix): note-by-note singing was understood at only
+    ~15-30 % (68-85 % word errors), because syllable boundaries are guessed. Slam keeps the
+    natural speech timing and intonation (intelligible), starts on the line's first beat, is
+    sped up only if longer than the 2 bars, and its pitch is moved so the median sits on the
+    line's median melody note (so it stays in key with the music).
+    """
+    fs, f0, sp, ap = analyse(tts, text)
+    fr = FRAME_MS / 1000
+    voiced = np.flatnonzero(f0 > 0)
+    first = max(0, (voiced[0] if len(voiced) else 0) - int(0.10 / fr))
+    last = min(len(f0) - 1, (voiced[-1] if len(voiced) else len(f0) - 1) + int(0.12 / fr))
+    seg = np.arange(first, last + 1)
+    room = int(8 * spb * 0.95 / fr)
+    if len(seg) > room:  # too long for its 2 bars: uniform speed-up
+        seg = np.linspace(first, last, room).round().astype(int)
+    target = 440 * 2 ** ((np.median([m for m, _ in notes]) + transpose - 69) / 12)
+    ratio = target / np.median(f0[f0 > 0])
+    f0_o = f0[seg] * ratio
+    y = pyworld.synthesize(np.ascontiguousarray(f0_o), np.ascontiguousarray(sp[seg]), np.ascontiguousarray(ap[seg]), fs, FRAME_MS)
+    return fs, y.astype(np.float32), 0.05
+
+
 def auto_transpose(tts, lines):
     """Octave shift (multiple of 12) that brings the melody near the voice's speaking pitch.
 
@@ -262,7 +287,8 @@ def main():
     if transpose == "auto":
         transpose = auto_transpose(tts, lines)
     for ln in lines:
-        fs, y, lead = sing_line(tts, ln["text"], ln["notes"], spb, transpose)
+        render = slam_line if spec.get("vocal_style", "sing") == "slam" else sing_line
+        fs, y, lead = render(tts, ln["text"], ln["notes"], spb, transpose)
         y = resample(y, fs, rate)
         start = int(round((ln["beat"] * spb - lead) * rate))
         if start < 0:  # very first line: drop the part before the song start
