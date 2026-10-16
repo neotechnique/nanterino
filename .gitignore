@@ -2,6 +2,7 @@ config.json
 # Large or machine-specific files stay out of git (models are re-downloadable, venv is rebuildable).
 media/*.wav
 models/
+models/piper/*.onnx
 *.pyc
 __pycache__/
 song/build/
