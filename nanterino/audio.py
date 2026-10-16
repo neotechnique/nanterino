@@ -177,7 +177,9 @@ class AudioIn:
         self.stream = None
         self.level = 0.0
         self.noise_floor = 300.0   # mean |int16| of non-speech frames, adapted continuously
-        self.snr = 2.5             # utterance must be this many times louder than the floor
+        # Utterance (voiced part) must be this many times louder than the floor. 2.5 -> 2.0 on
+        # 2026-10-16: real speech measured at loud=640 vs need=720 was rejected.
+        self.snr = 2.0
         self.min_energy = 400.0    # absolute minimum mean |int16|
         self.rejected = 0
         self._out: queue.Queue = queue.Queue()

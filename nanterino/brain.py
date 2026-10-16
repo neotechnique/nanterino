@@ -13,6 +13,7 @@ was started with. stop/off/hush/barge-in bump the generation, so an old thread c
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
 running answers missed it and kept talking after "Stop".)
 """
+import re
 import collections
 import queue
 import threading
@@ -43,6 +44,25 @@ def is_phantom(text: str, keep_words=()) -> bool:
     if len(words) < 2 and low not in keep_words and (len(low) < 3 or low in SINGLE_NOISE):
         return True
     return False
+
+
+# Last-resort filter: a speaking robot must never claim it cannot hear/speak or is a text AI.
+_DENIALS = re.compile(r"(ne (peux|puis) pas (vous |t')?(entendre|écouter|parler|voir)|ne (vous|t') ?entends pas|"
+                      r"ia textuelle|modèle de langage|intelligence artificielle textuelle|assistant virtuel textuel)",
+                      re.IGNORECASE)
+
+
+_DEAD_END = re.compile(r"ne (peux|puis) pas (vous |t')?aider", re.IGNORECASE)
+
+
+def fix_sentence(sentence: str) -> str:
+    if _DENIALS.search(sentence):
+        log.info("answer sentence replaced reason=denial")
+        return "Oui, je vous entends très bien."
+    if _DEAD_END.search(sentence):  # curt refusal ends the exchange: keep the visitor talking instead
+        log.info("answer sentence replaced reason=dead_end")
+        return "Je n'ai pas encore cette information. Dites-moi ce que vous cherchez exactement, je vais essayer de vous orienter."
+    return sentence
 
 
 class Brain:
@@ -270,8 +290,13 @@ class Brain:
     def _answer(self, question: str, t_end: float, gen: int):
         cfg = self.cfg
         sheets = self.corpus.search(question)
-        context = "\n\n---\n\n".join(s["text"] for s in sheets) or "AUCUNE FICHE PERTINENTE."
+        context = "\n\n---\n\n".join(s["text"] for s in sheets) or ("AUCUNE FICHE PERTINENTE : tu ne connais pas la réponse. Ne donne aucun lieu ni "
+                                                         "chemin ; dis que tu n'as pas encore cette information et "
+                                                         "demande ce que le visiteur cherche exactement.")
         messages = ([{"role": "system", "content": f"{cfg['system_prompt']}\n\nFiches :\n{context}"}]
+                    + list(cfg.get("few_shot", []))
+                    # No sheet found: show the model how to say "I do not know" without inventing.
+                    + ([] if sheets else list(cfg.get("few_shot_no_sheet", [])))
                     + self.history[-2 * cfg["history_turns"]:]
                     + [{"role": "user", "content": question}])
         log.info("answer start sheets=%d", len(sheets))
@@ -280,6 +305,7 @@ class Brain:
             for sentence in self.llm.sentences(messages):
                 if not self._alive(gen):
                     return  # cancelled: no audio, no history, no event
+                sentence = fix_sentence(sentence)
                 full.append(sentence)
                 self.subtitle = " ".join(full)  # full detail on screen, only N sentences spoken
                 if spoken < cfg["spoken_sentences"]:
