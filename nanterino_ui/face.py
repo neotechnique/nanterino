@@ -147,7 +147,8 @@ class FaceWidget(QWidget):
         t = time.monotonic() - self.t0
         st = self.s.get("state", "veille")
         cfg = STATES.get(st, STATES["veille"])
-        u = min(w, face_h) / 10
+        # Face unit; the dashboard "Taille du visage" slider scales the whole face around its centre.
+        u = min(w, face_h) / 10 * float(self.s.get("face_scale", 1.0) or 1.0)
         cx, cy = w / 2, face_h * 0.45
 
         self.eye_open += ((0.07 if cfg.get("closed") else 1.0) - self.eye_open) * 0.15

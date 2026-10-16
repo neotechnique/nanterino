@@ -109,6 +109,9 @@ class Dashboard(QWidget):
         f.addRow("Micro", self.mic); f.addRow("Sortie", self.out); f.addRow("Volume", self.volume)
         f.addRow("Anti-veille (dB)", self.keep); f.addRow("Enceinte", self.sink)
         # Gaze calibration (camera above the eye screen): applied live, saved on the robot.
+        self.scale = QSlider(Qt.Horizontal); self.scale.setRange(50, 160)
+        self.scale.valueChanged.connect(lambda v: self.api.post({"action": "face_scale", "value": v / 100}))
+        f.addRow("Taille du visage", self.scale)
         self.gaze_sliders = {}
         for key, label, lo, hi in (("offset_x", "Regard : décalage ←→", -100, 100),
                                    ("offset_y", "Regard : décalage ↑↓", -100, 100),
@@ -151,6 +154,8 @@ class Dashboard(QWidget):
         self.sub.setText(s.get("subtitle", ""))
         self.deaf.setChecked(bool(s.get("deaf"))); self.deaf.setText("🙉 Sourd : " + ("oui" if s.get("deaf") else "non"))
         self.mute.setChecked(bool(s.get("muted"))); self.mute.setText("🔇 Muet : " + ("oui" if s.get("muted") else "non"))
+        if not self.scale.isSliderDown() and "face_scale" in s:
+            self.scale.blockSignals(True); self.scale.setValue(int(round(s["face_scale"] * 100))); self.scale.blockSignals(False)
         for key, sl in self.gaze_sliders.items():  # follow the robot value unless being dragged
             if not sl.isSliderDown() and key in (s.get("gaze") or {}):
                 sl.blockSignals(True); sl.setValue(int(round(s["gaze"][key] * 100))); sl.blockSignals(False)

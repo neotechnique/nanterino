@@ -33,6 +33,8 @@ DEFAULTS = {
     "auto_greet_on_face": False,
     # Pupil = clamp(-x * gain_x + offset_x, y * gain_y + offset_y), x/y = face position in the
     # camera image (-1..1). Offsets compensate the camera mounted above the eye screen.
+    # Face size multiplier (0.5-1.6), set from the dashboard slider "Taille du visage".
+    "face_scale": 1.0,
     "gaze": {"offset_x": 0.0, "offset_y": 0.0, "gain_x": 1.6, "gain_y": 1.4},
     # Dialogue timings (seconds) from §2 and D10.
     "silence_relance_s": 8,
