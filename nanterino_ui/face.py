@@ -122,7 +122,10 @@ class FaceWidget(QWidget):
             self.gaze_target = [0.0, 0.0]; self.next_saccade = t + 1.0
         elif face.get("present"):
             # Look AT the person: a person facing the screen appears mirrored in the camera image.
-            self.gaze_target = [max(-1, min(1, -face.get("x", 0) * 1.6)), max(-1, min(1, face.get("y", 0) * 1.4))]
+            g = self.s.get("gaze") or {}  # calibration from the dashboard (camera above the screen)
+            gx = -face.get("x", 0) * g.get("gain_x", 1.6) + g.get("offset_x", 0.0)
+            gy = face.get("y", 0) * g.get("gain_y", 1.4) + g.get("offset_y", 0.0)
+            self.gaze_target = [max(-1, min(1, gx)), max(-1, min(1, gy))]
             self.next_saccade = t + 1.5  # resume wandering 1.5 s after the face disappears
         elif t >= self.next_saccade:
             if st in ("ecoute", "reponse"):  # attending: small drift only

@@ -81,7 +81,7 @@ def engines() -> dict:
 @app.get("/api/live")
 def live():
     """Cheap 10 Hz snapshot for the native UI (no engine health probes)."""
-    return {**brain.snapshot(), "face": vision.state}
+    return {**brain.snapshot(), "face": vision.state, "gaze": cfg["gaze"]}
 
 
 @app.get("/api/devices")
@@ -147,6 +147,14 @@ async def control(body: dict):
     elif action == "auto_greet":  # value true/false
         cfg["auto_greet_on_face"] = bool(body.get("value", True))
         config.save_overrides({"auto_greet_on_face": cfg["auto_greet_on_face"]})
+    elif action == "gaze":  # {"offset_x":..,"offset_y":..,"gain_x":..,"gain_y":..}, any subset
+        g = dict(cfg["gaze"])
+        for k in ("offset_x", "offset_y", "gain_x", "gain_y"):
+            if k in body:
+                lo, hi = (-1.0, 1.0) if k.startswith("offset") else (0.0, 3.0)
+                g[k] = max(lo, min(hi, float(body[k])))
+        cfg["gaze"] = g
+        config.save_overrides({"gaze": g})
     elif action == "reload_corpus":
         corpus.reload()
     elif action in ("mic_device", "out_device"):
