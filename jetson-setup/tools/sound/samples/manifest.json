@@ -1,0 +1,258 @@
+{
+ "bassdrum": [
+  {
+   "file": "bassdrum_1.wav",
+   "root": null,
+   "source": "bassdrum__BDrumNewhit_v7_rr1_Sum.wav"
+  }
+ ],
+ "cellos": [
+  {
+   "file": "cellos_A3.wav",
+   "root": 57,
+   "source": "cellos__susvib_A2_v3_1.wav"
+  },
+  {
+   "file": "cellos_B4.wav",
+   "root": 71,
+   "source": "cellos__susvib_B3_v3_1.wav"
+  },
+  {
+   "file": "cellos_D3.wav",
+   "root": 50,
+   "source": "cellos__susvib_D2_v3_1.wav"
+  },
+  {
+   "file": "cellos_E4.wav",
+   "root": 64,
+   "source": "cellos__susvib_E3_v3_1.wav"
+  },
+  {
+   "file": "cellos_G2.wav",
+   "root": 43,
+   "source": "cellos__susvib_G1_v3_1.wav"
+  }
+ ],
+ "cellospic": [
+  {
+   "file": "cellospic_A3.wav",
+   "root": 57,
+   "source": "cellospic__spic_A2_v2_RR1.wav"
+  },
+  {
+   "file": "cellospic_C4.wav",
+   "root": 60,
+   "source": "cellospic__spic_C3_v2_RR1.wav"
+  },
+  {
+   "file": "cellospic_D3.wav",
+   "root": 50,
+   "source": "cellospic__spic_D2_v2_RR1.wav"
+  }
+ ],
+ "crash": [
+  {
+   "file": "crash_1.wav",
+   "root": null,
+   "source": "crash__cymbal-crash1_ff_rr1.wav"
+  }
+ ],
+ "horn": [
+  {
+   "file": "horn_As2.wav",
+   "root": 46,
+   "source": "horn__MOHorn_sus_A#1_v3_1.wav"
+  },
+  {
+   "file": "horn_A3.wav",
+   "root": 57,
+   "source": "horn__MOHorn_sus_A2_v3_1.wav"
+  },
+  {
+   "file": "horn_C4.wav",
+   "root": 60,
+   "source": "horn__MOHorn_sus_C3_v4_1.wav"
+  },
+  {
+   "file": "horn_D3.wav",
+   "root": 50,
+   "source": "horn__MOHorn_sus_D2_v4_1.wav"
+  },
+  {
+   "file": "horn_D5.wav",
+   "root": 74,
+   "source": "horn__MOHorn_sus_D4_v1_1.wav"
+  },
+  {
+   "file": "horn_F3.wav",
+   "root": 53,
+   "source": "horn__MOHorn_sus_F2_v3_1.wav"
+  },
+  {
+   "file": "horn_F5.wav",
+   "root": 77,
+   "source": "horn__MOHorn_sus_F4_v1_1.wav"
+  },
+  {
+   "file": "horn_G2.wav",
+   "root": 43,
+   "source": "horn__MOHorn_sus_G1_v3_1.wav"
+  }
+ ],
+ "snare": [
+  {
+   "file": "snare_1.wav",
+   "root": null,
+   "source": "snare__Snare2-HitNS_v6_rr1_Sum.wav"
+  }
+ ],
+ "snareroll": [
+  {
+   "file": "snareroll_1.wav",
+   "root": null,
+   "source": "snareroll__Snare2-rollNS_v5_rr1_Sum.wav"
+  }
+ ],
+ "timpani": [
+  {
+   "file": "timpani_1.wav",
+   "root": null,
+   "source": "timpani__Timpani2_Hit_v4_rr1_Sum.wav"
+  },
+  {
+   "file": "timpani_2.wav",
+   "root": null,
+   "source": "timpani__Timpani3_Hit_v4_rr1_Sum.wav"
+  },
+  {
+   "file": "timpani_3.wav",
+   "root": null,
+   "source": "timpani__Timpani4_Hit_v4_rr1_Sum.wav"
+  }
+ ],
+ "trombone": [
+  {
+   "file": "trombone_As2.wav",
+   "root": 46,
+   "source": "trombone__tenortbn_sus_A#1_v1_1.wav"
+  },
+  {
+   "file": "trombone_C4.wav",
+   "root": 60,
+   "source": "trombone__tenortbn_sus_C3_v1_1.wav"
+  },
+  {
+   "file": "trombone_D3.wav",
+   "root": 50,
+   "source": "trombone__tenortbn_sus_D2_v1_1.wav"
+  },
+  {
+   "file": "trombone_F3.wav",
+   "root": 53,
+   "source": "trombone__tenortbn_sus_F2_v1_1.wav"
+  }
+ ],
+ "trumpet": [
+  {
+   "file": "trumpet_As4.wav",
+   "root": 70,
+   "source": "trumpet__Sum_SHTrumpet_sus_A#3_v1_rr1.wav"
+  },
+  {
+   "file": "trumpet_A3.wav",
+   "root": 57,
+   "source": "trumpet__Sum_SHTrumpet_sus_A2_v1_rr1.wav"
+  },
+  {
+   "file": "trumpet_Ds4.wav",
+   "root": 63,
+   "source": "trumpet__Sum_SHTrumpet_sus_D#3_v1_rr1.wav"
+  },
+  {
+   "file": "trumpet_D5.wav",
+   "root": 74,
+   "source": "trumpet__Sum_SHTrumpet_sus_D4_v1_rr1.wav"
+  },
+  {
+   "file": "trumpet_F5.wav",
+   "root": 77,
+   "source": "trumpet__Sum_SHTrumpet_sus_F4_v1_rr1.wav"
+  },
+  {
+   "file": "trumpet_G4.wav",
+   "root": 67,
+   "source": "trumpet__Sum_SHTrumpet_sus_G3_v1_rr1.wav"
+  }
+ ],
+ "tuba": [
+  {
+   "file": "tuba_As2.wav",
+   "root": 46,
+   "source": "tuba__Tuba3_sus_A#1_v1_rr1_Mid.wav"
+  },
+  {
+   "file": "tuba_D3.wav",
+   "root": 50,
+   "source": "tuba__Tuba3_sus_D2_v1_rr1_Mid.wav"
+  },
+  {
+   "file": "tuba_F2.wav",
+   "root": 41,
+   "source": "tuba__Tuba3_sus_F1_v1_rr1_Mid.wav"
+  },
+  {
+   "file": "tuba_F3.wav",
+   "root": 53,
+   "source": "tuba__Tuba3_sus_F2_v1_rr1_Mid.wav"
+  }
+ ],
+ "violins": [
+  {
+   "file": "violins_A4.wav",
+   "root": 69,
+   "source": "violins__VlnEns_susVib_A3_v1.wav"
+  },
+  {
+   "file": "violins_B5.wav",
+   "root": 83,
+   "source": "violins__VlnEns_susVib_B4_v1.wav"
+  },
+  {
+   "file": "violins_D4.wav",
+   "root": 62,
+   "source": "violins__VlnEns_susVib_D3_v2.wav"
+  },
+  {
+   "file": "violins_D6.wav",
+   "root": 86,
+   "source": "violins__VlnEns_susVib_D5_v1.wav"
+  },
+  {
+   "file": "violins_E5.wav",
+   "root": 76,
+   "source": "violins__VlnEns_susVib_E4_v1.wav"
+  },
+  {
+   "file": "violins_G3.wav",
+   "root": 55,
+   "source": "violins__VlnEns_susVib_G2_v2.wav"
+  }
+ ],
+ "vlnspic": [
+  {
+   "file": "vlnspic_A4.wav",
+   "root": 69,
+   "source": "vlnspic__VlnEns_Spic_A3_v2_rr1.wav"
+  },
+  {
+   "file": "vlnspic_D4.wav",
+   "root": 62,
+   "source": "vlnspic__VlnEns_Spic_D3_v2_rr1.wav"
+  },
+  {
+   "file": "vlnspic_D6.wav",
+   "root": 86,
+   "source": "vlnspic__VlnEns_Spic_D5_v2_rr1.wav"
+  }
+ ]
+}

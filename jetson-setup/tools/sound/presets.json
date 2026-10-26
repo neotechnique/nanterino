@@ -1,0 +1,9075 @@
+{
+  "coin": {
+    "duration": 0.08,
+    "gain": 0.6,
+    "osc": {
+      "wave": "square",
+      "freq": 988,
+      "freqEnd": 988,
+      "duty": 0.5
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.05,
+      "s": 0.6,
+      "r": 0.25
+    },
+    "echo": {
+      "time": 0.07,
+      "feedback": 0,
+      "mix": 0
+    },
+    "crush": {
+      "bits": 16,
+      "hold": 1
+    }
+  },
+  "coin2": {
+    "duration": 0.12,
+    "gain": 0.55,
+    "osc": {
+      "wave": "square",
+      "freq": 988,
+      "freqEnd": 1976,
+      "sweep": "linear",
+      "duty": 0.25
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.04,
+      "s": 0.7,
+      "r": 0.2
+    }
+  },
+  "jump": {
+    "duration": 0.22,
+    "gain": 0.6,
+    "osc": {
+      "wave": "square",
+      "freq": 220,
+      "freqEnd": 660,
+      "sweep": "exp",
+      "duty": 0.35
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.1,
+      "s": 0.5,
+      "r": 0.08
+    },
+    "filter": {
+      "lowpass": 6000
+    }
+  },
+  "laser": {
+    "duration": 0.18,
+    "gain": 0.55,
+    "osc": {
+      "wave": "saw",
+      "freq": 1800,
+      "freqEnd": 160,
+      "sweep": "exp"
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.15,
+      "s": 0.3,
+      "r": 0.05
+    },
+    "filter": {
+      "lowpass": 9000,
+      "highpass": 120
+    }
+  },
+  "explosion": {
+    "duration": 0.6,
+    "gain": 0.9,
+    "seed": 7,
+    "osc": {
+      "wave": "noise",
+      "freq": 3000,
+      "freqEnd": 120,
+      "sweep": "exp"
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.5,
+      "s": 0.2,
+      "r": 0.6
+    },
+    "filter": {
+      "lowpass": 5000,
+      "lowpassEnd": 300
+    },
+    "crush": {
+      "bits": 8,
+      "hold": 2
+    }
+  },
+  "hit": {
+    "duration": 0.1,
+    "gain": 0.8,
+    "seed": 3,
+    "osc": {
+      "wave": "noise",
+      "freq": 9000,
+      "freqEnd": 1500
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.08,
+      "s": 0.1,
+      "r": 0.06
+    },
+    "filter": {
+      "lowpass": 7000,
+      "highpass": 300
+    }
+  },
+  "powerup": {
+    "duration": 0.6,
+    "gain": 0.55,
+    "osc": {
+      "wave": "square",
+      "freq": 300,
+      "freqEnd": 1200,
+      "sweep": "linear",
+      "duty": 0.5
+    },
+    "vibrato": {
+      "rate": 18,
+      "depth": 0.06
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.2,
+      "s": 0.7,
+      "r": 0.2
+    }
+  },
+  "kick": {
+    "duration": 0.12,
+    "gain": 0.95,
+    "osc": {
+      "wave": "sine",
+      "freq": 160,
+      "freqEnd": 42,
+      "sweep": "exp"
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.12,
+      "s": 0.4,
+      "r": 0.18
+    }
+  },
+  "snare": {
+    "duration": 0.08,
+    "gain": 0.7,
+    "seed": 11,
+    "osc": {
+      "wave": "noise",
+      "freq": 12000,
+      "freqEnd": 6000
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.07,
+      "s": 0.2,
+      "r": 0.12
+    },
+    "filter": {
+      "lowpass": 8000,
+      "highpass": 900
+    }
+  },
+  "hihat": {
+    "duration": 0.03,
+    "gain": 0.45,
+    "seed": 5,
+    "osc": {
+      "wave": "noise",
+      "freq": 20000
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.02,
+      "s": 0.2,
+      "r": 0.04
+    },
+    "filter": {
+      "highpass": 6000
+    }
+  },
+  "bell": {
+    "duration": 0.05,
+    "gain": 0.6,
+    "osc": {
+      "wave": "sine",
+      "freq": 660
+    },
+    "fm": {
+      "ratio": 3.5,
+      "index": 4,
+      "indexEnd": 0.5
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.4,
+      "s": 0,
+      "r": 1.6
+    }
+  },
+  "pluck": {
+    "duration": 0.3,
+    "gain": 0.6,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.25,
+      "s": 0.15,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 4500,
+      "lowpassEnd": 700
+    }
+  },
+  "bass": {
+    "duration": 0.4,
+    "gain": 0.7,
+    "osc": {
+      "wave": "triangle",
+      "freq": 110
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 1.2,
+      "indexEnd": 0.2
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.2,
+      "s": 0.6,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 2500
+    }
+  },
+  "pad": {
+    "duration": 1.5,
+    "gain": 0.45,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 0.4,
+      "d": 0.5,
+      "s": 0.7,
+      "r": 1
+    },
+    "filter": {
+      "lowpass": 1800
+    },
+    "echo": {
+      "time": 0.28,
+      "feedback": 0.4,
+      "mix": 0.35
+    }
+  },
+  "chip-lead": {
+    "duration": 0.3,
+    "gain": 0.45,
+    "osc": {
+      "wave": "square",
+      "freq": 440,
+      "duty": 0.25
+    },
+    "vibrato": {
+      "rate": 6,
+      "depth": 0.01
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.1,
+      "s": 0.6,
+      "r": 0.08
+    },
+    "crush": {
+      "bits": 6,
+      "hold": 1
+    }
+  },
+  "alarm": {
+    "duration": 1.2,
+    "gain": 0.5,
+    "osc": {
+      "wave": "square",
+      "freq": 700,
+      "duty": 0.5
+    },
+    "vibrato": {
+      "rate": 4,
+      "depth": 0.25
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.1,
+      "s": 0.8,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 5000
+    }
+  },
+  "ufo": {
+    "duration": 1.5,
+    "gain": 0.5,
+    "osc": {
+      "wave": "sine",
+      "freq": 500
+    },
+    "vibrato": {
+      "rate": 7,
+      "depth": 0.3
+    },
+    "fm": {
+      "ratio": 0.5,
+      "index": 1.5
+    },
+    "env": {
+      "a": 0.2,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.4
+    },
+    "echo": {
+      "time": 0.15,
+      "feedback": 0.5,
+      "mix": 0.4
+    }
+  },
+  "thump": {
+    "duration": 0.012,
+    "gain": 0.9,
+    "osc": {
+      "wave": "sine",
+      "freq": 110,
+      "freqEnd": 50
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 0,
+      "r": 0.03
+    }
+  },
+  "scuff": {
+    "duration": 0.01,
+    "gain": 0.9,
+    "seed": 21,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.0005,
+      "d": 0.03,
+      "s": 0,
+      "r": 0.015
+    },
+    "filter": {
+      "band": 2600,
+      "q": 0.9
+    }
+  },
+  "footstep-stone": {
+    "mode": "layers",
+    "gain": 0.76,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 130,
+            "freqEnd": 65
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "preset": "scuff",
+          "filter": {
+            "band": 2800,
+            "q": 1.2
+          }
+        }
+      },
+      {
+        "at": 0.003,
+        "volume": 1,
+        "sound": {
+          "duration": 0.025,
+          "gain": 0.9,
+          "seed": 4,
+          "osc": {
+            "wave": "crackle",
+            "freq": 4000
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.03,
+            "s": 0.2,
+            "r": 0.02
+          },
+          "filter": {
+            "band": 4500,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0.075,
+        "volume": 0.5,
+        "sound": {
+          "preset": "scuff",
+          "seed": 22,
+          "filter": {
+            "band": 3400,
+            "q": 1.2
+          }
+        }
+      },
+      {
+        "at": 0.075,
+        "volume": 0.35,
+        "sound": "thump"
+      }
+    ]
+  },
+  "footstep-wood": {
+    "mode": "layers",
+    "gain": 0.63,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 190,
+            "freqEnd": 150
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.09,
+            "s": 0,
+            "r": 0.05
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 2.2,
+        "sound": {
+          "preset": "scuff",
+          "filter": {
+            "band": 800,
+            "q": 2.5
+          }
+        }
+      },
+      {
+        "at": 0.002,
+        "volume": 0.8,
+        "sound": {
+          "preset": "scuff",
+          "seed": 23,
+          "filter": {
+            "band": 2200,
+            "q": 1.5
+          }
+        }
+      },
+      {
+        "at": 0.08,
+        "volume": 0.55,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 230,
+            "freqEnd": 180
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.06,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0.08,
+        "volume": 1.5,
+        "sound": {
+          "preset": "scuff",
+          "seed": 24,
+          "filter": {
+            "band": 1000,
+            "q": 2.5
+          }
+        }
+      },
+      {
+        "at": 0.03,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.12,
+          "gain": 0.8,
+          "osc": {
+            "wave": "saw",
+            "freq": 210,
+            "freqEnd": 170
+          },
+          "vibrato": {
+            "rate": 23,
+            "depth": 0.03
+          },
+          "env": {
+            "a": 0.03,
+            "d": 0.08,
+            "s": 0.4,
+            "r": 0.05
+          },
+          "filter": {
+            "lowpass": 1400,
+            "band": 900,
+            "q": 3
+          }
+        }
+      }
+    ]
+  },
+  "footstep-metal": {
+    "mode": "layers",
+    "gain": 0.8,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": "thump"
+      },
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "preset": "scuff",
+          "filter": {
+            "band": 3200,
+            "q": 1.5
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.35,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 430
+          },
+          "fm": {
+            "ratio": 2.76,
+            "index": 3,
+            "indexEnd": 0.4
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.25,
+            "s": 0,
+            "r": 0.35
+          },
+          "filter": {
+            "highpass": 200
+          }
+        }
+      },
+      {
+        "at": 0.07,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 560
+          },
+          "fm": {
+            "ratio": 2.41,
+            "index": 2.5,
+            "indexEnd": 0.3
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.2,
+            "s": 0,
+            "r": 0.3
+          },
+          "filter": {
+            "highpass": 200
+          }
+        }
+      },
+      {
+        "at": 0.07,
+        "volume": 0.5,
+        "sound": {
+          "preset": "scuff",
+          "seed": 25,
+          "filter": {
+            "band": 3800,
+            "q": 1.5
+          }
+        }
+      }
+    ]
+  },
+  "footstep-gravel": {
+    "mode": "layers",
+    "gain": 0.99,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 90,
+            "freqEnd": 45
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.11,
+          "gain": 1,
+          "seed": 5,
+          "osc": {
+            "wave": "crackle",
+            "freq": 9000,
+            "freqEnd": 1500
+          },
+          "env": {
+            "a": 0.004,
+            "d": 0.1,
+            "s": 0.35,
+            "r": 0.07
+          },
+          "filter": {
+            "band": 2600,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.002,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.08,
+          "gain": 1,
+          "seed": 6,
+          "osc": {
+            "wave": "crackle",
+            "freq": 4000,
+            "freqEnd": 800
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 5200,
+            "q": 1.2
+          }
+        }
+      },
+      {
+        "at": 0.08,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.09,
+          "gain": 1,
+          "seed": 7,
+          "osc": {
+            "wave": "crackle",
+            "freq": 7000,
+            "freqEnd": 1200
+          },
+          "env": {
+            "a": 0.004,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 3200,
+            "q": 0.8
+          }
+        }
+      }
+    ]
+  },
+  "footstep-grass": {
+    "mode": "layers",
+    "gain": 0.97,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 80,
+            "freqEnd": 45
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.09,
+          "gain": 0.9,
+          "seed": 8,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.018,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.09
+          },
+          "filter": {
+            "band": 3800,
+            "bandEnd": 2600,
+            "q": 0.7,
+            "highpass": 400
+          }
+        }
+      },
+      {
+        "at": 0.01,
+        "volume": 1.4,
+        "sound": {
+          "duration": 0.12,
+          "gain": 1,
+          "seed": 9,
+          "osc": {
+            "wave": "crackle",
+            "freq": 900,
+            "freqEnd": 300
+          },
+          "env": {
+            "a": 0.01,
+            "d": 0.1,
+            "s": 0.3,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 5500,
+            "q": 2
+          }
+        }
+      },
+      {
+        "at": 0.1,
+        "volume": 0.55,
+        "sound": {
+          "duration": 0.07,
+          "gain": 0.9,
+          "seed": 10,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.015,
+            "d": 0.06,
+            "s": 0.2,
+            "r": 0.08
+          },
+          "filter": {
+            "band": 4500,
+            "bandEnd": 3000,
+            "q": 0.7,
+            "highpass": 400
+          }
+        }
+      }
+    ]
+  },
+  "footstep-snow": {
+    "mode": "layers",
+    "gain": 1.95,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 70,
+            "freqEnd": 40
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.17,
+          "gain": 1,
+          "seed": 11,
+          "osc": {
+            "wave": "crackle",
+            "freq": 12000,
+            "freqEnd": 3000
+          },
+          "env": {
+            "a": 0.03,
+            "d": 0.14,
+            "s": 0.5,
+            "r": 0.07
+          },
+          "filter": {
+            "band": 1300,
+            "bandEnd": 900,
+            "q": 1.1
+          }
+        }
+      },
+      {
+        "at": 0.01,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.15,
+          "gain": 0.8,
+          "seed": 12,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.03,
+            "d": 0.12,
+            "s": 0.3,
+            "r": 0.06
+          },
+          "filter": {
+            "lowpass": 1200,
+            "highpass": 150
+          }
+        }
+      },
+      {
+        "at": 0.12,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.1,
+          "gain": 1,
+          "seed": 13,
+          "osc": {
+            "wave": "crackle",
+            "freq": 9000,
+            "freqEnd": 2000
+          },
+          "env": {
+            "a": 0.02,
+            "d": 0.09,
+            "s": 0.4,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 1600,
+            "q": 1.1
+          }
+        }
+      }
+    ]
+  },
+  "footstep-sand": {
+    "mode": "layers",
+    "gain": 0.92,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 85,
+            "freqEnd": 45
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.12,
+          "gain": 0.9,
+          "seed": 14,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.012,
+            "d": 0.12,
+            "s": 0.3,
+            "r": 0.1
+          },
+          "filter": {
+            "lowpass": 2600,
+            "lowpassEnd": 900,
+            "highpass": 180
+          }
+        }
+      },
+      {
+        "at": 0.005,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.1,
+          "gain": 1,
+          "seed": 15,
+          "osc": {
+            "wave": "crackle",
+            "freq": 5000,
+            "freqEnd": 1500
+          },
+          "env": {
+            "a": 0.01,
+            "d": 0.1,
+            "s": 0.3,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 6500,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.1,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.08,
+          "gain": 0.9,
+          "seed": 16,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.01,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.08
+          },
+          "filter": {
+            "lowpass": 2200,
+            "lowpassEnd": 800,
+            "highpass": 180
+          }
+        }
+      }
+    ]
+  },
+  "footstep-water": {
+    "mode": "layers",
+    "gain": 0.93,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.35,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 80,
+            "freqEnd": 45
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "seed": 17,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.12,
+            "s": 0.25,
+            "r": 0.14
+          },
+          "filter": {
+            "band": 1800,
+            "bandEnd": 700,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.04,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 520,
+            "freqEnd": 1500
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      },
+      {
+        "at": 0.075,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 750,
+            "freqEnd": 2000
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.025,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      },
+      {
+        "at": 0.1,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.9,
+          "seed": 18,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.004,
+            "d": 0.1,
+            "s": 0.2,
+            "r": 0.12
+          },
+          "filter": {
+            "band": 2200,
+            "bandEnd": 900,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.13,
+        "volume": 0.2,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 430,
+            "freqEnd": 1200
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      }
+    ]
+  },
+  "footstep-carpet": {
+    "mode": "layers",
+    "gain": 0.91,
+    "vary": {
+      "pitch": 0.07,
+      "volume": 0.15,
+      "time": 0.012
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "preset": "thump",
+          "osc": {
+            "freq": 90,
+            "freqEnd": 50
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.04,
+          "gain": 0.9,
+          "seed": 19,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.004,
+            "d": 0.06,
+            "s": 0.2,
+            "r": 0.05
+          },
+          "filter": {
+            "lowpass": 700,
+            "highpass": 80
+          }
+        }
+      },
+      {
+        "at": 0.08,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.9,
+          "seed": 20,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.004,
+            "d": 0.05,
+            "s": 0.2,
+            "r": 0.04
+          },
+          "filter": {
+            "lowpass": 900,
+            "highpass": 80
+          }
+        }
+      }
+    ]
+  },
+  "mc-xp": {
+    "mode": "layers",
+    "gain": 0.66,
+    "vary": {
+      "pitch": 0.3,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 2093
+          },
+          "fm": {
+            "ratio": 2.01,
+            "index": 1.2,
+            "indexEnd": 0
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.25,
+            "s": 0,
+            "r": 0.15
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 3136
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.09
+          }
+        }
+      }
+    ]
+  },
+  "mc-levelup": {
+    "mode": "layers",
+    "gain": 0.46,
+    "vary": {
+      "pitch": 0,
+      "volume": 0,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.7,
+          "osc": {
+            "wave": "sine",
+            "freq": 1047
+          },
+          "fm": {
+            "ratio": 3.5,
+            "index": 1.5,
+            "indexEnd": 0
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.5,
+            "s": 0,
+            "r": 0.6
+          },
+          "echo": {
+            "time": 0,
+            "feedback": 0,
+            "mix": 0
+          }
+        }
+      },
+      {
+        "at": 0.09,
+        "volume": 0.88,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.7,
+          "osc": {
+            "wave": "sine",
+            "freq": 1319
+          },
+          "fm": {
+            "ratio": 3.5,
+            "index": 1.5,
+            "indexEnd": 0
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.5,
+            "s": 0,
+            "r": 0.6
+          },
+          "echo": {
+            "time": 0,
+            "feedback": 0,
+            "mix": 0
+          }
+        }
+      },
+      {
+        "at": 0.18,
+        "volume": 0.76,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.7,
+          "osc": {
+            "wave": "sine",
+            "freq": 1568
+          },
+          "fm": {
+            "ratio": 3.5,
+            "index": 1.5,
+            "indexEnd": 0
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.5,
+            "s": 0,
+            "r": 0.6
+          },
+          "echo": {
+            "time": 0,
+            "feedback": 0,
+            "mix": 0
+          }
+        }
+      },
+      {
+        "at": 0.27,
+        "volume": 0.64,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.7,
+          "osc": {
+            "wave": "sine",
+            "freq": 2093
+          },
+          "fm": {
+            "ratio": 3.5,
+            "index": 1.5,
+            "indexEnd": 0
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.5,
+            "s": 0,
+            "r": 0.6
+          },
+          "echo": {
+            "time": 0.11,
+            "feedback": 0.35,
+            "mix": 0.3
+          }
+        }
+      }
+    ]
+  },
+  "mc-pop": {
+    "mode": "layers",
+    "gain": 0.74,
+    "vary": {
+      "pitch": 0.25,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.04,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 280,
+            "freqEnd": 900
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.03
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "preset": "scuff",
+          "seed": 31,
+          "filter": {
+            "band": 3000,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "mc-break-stone": {
+    "mode": "layers",
+    "gain": 0.95,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.1,
+      "time": 0.008
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 100,
+            "freqEnd": 50
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.06,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "preset": "scuff",
+          "seed": 32,
+          "filter": {
+            "band": 1500,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.12,
+          "gain": 1,
+          "seed": 33,
+          "osc": {
+            "wave": "crackle",
+            "freq": 8000,
+            "freqEnd": 1000
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.12,
+            "s": 0.3,
+            "r": 0.072
+          },
+          "filter": {
+            "band": 1800,
+            "bandEnd": 1800,
+            "q": 0.9
+          }
+        }
+      },
+      {
+        "at": 0.01,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.08,
+          "gain": 1,
+          "seed": 34,
+          "osc": {
+            "wave": "crackle",
+            "freq": 3000,
+            "freqEnd": 600
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.048
+          },
+          "filter": {
+            "band": 3500,
+            "bandEnd": 3500,
+            "q": 1.2
+          }
+        }
+      }
+    ]
+  },
+  "mc-break-wood": {
+    "mode": "layers",
+    "gain": 0.81,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.1,
+      "time": 0.008
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 200,
+            "freqEnd": 140
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.08,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 35,
+          "filter": {
+            "band": 900,
+            "q": 2
+          }
+        }
+      },
+      {
+        "at": 0.005,
+        "volume": 1,
+        "sound": {
+          "duration": 0.15,
+          "gain": 1,
+          "seed": 36,
+          "osc": {
+            "wave": "crackle",
+            "freq": 2500,
+            "freqEnd": 600
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.15,
+            "s": 0.3,
+            "r": 0.09
+          },
+          "filter": {
+            "band": 1100,
+            "bandEnd": 1100,
+            "q": 1.5
+          }
+        }
+      }
+    ]
+  },
+  "mc-break-glass": {
+    "mode": "layers",
+    "gain": 0.92,
+    "vary": {
+      "pitch": 0.08,
+      "volume": 0.1,
+      "time": 0.01
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "preset": "scuff",
+          "seed": 37,
+          "filter": {
+            "band": 5000,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1.2,
+        "sound": {
+          "duration": 0.1,
+          "gain": 1,
+          "seed": 38,
+          "osc": {
+            "wave": "crackle",
+            "freq": 9000,
+            "freqEnd": 1500
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.1,
+            "s": 0.3,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 6000,
+            "bandEnd": 6000,
+            "q": 2
+          }
+        }
+      },
+      {
+        "at": 0.02,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 3520
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.12,
+            "s": 0,
+            "r": 0.072
+          }
+        }
+      },
+      {
+        "at": 0.05,
+        "volume": 0.2,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 4980
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.1,
+            "s": 0,
+            "r": 0.06
+          }
+        }
+      },
+      {
+        "at": 0.09,
+        "volume": 0.15,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 6230
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.09,
+            "s": 0,
+            "r": 0.054
+          }
+        }
+      },
+      {
+        "at": 0.14,
+        "volume": 0.12,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 4186
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.1,
+            "s": 0,
+            "r": 0.06
+          }
+        }
+      }
+    ]
+  },
+  "mc-place": {
+    "mode": "layers",
+    "gain": 0.63,
+    "vary": {
+      "pitch": 0.12,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 120,
+            "freqEnd": 60
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "preset": "scuff",
+          "seed": 39,
+          "filter": {
+            "band": 1200,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "mc-door-open": {
+    "mode": "layers",
+    "gain": 0.66,
+    "vary": {
+      "pitch": 0.06,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1.6,
+        "sound": {
+          "duration": 0.28,
+          "gain": 0.9,
+          "osc": {
+            "wave": "saw",
+            "freq": 260,
+            "freqEnd": 380,
+            "sweep": "linear"
+          },
+          "vibrato": {
+            "rate": 28,
+            "depth": 0.04
+          },
+          "env": {
+            "a": 0.03,
+            "d": 0.1,
+            "s": 0.6,
+            "r": 0.06
+          },
+          "filter": {
+            "lowpass": 3000,
+            "band": 1300,
+            "q": 3
+          }
+        }
+      },
+      {
+        "at": 0.3,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 180,
+            "freqEnd": 130
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.08,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0.3,
+        "volume": 2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 40,
+          "filter": {
+            "band": 700,
+            "q": 2
+          }
+        }
+      }
+    ]
+  },
+  "mc-door-close": {
+    "mode": "layers",
+    "gain": 0.63,
+    "vary": {
+      "pitch": 0.06,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 160,
+            "freqEnd": 110
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.1,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 2.5,
+        "sound": {
+          "preset": "scuff",
+          "seed": 41,
+          "filter": {
+            "band": 600,
+            "q": 2
+          }
+        }
+      },
+      {
+        "at": 0.06,
+        "volume": 1.2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 42,
+          "filter": {
+            "band": 3500,
+            "q": 4
+          }
+        }
+      }
+    ]
+  },
+  "mc-chest-open": {
+    "mode": "layers",
+    "gain": 0.83,
+    "vary": {
+      "pitch": 0.05,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1.5,
+        "sound": {
+          "duration": 0.35,
+          "gain": 0.9,
+          "osc": {
+            "wave": "saw",
+            "freq": 170,
+            "freqEnd": 230,
+            "sweep": "linear"
+          },
+          "vibrato": {
+            "rate": 22,
+            "depth": 0.05
+          },
+          "env": {
+            "a": 0.04,
+            "d": 0.1,
+            "s": 0.6,
+            "r": 0.08
+          },
+          "filter": {
+            "lowpass": 2500,
+            "band": 900,
+            "q": 3
+          }
+        }
+      },
+      {
+        "at": 0.38,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 150,
+            "freqEnd": 100
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.08,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0.38,
+        "volume": 1.5,
+        "sound": {
+          "preset": "scuff",
+          "seed": 43,
+          "filter": {
+            "band": 800,
+            "q": 2
+          }
+        }
+      }
+    ]
+  },
+  "mc-tnt": {
+    "mode": "layers",
+    "gain": 0.41,
+    "vary": {
+      "pitch": 0,
+      "volume": 0,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.35,
+        "sound": {
+          "duration": 1.4,
+          "gain": 0.9,
+          "seed": 44,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.05,
+            "d": 0.1,
+            "s": 0.8,
+            "r": 0.05
+          },
+          "filter": {
+            "highpass": 1500,
+            "band": 4500,
+            "q": 0.6
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 1.4,
+          "gain": 1,
+          "seed": 45,
+          "osc": {
+            "wave": "crackle",
+            "freq": 1500
+          },
+          "env": {
+            "a": 0.05,
+            "d": 0.1,
+            "s": 0.8,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 3000,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 1.45,
+        "volume": 1,
+        "sound": {
+          "duration": 0.3,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 70,
+            "freqEnd": 28
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.6,
+            "s": 0.3,
+            "r": 0.8
+          }
+        }
+      },
+      {
+        "at": 1.45,
+        "volume": 1,
+        "sound": {
+          "duration": 0.5,
+          "gain": 0.9,
+          "seed": 46,
+          "osc": {
+            "wave": "noise",
+            "freq": 3000,
+            "freqEnd": 100
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.5,
+            "s": 0.3,
+            "r": 0.9
+          },
+          "filter": {
+            "lowpass": 4000,
+            "lowpassEnd": 200
+          }
+        }
+      },
+      {
+        "at": 1.5,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.8,
+          "gain": 1,
+          "seed": 47,
+          "osc": {
+            "wave": "crackle",
+            "freq": 3000,
+            "freqEnd": 200
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.8,
+            "s": 0.3,
+            "r": 0.48
+          },
+          "filter": {
+            "band": 2500,
+            "bandEnd": 800,
+            "q": 0.8
+          }
+        }
+      }
+    ]
+  },
+  "mc-creeper": {
+    "mode": "layers",
+    "gain": 0.92,
+    "vary": {
+      "pitch": 0,
+      "volume": 0,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 1,
+          "gain": 0.9,
+          "seed": 48,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.6,
+            "d": 0.1,
+            "s": 0.9,
+            "r": 0.1
+          },
+          "filter": {
+            "highpass": 2500,
+            "band": 5000,
+            "q": 0.5
+          }
+        }
+      }
+    ]
+  },
+  "mc-bow": {
+    "mode": "layers",
+    "gain": 0.88,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.9,
+          "osc": {
+            "wave": "triangle",
+            "freq": 190,
+            "freqEnd": 130
+          },
+          "fm": {
+            "ratio": 2,
+            "index": 1.5,
+            "indexEnd": 0
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.18,
+            "s": 0,
+            "r": 0.08
+          }
+        }
+      },
+      {
+        "at": 0.02,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.18,
+          "gain": 0.9,
+          "seed": 49,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.02,
+            "d": 0.15,
+            "s": 0.2,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 2500,
+            "bandEnd": 600,
+            "q": 0.9
+          }
+        }
+      }
+    ]
+  },
+  "mc-arrow-hit": {
+    "mode": "layers",
+    "gain": 0.76,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 50,
+          "filter": {
+            "band": 800,
+            "q": 2
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 220,
+            "freqEnd": 160
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.06,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0.005,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 140
+          },
+          "vibrato": {
+            "rate": 32,
+            "depth": 0.18
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.3,
+            "s": 0,
+            "r": 0.1
+          }
+        }
+      }
+    ]
+  },
+  "mc-eat": {
+    "mode": "layers",
+    "gain": 2.23,
+    "vary": {
+      "pitch": 0.15,
+      "volume": 0.2,
+      "time": 0.03
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.08,
+          "gain": 1,
+          "seed": 51,
+          "osc": {
+            "wave": "crackle",
+            "freq": 6000,
+            "freqEnd": 800
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.048
+          },
+          "filter": {
+            "band": 1600,
+            "bandEnd": 1600,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "seed": 54,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.06,
+            "s": 0.2,
+            "r": 0.04
+          },
+          "filter": {
+            "lowpass": 900
+          }
+        }
+      },
+      {
+        "at": 0.2,
+        "volume": 1,
+        "sound": {
+          "duration": 0.08,
+          "gain": 1,
+          "seed": 52,
+          "osc": {
+            "wave": "crackle",
+            "freq": 6000,
+            "freqEnd": 800
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.048
+          },
+          "filter": {
+            "band": 1600,
+            "bandEnd": 1600,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0.2,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "seed": 55,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.06,
+            "s": 0.2,
+            "r": 0.04
+          },
+          "filter": {
+            "lowpass": 900
+          }
+        }
+      },
+      {
+        "at": 0.4,
+        "volume": 1,
+        "sound": {
+          "duration": 0.08,
+          "gain": 1,
+          "seed": 53,
+          "osc": {
+            "wave": "crackle",
+            "freq": 6000,
+            "freqEnd": 800
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.08,
+            "s": 0.3,
+            "r": 0.048
+          },
+          "filter": {
+            "band": 1600,
+            "bandEnd": 1600,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0.4,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "seed": 56,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.06,
+            "s": 0.2,
+            "r": 0.04
+          },
+          "filter": {
+            "lowpass": 900
+          }
+        }
+      }
+    ]
+  },
+  "mc-drink": {
+    "mode": "layers",
+    "gain": 0.76,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.15,
+      "time": 0.02
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 420,
+            "freqEnd": 260
+          },
+          "env": {
+            "a": 0.005,
+            "d": 0.08,
+            "s": 0.2,
+            "r": 0.05
+          },
+          "filter": {
+            "lowpass": 1500
+          }
+        }
+      },
+      {
+        "at": 0.12,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 600,
+            "freqEnd": 1200
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      },
+      {
+        "at": 0.25,
+        "volume": 1,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 400,
+            "freqEnd": 250
+          },
+          "env": {
+            "a": 0.005,
+            "d": 0.08,
+            "s": 0.2,
+            "r": 0.05
+          },
+          "filter": {
+            "lowpass": 1500
+          }
+        }
+      },
+      {
+        "at": 0.5,
+        "volume": 1,
+        "sound": {
+          "duration": 0.06,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 430,
+            "freqEnd": 270
+          },
+          "env": {
+            "a": 0.005,
+            "d": 0.08,
+            "s": 0.2,
+            "r": 0.05
+          },
+          "filter": {
+            "lowpass": 1500
+          }
+        }
+      }
+    ]
+  },
+  "mc-splash": {
+    "mode": "layers",
+    "gain": 0.96,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.1,
+      "time": 0.01
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 80,
+            "freqEnd": 45
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.06,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.25,
+          "gain": 0.9,
+          "seed": 57,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.003,
+            "d": 0.3,
+            "s": 0.3,
+            "r": 0.3
+          },
+          "filter": {
+            "band": 1500,
+            "bandEnd": 500,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.08,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 500,
+            "freqEnd": 1400
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      },
+      {
+        "at": 0.15,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 700,
+            "freqEnd": 1900
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      },
+      {
+        "at": 0.22,
+        "volume": 0.2,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 420,
+            "freqEnd": 1200
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      },
+      {
+        "at": 0.3,
+        "volume": 0.15,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 900,
+            "freqEnd": 2200
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.03,
+            "s": 0.3,
+            "r": 0.02
+          }
+        }
+      }
+    ]
+  },
+  "mc-lever": {
+    "mode": "layers",
+    "gain": 1.08,
+    "vary": {
+      "pitch": 0.05,
+      "volume": 0.05,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 58,
+          "filter": {
+            "band": 2500,
+            "q": 5
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 600,
+            "freqEnd": 400
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.03,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0.05,
+        "volume": 1.4,
+        "sound": {
+          "preset": "scuff",
+          "seed": 59,
+          "filter": {
+            "band": 3200,
+            "q": 5
+          }
+        }
+      }
+    ]
+  },
+  "mc-button": {
+    "mode": "layers",
+    "gain": 1.21,
+    "vary": {
+      "pitch": 0.05,
+      "volume": 0.05,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 60,
+          "filter": {
+            "band": 2000,
+            "q": 6
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 900,
+            "freqEnd": 700
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.02,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      }
+    ]
+  },
+  "mc-anvil": {
+    "mode": "layers",
+    "gain": 0.37,
+    "vary": {
+      "pitch": 0.06,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 90,
+            "freqEnd": 40
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.1,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1.2,
+        "sound": {
+          "preset": "scuff",
+          "seed": 61,
+          "filter": {
+            "band": 2500,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.45,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 330
+          },
+          "fm": {
+            "ratio": 2.76,
+            "index": 4,
+            "indexEnd": 0.5
+          },
+          "env": {
+            "a": 0.001,
+            "d": 1.2,
+            "s": 0,
+            "r": 0.8
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.15,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 1210
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.6,
+            "s": 0,
+            "r": 0.36
+          }
+        }
+      }
+    ]
+  },
+  "mc-portal": {
+    "mode": "layers",
+    "gain": 1.31,
+    "vary": {
+      "pitch": 0,
+      "volume": 0,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 3,
+          "gain": 0.9,
+          "seed": 62,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.8,
+            "d": 0.5,
+            "s": 0.7,
+            "r": 1
+          },
+          "filter": {
+            "band": 300,
+            "bandEnd": 1400,
+            "q": 2
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 3,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 110
+          },
+          "vibrato": {
+            "rate": 5,
+            "depth": 0.02
+          },
+          "fm": {
+            "ratio": 0.5,
+            "index": 2,
+            "indexEnd": 4
+          },
+          "env": {
+            "a": 1,
+            "d": 0.5,
+            "s": 0.6,
+            "r": 1
+          },
+          "echo": {
+            "time": 0.2,
+            "feedback": 0.4,
+            "mix": 0.3
+          }
+        }
+      }
+    ]
+  },
+  "mc-hurt": {
+    "mode": "layers",
+    "gain": 0.83,
+    "vary": {
+      "pitch": 0.1,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 2,
+        "sound": {
+          "duration": 0.12,
+          "gain": 0.9,
+          "osc": {
+            "wave": "saw",
+            "freq": 190,
+            "freqEnd": 130
+          },
+          "env": {
+            "a": 0.005,
+            "d": 0.12,
+            "s": 0.4,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 600,
+            "q": 4
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1.2,
+        "sound": {
+          "duration": 0.12,
+          "gain": 0.9,
+          "osc": {
+            "wave": "saw",
+            "freq": 190,
+            "freqEnd": 130
+          },
+          "env": {
+            "a": 0.005,
+            "d": 0.12,
+            "s": 0.4,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 1100,
+            "q": 5
+          }
+        }
+      }
+    ]
+  },
+  "mc-zombie": {
+    "mode": "layers",
+    "gain": 0.75,
+    "vary": {
+      "pitch": 0.12,
+      "volume": 0.1,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 2,
+        "sound": {
+          "duration": 1,
+          "gain": 0.9,
+          "osc": {
+            "wave": "saw",
+            "freq": 95,
+            "freqEnd": 75
+          },
+          "vibrato": {
+            "rate": 5,
+            "depth": 0.04
+          },
+          "env": {
+            "a": 0.15,
+            "d": 0.3,
+            "s": 0.7,
+            "r": 0.3
+          },
+          "filter": {
+            "band": 450,
+            "q": 4
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1.2,
+        "sound": {
+          "duration": 1,
+          "gain": 0.9,
+          "osc": {
+            "wave": "saw",
+            "freq": 95,
+            "freqEnd": 75
+          },
+          "vibrato": {
+            "rate": 5,
+            "depth": 0.04
+          },
+          "env": {
+            "a": 0.15,
+            "d": 0.3,
+            "s": 0.7,
+            "r": 0.3
+          },
+          "filter": {
+            "band": 900,
+            "bandEnd": 700,
+            "q": 5
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 1,
+          "gain": 0.9,
+          "seed": 63,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.2,
+            "d": 0.3,
+            "s": 0.6,
+            "r": 0.3
+          },
+          "filter": {
+            "band": 700,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "mc-fire": {
+    "mode": "layers",
+    "gain": 2.09,
+    "vary": {
+      "pitch": 0,
+      "volume": 0,
+      "time": 0
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 2.5,
+          "gain": 1,
+          "seed": 64,
+          "osc": {
+            "wave": "crackle",
+            "freq": 30,
+            "freqEnd": 60
+          },
+          "env": {
+            "a": 0.1,
+            "d": 0.1,
+            "s": 1,
+            "r": 0.2
+          },
+          "filter": {
+            "band": 2500,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 2.5,
+          "gain": 1,
+          "seed": 65,
+          "osc": {
+            "wave": "crackle",
+            "freq": 400
+          },
+          "env": {
+            "a": 0.1,
+            "d": 0.1,
+            "s": 1,
+            "r": 0.2
+          },
+          "filter": {
+            "band": 5000,
+            "q": 1.5
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 2.5,
+          "gain": 0.9,
+          "seed": 66,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.3,
+            "d": 0.1,
+            "s": 1,
+            "r": 0.3
+          },
+          "filter": {
+            "lowpass": 300
+          }
+        }
+      }
+    ]
+  },
+  "nb-harp": {
+    "duration": 0.2,
+    "gain": 0.6,
+    "osc": {
+      "wave": "triangle",
+      "freq": 440
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 1.5,
+      "indexEnd": 0
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.6,
+      "s": 0,
+      "r": 0.25
+    }
+  },
+  "nb-bass": {
+    "duration": 0.2,
+    "gain": 0.8,
+    "osc": {
+      "wave": "triangle",
+      "freq": 110
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 2.5,
+      "indexEnd": 0.3
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.35,
+      "s": 0,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 1500
+    }
+  },
+  "nb-bell": {
+    "duration": 0.2,
+    "gain": 0.5,
+    "osc": {
+      "wave": "sine",
+      "freq": 880
+    },
+    "fm": {
+      "ratio": 3.5,
+      "index": 2.5,
+      "indexEnd": 0.3
+    },
+    "env": {
+      "a": 0.002,
+      "d": 1,
+      "s": 0,
+      "r": 0.8
+    }
+  },
+  "nb-flute": {
+    "duration": 0.3,
+    "gain": 0.6,
+    "osc": {
+      "wave": "sine",
+      "freq": 880
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.006
+    },
+    "fm": {
+      "ratio": 2,
+      "index": 0.3
+    },
+    "env": {
+      "a": 0.04,
+      "d": 0.2,
+      "s": 0.7,
+      "r": 0.12
+    }
+  },
+  "nb-chime": {
+    "duration": 0.2,
+    "gain": 0.4,
+    "osc": {
+      "wave": "sine",
+      "freq": 1760
+    },
+    "fm": {
+      "ratio": 5.19,
+      "index": 2,
+      "indexEnd": 0.2
+    },
+    "env": {
+      "a": 0.002,
+      "d": 1.5,
+      "s": 0,
+      "r": 1.2
+    }
+  },
+  "nb-xylophone": {
+    "duration": 0.1,
+    "gain": 0.65,
+    "osc": {
+      "wave": "sine",
+      "freq": 880
+    },
+    "fm": {
+      "ratio": 4,
+      "index": 1.2,
+      "indexEnd": 0
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.25,
+      "s": 0,
+      "r": 0.12
+    }
+  },
+  "nb-iron": {
+    "duration": 0.1,
+    "gain": 0.5,
+    "osc": {
+      "wave": "triangle",
+      "freq": 440
+    },
+    "fm": {
+      "ratio": 3,
+      "index": 2,
+      "indexEnd": 0.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.6,
+      "s": 0,
+      "r": 0.4
+    }
+  },
+  "nb-pling": {
+    "duration": 0.2,
+    "gain": 0.5,
+    "osc": {
+      "wave": "sine",
+      "freq": 440
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 3.5,
+      "indexEnd": 0
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.9,
+      "s": 0,
+      "r": 0.5
+    }
+  },
+  "nb-bit": {
+    "duration": 0.2,
+    "gain": 0.35,
+    "osc": {
+      "wave": "square",
+      "freq": 440,
+      "duty": 0.5
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.25,
+      "s": 0.4,
+      "r": 0.08
+    },
+    "crush": {
+      "bits": 5,
+      "hold": 1
+    }
+  },
+  "nb-guitar": {
+    "duration": 0.2,
+    "gain": 0.5,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.6,
+      "s": 0,
+      "r": 0.3
+    },
+    "filter": {
+      "lowpass": 3000,
+      "lowpassEnd": 500
+    }
+  },
+  "nb-banjo": {
+    "duration": 0.1,
+    "gain": 0.9,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.3,
+      "s": 0,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 5000,
+      "lowpassEnd": 1500,
+      "band": 1800,
+      "q": 1.5
+    }
+  },
+  "nb-didgeridoo": {
+    "duration": 0.4,
+    "gain": 1.2,
+    "osc": {
+      "wave": "saw",
+      "freq": 73
+    },
+    "vibrato": {
+      "rate": 6,
+      "depth": 0.01
+    },
+    "env": {
+      "a": 0.02,
+      "d": 0.3,
+      "s": 0.8,
+      "r": 0.15
+    },
+    "filter": {
+      "band": 400,
+      "bandEnd": 250,
+      "q": 3
+    }
+  },
+  "nb-cowbell": {
+    "duration": 0.1,
+    "gain": 1,
+    "osc": {
+      "wave": "square",
+      "freq": 560,
+      "duty": 0.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.25,
+      "s": 0,
+      "r": 0.15
+    },
+    "filter": {
+      "band": 800,
+      "q": 6
+    }
+  },
+  "nb-basedrum": {
+    "duration": 0.05,
+    "gain": 0.9,
+    "osc": {
+      "wave": "sine",
+      "freq": 160,
+      "freqEnd": 45
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.15,
+      "s": 0,
+      "r": 0.1
+    }
+  },
+  "nb-snare": {
+    "duration": 0.05,
+    "gain": 0.9,
+    "seed": 41,
+    "osc": {
+      "wave": "noise",
+      "freq": 12000,
+      "freqEnd": 6000
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.12,
+      "s": 0,
+      "r": 0.08
+    },
+    "filter": {
+      "band": 3000,
+      "q": 0.7
+    }
+  },
+  "nb-hat": {
+    "duration": 0.02,
+    "gain": 0.5,
+    "seed": 42,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.03,
+      "s": 0,
+      "r": 0.03
+    },
+    "filter": {
+      "highpass": 7000
+    }
+  },
+  "chip-pwm": {
+    "duration": 0.3,
+    "gain": 0.4,
+    "osc": {
+      "wave": "square",
+      "freq": 440,
+      "duty": 0.5
+    },
+    "pwm": {
+      "rate": 2.5,
+      "depth": 0.35
+    },
+    "vibrato": {
+      "rate": 5.5,
+      "depth": 0.012
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.1,
+      "s": 0.75,
+      "r": 0.06
+    },
+    "echo": {
+      "time": 0.21,
+      "feedback": 0.3,
+      "mix": 0.25
+    }
+  },
+  "chip-thin": {
+    "duration": 0.3,
+    "gain": 0.35,
+    "osc": {
+      "wave": "square",
+      "freq": 440,
+      "duty": 0.125
+    },
+    "vibrato": {
+      "rate": 6,
+      "depth": 0.01
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.08,
+      "s": 0.7,
+      "r": 0.05
+    }
+  },
+  "chip-arp": {
+    "duration": 0.2,
+    "gain": 0.3,
+    "osc": {
+      "wave": "square",
+      "freq": 440,
+      "duty": 0.25
+    },
+    "arp": {
+      "steps": [
+        0,
+        4,
+        7
+      ],
+      "rate": 50
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.1,
+      "s": 0.6,
+      "r": 0.05
+    }
+  },
+  "chip-bass": {
+    "duration": 0.2,
+    "gain": 0.45,
+    "osc": {
+      "wave": "square",
+      "freq": 110,
+      "duty": 0.5
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.12,
+      "s": 0.5,
+      "r": 0.03
+    },
+    "filter": {
+      "lowpass": 1800
+    }
+  },
+  "chip-tri": {
+    "duration": 0.2,
+    "gain": 0.7,
+    "osc": {
+      "wave": "triangle",
+      "freq": 110
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.1,
+      "s": 0.8,
+      "r": 0.03
+    }
+  },
+  "chip-saw": {
+    "duration": 0.3,
+    "gain": 0.35,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.01
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.2,
+      "s": 0.7,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 4000
+    },
+    "echo": {
+      "time": 0.18,
+      "feedback": 0.35,
+      "mix": 0.3
+    }
+  },
+  "chip-kick": {
+    "duration": 0.04,
+    "gain": 0.9,
+    "osc": {
+      "wave": "sine",
+      "freq": 180,
+      "freqEnd": 40
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.12,
+      "s": 0,
+      "r": 0.05
+    },
+    "crush": {
+      "bits": 8,
+      "hold": 1
+    }
+  },
+  "chip-snare": {
+    "duration": 0.04,
+    "gain": 0.6,
+    "seed": 71,
+    "osc": {
+      "wave": "noise",
+      "freq": 9000,
+      "freqEnd": 4000
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.1,
+      "s": 0,
+      "r": 0.06
+    },
+    "crush": {
+      "bits": 6,
+      "hold": 2
+    }
+  },
+  "chip-hat": {
+    "duration": 0.015,
+    "gain": 0.45,
+    "seed": 72,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.025,
+      "s": 0,
+      "r": 0.02
+    },
+    "filter": {
+      "highpass": 8000
+    }
+  },
+  "chip-sawbass": {
+    "duration": 0.2,
+    "gain": 0.5,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.1,
+      "s": 0.6,
+      "r": 0.02
+    },
+    "filter": {
+      "lowpass": 1400,
+      "lowpassEnd": 600
+    }
+  },
+  "chip-blip": {
+    "duration": 0.05,
+    "gain": 0.3,
+    "osc": {
+      "wave": "square",
+      "freq": 880,
+      "duty": 0.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 0,
+      "r": 0.03
+    }
+  },
+  "bass-sub": {
+    "duration": 0.3,
+    "gain": 0.76,
+    "osc": {
+      "wave": "sine",
+      "freq": 55
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.08
+    },
+    "drive": 0.5
+  },
+  "bass-808": {
+    "duration": 0.3,
+    "gain": 0.53,
+    "osc": {
+      "wave": "sine",
+      "freq": 55,
+      "freqEnd": 52
+    },
+    "env": {
+      "a": 0.002,
+      "d": 1.2,
+      "s": 0,
+      "r": 0.4
+    },
+    "drive": 1.5,
+    "eq": {
+      "bass": 3,
+      "bassFreq": 100
+    }
+  },
+  "bass-reese": {
+    "duration": 0.3,
+    "gain": 0.77,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "fm": {
+      "ratio": 1.006,
+      "index": 1.5
+    },
+    "sub": {
+      "level": 0.6,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 900
+    },
+    "drive": 0.8
+  },
+  "bass-acid": {
+    "duration": 0.2,
+    "gain": 2.58,
+    "osc": {
+      "wave": "saw",
+      "freq": 110
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.25,
+      "s": 0.3,
+      "r": 0.05
+    },
+    "filter": {
+      "band": 1800,
+      "bandEnd": 300,
+      "q": 6
+    },
+    "drive": 2
+  },
+  "bass-wobble": {
+    "duration": 0.5,
+    "gain": 0.75,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "sub": {
+      "level": 0.7,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 300
+    },
+    "wobble": {
+      "rate": 3.33,
+      "depth": 2.5
+    },
+    "drive": 1.2
+  },
+  "bass-fm": {
+    "duration": 0.3,
+    "gain": 0.61,
+    "osc": {
+      "wave": "sine",
+      "freq": 55
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 3,
+      "indexEnd": 0.5
+    },
+    "sub": {
+      "level": 0.4,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.3,
+      "s": 0.5,
+      "r": 0.1
+    },
+    "drive": 0.6
+  },
+  "bass-deep-pluck": {
+    "duration": 0.2,
+    "gain": 0.48,
+    "osc": {
+      "wave": "triangle",
+      "freq": 55
+    },
+    "sub": {
+      "level": 0.7,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.35,
+      "s": 0,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 1200
+    }
+  },
+  "bass-chip-sub": {
+    "duration": 0.2,
+    "gain": 0.51,
+    "osc": {
+      "wave": "square",
+      "freq": 110,
+      "duty": 0.5
+    },
+    "sub": {
+      "level": 0.5,
+      "octave": -1,
+      "wave": "triangle"
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.12,
+      "s": 0.6,
+      "r": 0.03
+    },
+    "crush": {
+      "bits": 6,
+      "hold": 1
+    }
+  },
+  "kick-deep": {
+    "duration": 0.08,
+    "gain": 0.51,
+    "osc": {
+      "wave": "sine",
+      "freq": 150,
+      "freqEnd": 38
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.45,
+      "s": 0,
+      "r": 0.2
+    },
+    "drive": 1.5,
+    "eq": {
+      "bass": 4,
+      "bassFreq": 90
+    }
+  },
+  "kick-808": {
+    "duration": 0.1,
+    "gain": 0.75,
+    "osc": {
+      "wave": "sine",
+      "freq": 120,
+      "freqEnd": 45
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1,
+      "s": 0,
+      "r": 0.3
+    },
+    "drive": 0.8
+  },
+  "kick-punch": {
+    "duration": 0.04,
+    "gain": 0.75,
+    "osc": {
+      "wave": "sine",
+      "freq": 200,
+      "freqEnd": 50
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.2,
+      "s": 0,
+      "r": 0.08
+    },
+    "drive": 3
+  },
+  "impact-deep": {
+    "duration": 0.3,
+    "gain": 0.36,
+    "osc": {
+      "wave": "sine",
+      "freq": 70,
+      "freqEnd": 25
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1.5,
+      "s": 0,
+      "r": 1
+    },
+    "drive": 2,
+    "sub": {
+      "level": 0.5,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "eq": {
+      "bass": 6,
+      "bassFreq": 80
+    }
+  },
+  "drone-deep": {
+    "duration": 4,
+    "gain": 0.7,
+    "osc": {
+      "wave": "saw",
+      "freq": 36.71
+    },
+    "sub": {
+      "level": 0.8,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "vibrato": {
+      "rate": 0.2,
+      "depth": 0.003
+    },
+    "env": {
+      "a": 1.5,
+      "d": 0.5,
+      "s": 0.8,
+      "r": 2
+    },
+    "filter": {
+      "lowpass": 400
+    },
+    "wobble": {
+      "rate": 0.1,
+      "depth": 1
+    }
+  },
+  "space-orbit-portal": {
+    "mode": "layers",
+    "gain": 1.58,
+    "space": {
+      "reverb": {
+        "mix": 0.3,
+        "size": 0.8,
+        "damp": 0.4,
+        "width": 1
+      }
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": "mc-portal",
+        "pos": {
+          "angle": 0,
+          "spin": 120
+        }
+      }
+    ]
+  },
+  "space-steps-around": {
+    "mode": "layers",
+    "gain": 1.12,
+    "vary": {
+      "pitch": 0.05,
+      "volume": 0.1,
+      "time": 0.01
+    },
+    "space": {
+      "reverb": {
+        "mix": 0.18,
+        "size": 0.35,
+        "damp": 0.6,
+        "width": 1
+      }
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 0,
+          "spin": 0
+        }
+      },
+      {
+        "at": 0.5,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 45,
+          "spin": 0
+        }
+      },
+      {
+        "at": 1,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 90,
+          "spin": 0
+        }
+      },
+      {
+        "at": 1.5,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 135,
+          "spin": 0
+        }
+      },
+      {
+        "at": 2,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 180,
+          "spin": 0
+        }
+      },
+      {
+        "at": 2.5,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 225,
+          "spin": 0
+        }
+      },
+      {
+        "at": 3,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 270,
+          "spin": 0
+        }
+      },
+      {
+        "at": 3.5,
+        "volume": 1,
+        "sound": "footstep-wood",
+        "pos": {
+          "angle": 315,
+          "spin": 0
+        }
+      }
+    ]
+  },
+  "space-cave-drips": {
+    "mode": "layers",
+    "gain": 2.26,
+    "space": {
+      "reverb": {
+        "mix": 0.55,
+        "size": 0.95,
+        "damp": 0.3,
+        "width": 1
+      }
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "preset": "drone-deep",
+          "duration": 3
+        }
+      },
+      {
+        "at": 0.3,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 900,
+            "freqEnd": 1980.0000000000002
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.03
+          }
+        },
+        "pos": {
+          "angle": -60
+        }
+      },
+      {
+        "at": 1.1,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 1250,
+            "freqEnd": 2750
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.03
+          }
+        },
+        "pos": {
+          "angle": 150
+        }
+      },
+      {
+        "at": 1.7,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 780,
+            "freqEnd": 1716.0000000000002
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.03
+          }
+        },
+        "pos": {
+          "angle": 40
+        }
+      },
+      {
+        "at": 2.4,
+        "volume": 0.45,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 1500,
+            "freqEnd": 3300.0000000000005
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.03
+          }
+        },
+        "pos": {
+          "angle": -140
+        }
+      },
+      {
+        "at": 3,
+        "volume": 0.55,
+        "sound": {
+          "duration": 0.015,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 1020,
+            "freqEnd": 2244
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.03
+          }
+        },
+        "pos": {
+          "angle": 100
+        }
+      }
+    ]
+  },
+  "space-flyby": {
+    "mode": "layers",
+    "gain": 1.34,
+    "space": {
+      "reverb": {
+        "mix": 0.15,
+        "size": 0.5,
+        "damp": 0.5,
+        "width": 1
+      }
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "pos": {
+          "angle": -100,
+          "spin": 160
+        },
+        "sound": {
+          "duration": 1.2,
+          "gain": 0.8,
+          "seed": 81,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.4,
+            "d": 0.2,
+            "s": 0.8,
+            "r": 0.5
+          },
+          "filter": {
+            "band": 700,
+            "bandEnd": 2400,
+            "q": 1.2
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "pos": {
+          "angle": -100,
+          "spin": 160
+        },
+        "sound": {
+          "duration": 1.2,
+          "gain": 0.7,
+          "osc": {
+            "wave": "saw",
+            "freq": 180,
+            "freqEnd": 140
+          },
+          "env": {
+            "a": 0.4,
+            "d": 0.2,
+            "s": 0.8,
+            "r": 0.5
+          },
+          "filter": {
+            "lowpass": 1500
+          }
+        }
+      }
+    ]
+  },
+  "space-room-steps": {
+    "mode": "layers",
+    "gain": 1.52,
+    "vary": {
+      "pitch": 0.05,
+      "volume": 0.1,
+      "time": 0.01
+    },
+    "space": {
+      "reverb": {
+        "mix": 0.35,
+        "size": 0.6,
+        "damp": 0.5,
+        "width": 1
+      },
+      "haas": 8
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": "footstep-stone",
+        "pos": {
+          "angle": -20
+        }
+      },
+      {
+        "at": 0.55,
+        "volume": 1,
+        "sound": "footstep-stone",
+        "pos": {
+          "angle": 20
+        }
+      },
+      {
+        "at": 1.1,
+        "volume": 1,
+        "sound": "footstep-stone",
+        "pos": {
+          "angle": -20
+        }
+      },
+      {
+        "at": 1.65,
+        "volume": 1,
+        "sound": "footstep-stone",
+        "pos": {
+          "angle": 20
+        }
+      }
+    ]
+  },
+  "pno-grand": {
+    "duration": 0.4,
+    "gain": 0.99,
+    "osc": {
+      "wave": "additive",
+      "freq": 220
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2.003,
+          0.6
+        ],
+        [
+          3.008,
+          0.35
+        ],
+        [
+          4.015,
+          0.25
+        ],
+        [
+          5.03,
+          0.15
+        ],
+        [
+          6.04,
+          0.1
+        ],
+        [
+          7.06,
+          0.06
+        ]
+      ],
+      "decay": 2.5
+    },
+    "env": {
+      "a": 0.002,
+      "d": 1.6,
+      "s": 0,
+      "r": 0.6
+    },
+    "drive": 0.2,
+    "eq": {
+      "treble": -2,
+      "trebleFreq": 5000
+    }
+  },
+  "pno-bright": {
+    "duration": 0.4,
+    "gain": 0.93,
+    "osc": {
+      "wave": "additive",
+      "freq": 220
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2.003,
+          0.7
+        ],
+        [
+          3.008,
+          0.5
+        ],
+        [
+          4.015,
+          0.4
+        ],
+        [
+          5.03,
+          0.3
+        ],
+        [
+          6.04,
+          0.2
+        ],
+        [
+          8.1,
+          0.1
+        ]
+      ],
+      "decay": 1.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1.4,
+      "s": 0,
+      "r": 0.5
+    },
+    "drive": 0.3
+  },
+  "pno-epiano": {
+    "duration": 0.4,
+    "gain": 0.7,
+    "osc": {
+      "wave": "sine",
+      "freq": 220
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 2.2,
+      "indexEnd": 0.3
+    },
+    "vibrato": {
+      "rate": 4.5,
+      "depth": 0.002
+    },
+    "env": {
+      "a": 0.002,
+      "d": 1.2,
+      "s": 0.3,
+      "r": 0.5
+    }
+  },
+  "pno-wurli": {
+    "duration": 0.4,
+    "gain": 0.7,
+    "osc": {
+      "wave": "triangle",
+      "freq": 220
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 1.5,
+      "indexEnd": 0
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.8,
+      "s": 0.3,
+      "r": 0.3
+    },
+    "drive": 0.8
+  },
+  "pno-clav": {
+    "duration": 0.5,
+    "gain": 1.23,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.99,
+      "damping": 0.2,
+      "bright": 0.9
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.3,
+      "s": 0.5,
+      "r": 0.05
+    },
+    "filter": {
+      "band": 1500,
+      "q": 0.8
+    },
+    "drive": 0.5
+  },
+  "pno-toy": {
+    "duration": 0.4,
+    "gain": 0.72,
+    "osc": {
+      "wave": "additive",
+      "freq": 880
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2.76,
+          0.5
+        ],
+        [
+          5.4,
+          0.25
+        ]
+      ],
+      "decay": 6
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.6,
+      "s": 0,
+      "r": 0.3
+    }
+  },
+  "org-drawbar": {
+    "duration": 0.4,
+    "gain": 1.01,
+    "osc": {
+      "wave": "additive",
+      "freq": 220
+    },
+    "additive": {
+      "harmonics": [
+        [
+          0.5,
+          0.6
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1.5,
+          0.5
+        ],
+        [
+          2,
+          0.7
+        ],
+        [
+          3,
+          0.4
+        ],
+        [
+          4,
+          0.3
+        ]
+      ],
+      "decay": 0
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.08
+    },
+    "vibrato": {
+      "rate": 6.5,
+      "depth": 0.004
+    }
+  },
+  "org-church": {
+    "duration": 0.4,
+    "gain": 1.29,
+    "osc": {
+      "wave": "additive",
+      "freq": 220
+    },
+    "additive": {
+      "harmonics": [
+        [
+          0.5,
+          0.8
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0.8
+        ],
+        [
+          3,
+          0.5
+        ],
+        [
+          4,
+          0.5
+        ],
+        [
+          6,
+          0.3
+        ],
+        [
+          8,
+          0.3
+        ]
+      ],
+      "decay": 0
+    },
+    "env": {
+      "a": 0.08,
+      "d": 0.1,
+      "s": 1,
+      "r": 0.4
+    }
+  },
+  "org-rock": {
+    "duration": 0.4,
+    "gain": 0.74,
+    "osc": {
+      "wave": "additive",
+      "freq": 220
+    },
+    "additive": {
+      "harmonics": [
+        [
+          0.5,
+          0.6
+        ],
+        [
+          1,
+          1
+        ],
+        [
+          1.5,
+          0.5
+        ],
+        [
+          2,
+          0.7
+        ],
+        [
+          3,
+          0.4
+        ],
+        [
+          4,
+          0.3
+        ]
+      ],
+      "decay": 0
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.08
+    },
+    "vibrato": {
+      "rate": 6.5,
+      "depth": 0.004
+    },
+    "drive": 2.5
+  },
+  "org-reed": {
+    "duration": 0.4,
+    "gain": 0.7,
+    "osc": {
+      "wave": "square",
+      "freq": 220,
+      "duty": 0.3
+    },
+    "env": {
+      "a": 0.05,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 2500
+    }
+  },
+  "gtr-nylon": {
+    "duration": 0.5,
+    "gain": 0.81,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.995,
+      "damping": 0.55,
+      "bright": 0.6
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    }
+  },
+  "gtr-steel": {
+    "duration": 0.5,
+    "gain": 0.73,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.996,
+      "damping": 0.4,
+      "bright": 0.9
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    }
+  },
+  "gtr-electric": {
+    "duration": 0.5,
+    "gain": 0.9,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.997,
+      "damping": 0.35,
+      "bright": 0.8
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    },
+    "filter": {
+      "lowpass": 4000
+    }
+  },
+  "gtr-distortion": {
+    "duration": 0.5,
+    "gain": 0.64,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 110
+    },
+    "pluck": {
+      "decay": 0.998,
+      "damping": 0.3,
+      "bright": 0.9
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    },
+    "drive": 6,
+    "filter": {
+      "lowpass": 3500
+    },
+    "eq": {
+      "bass": 2,
+      "bassFreq": 150
+    }
+  },
+  "gtr-muted": {
+    "duration": 0.5,
+    "gain": 0.87,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.97,
+      "damping": 0.6,
+      "bright": 0.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.1,
+      "s": 0.3,
+      "r": 0.05
+    }
+  },
+  "gtr-bass": {
+    "duration": 0.5,
+    "gain": 0.92,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 55
+    },
+    "pluck": {
+      "decay": 0.998,
+      "damping": 0.5,
+      "bright": 0.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    },
+    "sub": {
+      "level": 0.3,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "filter": {
+      "lowpass": 1500
+    }
+  },
+  "gtr-harp": {
+    "duration": 0.5,
+    "gain": 0.77,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 440
+    },
+    "pluck": {
+      "decay": 0.997,
+      "damping": 0.45,
+      "bright": 0.7
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.4
+    }
+  },
+  "gtr-koto": {
+    "duration": 0.5,
+    "gain": 0.71,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 440
+    },
+    "pluck": {
+      "decay": 0.993,
+      "damping": 0.3,
+      "bright": 1
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.003
+    }
+  },
+  "gtr-sitar": {
+    "duration": 0.5,
+    "gain": 1.1,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.997,
+      "damping": 0.2,
+      "bright": 1
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    },
+    "drive": 0.6,
+    "formant": {
+      "vowel": "e",
+      "mix": 0.4,
+      "q": 6
+    }
+  },
+  "gtr-banjo": {
+    "duration": 0.5,
+    "gain": 0.62,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 440
+    },
+    "pluck": {
+      "decay": 0.99,
+      "damping": 0.25,
+      "bright": 1
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.05,
+      "s": 1,
+      "r": 0.12
+    },
+    "filter": {
+      "highpass": 300
+    }
+  },
+  "str-ensemble": {
+    "duration": 0.6,
+    "gain": 1.85,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 7,
+      "detune": 10
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 0.25,
+      "d": 0.3,
+      "s": 0.9,
+      "r": 0.5
+    },
+    "filter": {
+      "lowpass": 3500
+    }
+  },
+  "str-slow": {
+    "duration": 1,
+    "gain": 1.7,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 7,
+      "detune": 12
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 1,
+      "d": 0.4,
+      "s": 0.9,
+      "r": 1.2
+    },
+    "filter": {
+      "lowpass": 3000
+    }
+  },
+  "str-violin": {
+    "duration": 0.5,
+    "gain": 1.09,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 2,
+      "detune": 4
+    },
+    "vibrato": {
+      "rate": 5.5,
+      "depth": 0.008
+    },
+    "env": {
+      "a": 0.08,
+      "d": 0.2,
+      "s": 0.9,
+      "r": 0.25
+    },
+    "filter": {
+      "lowpass": 5000
+    },
+    "formant": {
+      "vowel": "a",
+      "mix": 0.35,
+      "q": 4
+    }
+  },
+  "str-cello": {
+    "duration": 0.5,
+    "gain": 0.86,
+    "osc": {
+      "wave": "saw",
+      "freq": 110
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.006
+    },
+    "env": {
+      "a": 0.1,
+      "d": 0.2,
+      "s": 0.9,
+      "r": 0.3
+    },
+    "filter": {
+      "lowpass": 2200
+    },
+    "formant": {
+      "vowel": "o",
+      "mix": 0.3,
+      "q": 4
+    }
+  },
+  "str-pizzicato": {
+    "duration": 0.5,
+    "gain": 0.77,
+    "seed": 7,
+    "osc": {
+      "wave": "pluck",
+      "freq": 220
+    },
+    "pluck": {
+      "decay": 0.985,
+      "damping": 0.5,
+      "bright": 0.7
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.3,
+      "s": 0,
+      "r": 0.1
+    }
+  },
+  "brs-trumpet": {
+    "duration": 0.4,
+    "gain": 0.79,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.005
+    },
+    "env": {
+      "a": 0.04,
+      "d": 0.2,
+      "s": 0.85,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 900,
+      "lowpassEnd": 3000
+    },
+    "drive": 0.5
+  },
+  "brs-section": {
+    "duration": 0.4,
+    "gain": 1.6,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 4,
+      "detune": 8
+    },
+    "env": {
+      "a": 0.05,
+      "d": 0.3,
+      "s": 0.8,
+      "r": 0.2
+    },
+    "filter": {
+      "lowpass": 1200,
+      "lowpassEnd": 3500
+    }
+  },
+  "brs-horn": {
+    "duration": 0.5,
+    "gain": 0.72,
+    "osc": {
+      "wave": "triangle",
+      "freq": 220
+    },
+    "fm": {
+      "ratio": 1,
+      "index": 1.5
+    },
+    "env": {
+      "a": 0.06,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.25
+    },
+    "filter": {
+      "lowpass": 1500
+    }
+  },
+  "brs-tuba": {
+    "duration": 0.4,
+    "gain": 0.72,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "env": {
+      "a": 0.05,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.15
+    },
+    "filter": {
+      "lowpass": 700
+    }
+  },
+  "wnd-flute": {
+    "duration": 0.4,
+    "gain": 0.82,
+    "osc": {
+      "wave": "additive",
+      "freq": 440
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0.1
+        ],
+        [
+          3,
+          0.05
+        ]
+      ],
+      "decay": 0
+    },
+    "env": {
+      "a": 0.06,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.12
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.006
+    }
+  },
+  "wnd-clarinet": {
+    "duration": 0.4,
+    "gain": 0.7,
+    "osc": {
+      "wave": "square",
+      "freq": 220,
+      "duty": 0.5
+    },
+    "vibrato": {
+      "rate": 4.5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 0.05,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 2200
+    }
+  },
+  "wnd-oboe": {
+    "duration": 0.4,
+    "gain": 1.54,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.005
+    },
+    "env": {
+      "a": 0.04,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.1
+    },
+    "filter": {
+      "band": 1400,
+      "q": 1.5
+    },
+    "formant": {
+      "vowel": "e",
+      "mix": 0.5,
+      "q": 6
+    }
+  },
+  "wnd-panflute": {
+    "duration": 0.4,
+    "gain": 0.75,
+    "osc": {
+      "wave": "additive",
+      "freq": 440
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0.2
+        ]
+      ],
+      "decay": 0
+    },
+    "env": {
+      "a": 0.06,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.2
+    },
+    "vibrato": {
+      "rate": 4,
+      "depth": 0.01
+    },
+    "echo": {
+      "time": 0.25,
+      "feedback": 0.3,
+      "mix": 0.25
+    }
+  },
+  "wnd-recorder": {
+    "duration": 0.4,
+    "gain": 0.75,
+    "osc": {
+      "wave": "triangle",
+      "freq": 440
+    },
+    "env": {
+      "a": 0.03,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 3000
+    }
+  },
+  "wnd-sax": {
+    "duration": 0.4,
+    "gain": 1.05,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.008
+    },
+    "env": {
+      "a": 0.04,
+      "d": 0.2,
+      "s": 0.85,
+      "r": 0.2
+    },
+    "formant": {
+      "vowel": "o",
+      "vowelEnd": "a",
+      "mix": 0.7,
+      "q": 5
+    },
+    "drive": 1
+  },
+  "vox-aah": {
+    "duration": 0.8,
+    "gain": 3.84,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 10
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.006
+    },
+    "env": {
+      "a": 0.3,
+      "d": 0.3,
+      "s": 0.9,
+      "r": 0.6
+    },
+    "formant": {
+      "vowel": "a",
+      "mix": 1,
+      "q": 6
+    }
+  },
+  "vox-ooh": {
+    "duration": 0.8,
+    "gain": 5.32,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 10
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.006
+    },
+    "env": {
+      "a": 0.3,
+      "d": 0.3,
+      "s": 0.9,
+      "r": 0.6
+    },
+    "formant": {
+      "vowel": "u",
+      "mix": 1,
+      "q": 6
+    }
+  },
+  "vox-eeh": {
+    "duration": 0.8,
+    "gain": 6.57,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 10
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.006
+    },
+    "env": {
+      "a": 0.3,
+      "d": 0.3,
+      "s": 0.9,
+      "r": 0.6
+    },
+    "formant": {
+      "vowel": "i",
+      "mix": 1,
+      "q": 6
+    }
+  },
+  "vox-choir": {
+    "duration": 1,
+    "gain": 3.65,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 9,
+      "detune": 14
+    },
+    "vibrato": {
+      "rate": 4.5,
+      "depth": 0.005
+    },
+    "env": {
+      "a": 1,
+      "d": 0.5,
+      "s": 0.9,
+      "r": 1.5
+    },
+    "formant": {
+      "vowel": "a",
+      "mix": 1,
+      "q": 5
+    }
+  },
+  "vox-robot": {
+    "duration": 0.4,
+    "gain": 1.09,
+    "osc": {
+      "wave": "square",
+      "freq": 220,
+      "duty": 0.3
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.05
+    },
+    "formant": {
+      "vowel": "a",
+      "vowelEnd": "i",
+      "mix": 1,
+      "q": 10
+    },
+    "crush": {
+      "bits": 8,
+      "hold": 1
+    }
+  },
+  "vox-talkbox": {
+    "duration": 0.4,
+    "gain": 1.6,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.1
+    },
+    "formant": {
+      "vowel": "o",
+      "vowelEnd": "a",
+      "mix": 1,
+      "q": 9
+    },
+    "drive": 1.5
+  },
+  "vox-hum": {
+    "duration": 0.6,
+    "gain": 1.51,
+    "osc": {
+      "wave": "sine",
+      "freq": 220
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.005
+    },
+    "env": {
+      "a": 0.15,
+      "d": 0.2,
+      "s": 0.9,
+      "r": 0.3
+    },
+    "formant": {
+      "vowel": "u",
+      "mix": 0.6,
+      "q": 5
+    }
+  },
+  "mal-marimba": {
+    "duration": 0.4,
+    "gain": 0.75,
+    "osc": {
+      "wave": "additive",
+      "freq": 440
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          3.9,
+          0.35
+        ],
+        [
+          9.2,
+          0.1
+        ]
+      ],
+      "decay": 8
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.6,
+      "s": 0,
+      "r": 0.2
+    }
+  },
+  "mal-vibraphone": {
+    "duration": 0.4,
+    "gain": 0.74,
+    "osc": {
+      "wave": "additive",
+      "freq": 440
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          3.98,
+          0.3
+        ],
+        [
+          10.6,
+          0.08
+        ]
+      ],
+      "decay": 2
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1.5,
+      "s": 0,
+      "r": 0.8
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.002
+    }
+  },
+  "mal-glockenspiel": {
+    "duration": 0.4,
+    "gain": 0.71,
+    "osc": {
+      "wave": "additive",
+      "freq": 1760
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2.76,
+          0.5
+        ],
+        [
+          5.4,
+          0.3
+        ],
+        [
+          8.9,
+          0.1
+        ]
+      ],
+      "decay": 3
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1.2,
+      "s": 0,
+      "r": 0.6
+    }
+  },
+  "mal-celesta": {
+    "duration": 0.4,
+    "gain": 0.85,
+    "osc": {
+      "wave": "additive",
+      "freq": 1760
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0.3
+        ],
+        [
+          3,
+          0.1
+        ],
+        [
+          4.2,
+          0.15
+        ]
+      ],
+      "decay": 4
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1,
+      "s": 0,
+      "r": 0.5
+    }
+  },
+  "mal-kalimba": {
+    "duration": 0.4,
+    "gain": 0.72,
+    "osc": {
+      "wave": "additive",
+      "freq": 880
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          5.4,
+          0.25
+        ]
+      ],
+      "decay": 10
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.8,
+      "s": 0,
+      "r": 0.3
+    }
+  },
+  "mal-steeldrum": {
+    "duration": 0.4,
+    "gain": 0.86,
+    "osc": {
+      "wave": "additive",
+      "freq": 440
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          0.6
+        ],
+        [
+          3,
+          0.25
+        ],
+        [
+          4.1,
+          0.2
+        ]
+      ],
+      "decay": 1.5
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.9,
+      "s": 0,
+      "r": 0.4
+    }
+  },
+  "mal-tubular-bells": {
+    "duration": 0.4,
+    "gain": 0.72,
+    "osc": {
+      "wave": "additive",
+      "freq": 440
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          2.76,
+          0.6
+        ],
+        [
+          5.4,
+          0.4
+        ],
+        [
+          8.9,
+          0.2
+        ]
+      ],
+      "decay": 0.8
+    },
+    "env": {
+      "a": 0.001,
+      "d": 3,
+      "s": 0,
+      "r": 2
+    }
+  },
+  "perc-conga-hi": {
+    "mode": "layers",
+    "gain": 0.75,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 330,
+            "freqEnd": 290
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.25,
+            "s": 0,
+            "r": 0.08
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 201,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.03,
+            "s": 0,
+            "r": 0.01
+          },
+          "filter": {
+            "band": 1500,
+            "q": 2
+          }
+        }
+      }
+    ]
+  },
+  "perc-conga-lo": {
+    "mode": "layers",
+    "gain": 0.75,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 220,
+            "freqEnd": 190
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.3,
+            "s": 0,
+            "r": 0.1
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 202,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.03,
+            "s": 0,
+            "r": 0.01
+          },
+          "filter": {
+            "band": 1200,
+            "q": 2
+          }
+        }
+      }
+    ]
+  },
+  "perc-bongo-hi": {
+    "mode": "layers",
+    "gain": 0.72,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 450,
+            "freqEnd": 400
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.05
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.35,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 203,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.02,
+            "s": 0,
+            "r": 0.01
+          },
+          "filter": {
+            "band": 2500,
+            "q": 2
+          }
+        }
+      }
+    ]
+  },
+  "perc-bongo-lo": {
+    "mode": "layers",
+    "gain": 0.75,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 330,
+            "freqEnd": 300
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.18,
+            "s": 0,
+            "r": 0.06
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.35,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 204,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.02,
+            "s": 0,
+            "r": 0.01
+          },
+          "filter": {
+            "band": 2000,
+            "q": 2
+          }
+        }
+      }
+    ]
+  },
+  "perc-shaker": {
+    "duration": 0.03,
+    "gain": 0.92,
+    "seed": 205,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.02,
+      "d": 0.05,
+      "s": 0,
+      "r": 0.04
+    },
+    "filter": {
+      "highpass": 5000
+    }
+  },
+  "perc-tambourine": {
+    "mode": "layers",
+    "gain": 1.45,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.12,
+          "gain": 1,
+          "seed": 206,
+          "osc": {
+            "wave": "crackle",
+            "freq": 6000
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.1
+          },
+          "filter": {
+            "band": 7000,
+            "q": 1.5
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 207,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.12,
+            "s": 0,
+            "r": 0.08
+          },
+          "filter": {
+            "highpass": 8000
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 3200,
+            "freqEnd": 3200
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.2,
+            "s": 0,
+            "r": 0.1
+          },
+          "fm": {
+            "ratio": 1.47,
+            "index": 2
+          }
+        }
+      }
+    ]
+  },
+  "perc-cowbell": {
+    "mode": "layers",
+    "gain": 0.65,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.8,
+          "osc": {
+            "wave": "square",
+            "freq": 587
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.25,
+            "s": 0,
+            "r": 0.1
+          },
+          "filter": {
+            "band": 800,
+            "q": 3
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.8,
+          "osc": {
+            "wave": "square",
+            "freq": 845
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.25,
+            "s": 0,
+            "r": 0.1
+          },
+          "filter": {
+            "band": 1100,
+            "q": 3
+          }
+        }
+      }
+    ]
+  },
+  "perc-timpani": {
+    "mode": "layers",
+    "gain": 0.73,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 90,
+            "freqEnd": 85
+          },
+          "env": {
+            "a": 0.002,
+            "d": 1.5,
+            "s": 0,
+            "r": 1
+          },
+          "drive": 0.5
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 208,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.3,
+            "s": 0,
+            "r": 0.2
+          },
+          "filter": {
+            "lowpass": 600
+          }
+        }
+      }
+    ]
+  },
+  "perc-crash": {
+    "mode": "layers",
+    "gain": 0.68,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.9,
+          "seed": 209,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 1.8,
+            "s": 0,
+            "r": 1.2
+          },
+          "filter": {
+            "highpass": 3000
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.8,
+          "seed": 210,
+          "osc": {
+            "wave": "crackle",
+            "freq": 8000,
+            "freqEnd": 2000
+          },
+          "env": {
+            "a": 0.001,
+            "d": 1.2,
+            "s": 0,
+            "r": 0.8
+          },
+          "filter": {
+            "band": 6000,
+            "q": 1
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 4100,
+            "freqEnd": 4100
+          },
+          "env": {
+            "a": 0.001,
+            "d": 1.5,
+            "s": 0,
+            "r": 1
+          },
+          "fm": {
+            "ratio": 1.41,
+            "index": 4
+          }
+        }
+      }
+    ]
+  },
+  "perc-ride": {
+    "mode": "layers",
+    "gain": 0.82,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 3200,
+            "freqEnd": 3200
+          },
+          "env": {
+            "a": 0.001,
+            "d": 1.2,
+            "s": 0,
+            "r": 0.8
+          },
+          "fm": {
+            "ratio": 1.47,
+            "index": 3
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 211,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.8,
+            "s": 0,
+            "r": 0.5
+          },
+          "filter": {
+            "highpass": 6000
+          }
+        }
+      }
+    ]
+  },
+  "perc-tom-hi": {
+    "mode": "layers",
+    "gain": 0.71,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 200,
+            "freqEnd": 140
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.35,
+            "s": 0,
+            "r": 0.15
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 212,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.02
+          },
+          "filter": {
+            "band": 1500,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "perc-tom-mid": {
+    "mode": "layers",
+    "gain": 0.72,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 150,
+            "freqEnd": 105
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.4,
+            "s": 0,
+            "r": 0.15
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 213,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.02
+          },
+          "filter": {
+            "band": 1200,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "perc-tom-lo": {
+    "mode": "layers",
+    "gain": 0.74,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 110,
+            "freqEnd": 75
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.45,
+            "s": 0,
+            "r": 0.2
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 214,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.02
+          },
+          "filter": {
+            "band": 900,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "perc-rim": {
+    "mode": "layers",
+    "gain": 1.03,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 215,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.02,
+            "s": 0,
+            "r": 0.01
+          },
+          "filter": {
+            "band": 2500,
+            "q": 4
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 800,
+            "freqEnd": 800
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.03,
+            "s": 0,
+            "r": 0.01
+          }
+        }
+      }
+    ]
+  },
+  "perc-snap": {
+    "duration": 0.01,
+    "gain": 1.5,
+    "seed": 216,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.0005,
+      "d": 0.06,
+      "s": 0,
+      "r": 0.03
+    },
+    "filter": {
+      "band": 2200,
+      "q": 1.5
+    }
+  },
+  "perc-claves": {
+    "duration": 0.02,
+    "gain": 0.71,
+    "osc": {
+      "wave": "sine",
+      "freq": 2500,
+      "freqEnd": 2500
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.06,
+      "s": 0,
+      "r": 0.03
+    }
+  },
+  "perc-woodblock": {
+    "duration": 0.02,
+    "gain": 0.77,
+    "osc": {
+      "wave": "sine",
+      "freq": 1200,
+      "freqEnd": 1100
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.08,
+      "s": 0,
+      "r": 0.03
+    },
+    "filter": {
+      "band": 1200,
+      "q": 6
+    }
+  },
+  "perc-ac-kick": {
+    "mode": "layers",
+    "gain": 0.69,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 70,
+            "freqEnd": 45
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.3,
+            "s": 0,
+            "r": 0.1
+          },
+          "drive": 0.5
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.4,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 217,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.008,
+            "s": 0,
+            "r": 0.004
+          },
+          "filter": {
+            "band": 3000,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "perc-ac-snare": {
+    "mode": "layers",
+    "gain": 0.63,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 190,
+            "freqEnd": 170
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.1,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 218,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.2,
+            "s": 0,
+            "r": 0.08
+          },
+          "filter": {
+            "band": 3500,
+            "q": 0.5
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.1,
+          "gain": 1,
+          "seed": 219,
+          "osc": {
+            "wave": "crackle",
+            "freq": 9000
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 5000,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "perc-ac-hat": {
+    "mode": "layers",
+    "gain": 1.31,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 220,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.02
+          },
+          "filter": {
+            "highpass": 7000
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 5200,
+            "freqEnd": 5200
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.06,
+            "s": 0,
+            "r": 0.02
+          },
+          "fm": {
+            "ratio": 1.53,
+            "index": 3
+          }
+        }
+      }
+    ]
+  },
+  "perc-ac-hat-open": {
+    "mode": "layers",
+    "gain": 1.08,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 221,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.35,
+            "s": 0,
+            "r": 0.15
+          },
+          "filter": {
+            "highpass": 6500
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 5200,
+            "freqEnd": 5200
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.4,
+            "s": 0,
+            "r": 0.15
+          },
+          "fm": {
+            "ratio": 1.53,
+            "index": 3
+          }
+        }
+      }
+    ]
+  },
+  "perc-909-kick": {
+    "mode": "layers",
+    "gain": 0.59,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 180,
+            "freqEnd": 50
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.35,
+            "s": 0,
+            "r": 0.1
+          },
+          "drive": 1.5
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 222,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0003,
+            "d": 0.005,
+            "s": 0,
+            "r": 0.003
+          },
+          "filter": {
+            "highpass": 2000
+          }
+        }
+      }
+    ]
+  },
+  "perc-909-snare": {
+    "mode": "layers",
+    "gain": 0.55,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 220,
+            "freqEnd": 180
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.12,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 223,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.18,
+            "s": 0,
+            "r": 0.06
+          },
+          "filter": {
+            "highpass": 1500
+          }
+        }
+      }
+    ]
+  },
+  "perc-808-snare": {
+    "mode": "layers",
+    "gain": 0.59,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 240,
+            "freqEnd": 230
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.12,
+            "s": 0,
+            "r": 0.05
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 224,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.05
+          },
+          "filter": {
+            "highpass": 2500
+          }
+        }
+      }
+    ]
+  },
+  "perc-808-tom": {
+    "duration": 0.02,
+    "gain": 0.7,
+    "osc": {
+      "wave": "sine",
+      "freq": 120,
+      "freqEnd": 90
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.4,
+      "s": 0,
+      "r": 0.2
+    }
+  },
+  "syn-acid": {
+    "duration": 0.2,
+    "gain": 3.1,
+    "osc": {
+      "wave": "saw",
+      "freq": 110
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.2,
+      "s": 0.3,
+      "r": 0.05
+    },
+    "filter": {
+      "band": 1500,
+      "bandEnd": 250,
+      "q": 8
+    },
+    "drive": 2
+  },
+  "syn-hoover": {
+    "duration": 0.5,
+    "gain": 0.61,
+    "osc": {
+      "wave": "saw",
+      "freq": 330,
+      "freqEnd": 220
+    },
+    "unison": {
+      "voices": 7,
+      "detune": 35
+    },
+    "sub": {
+      "level": 0.5,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.3,
+      "s": 0.8,
+      "r": 0.3
+    },
+    "filter": {
+      "lowpass": 5000
+    }
+  },
+  "syn-trance-lead": {
+    "duration": 0.3,
+    "gain": 1.7,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 9,
+      "detune": 20
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.2
+    },
+    "filter": {
+      "lowpass": 8000
+    },
+    "echo": {
+      "time": 0.19,
+      "feedback": 0.35,
+      "mix": 0.3
+    }
+  },
+  "syn-dubstep-bass": {
+    "duration": 0.5,
+    "gain": 0.7,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "sub": {
+      "level": 0.7,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.1,
+      "s": 0.9,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 400
+    },
+    "wobble": {
+      "rate": 4,
+      "depth": 3
+    },
+    "drive": 4
+  },
+  "syn-lofi-pad": {
+    "duration": 1,
+    "gain": 0.87,
+    "osc": {
+      "wave": "triangle",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 3,
+      "detune": 6
+    },
+    "vibrato": {
+      "rate": 0.5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 0.6,
+      "d": 0.4,
+      "s": 0.8,
+      "r": 1
+    },
+    "filter": {
+      "lowpass": 1500
+    },
+    "crush": {
+      "bits": 10,
+      "hold": 2
+    }
+  },
+  "syn-ambient-pad": {
+    "duration": 1.5,
+    "gain": 0.73,
+    "osc": {
+      "wave": "sine",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 8
+    },
+    "env": {
+      "a": 1.5,
+      "d": 1,
+      "s": 0.9,
+      "r": 2
+    },
+    "echo": {
+      "time": 0.4,
+      "feedback": 0.5,
+      "mix": 0.3
+    }
+  },
+  "syn-sonar": {
+    "duration": 0.05,
+    "gain": 0.62,
+    "osc": {
+      "wave": "sine",
+      "freq": 880
+    },
+    "fm": {
+      "ratio": 3,
+      "index": 1,
+      "indexEnd": 0
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1.5,
+      "s": 0,
+      "r": 1
+    },
+    "echo": {
+      "time": 0.35,
+      "feedback": 0.6,
+      "mix": 0.5
+    }
+  },
+  "syn-house-pluck": {
+    "duration": 0.15,
+    "gain": 2.07,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 3,
+      "detune": 9
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.15,
+      "s": 0,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 4000,
+      "lowpassEnd": 400
+    }
+  },
+  "syn-rave-stab": {
+    "duration": 0.15,
+    "gain": 2.31,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 20
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.25,
+      "s": 0,
+      "r": 0.1
+    },
+    "filter": {
+      "band": 1200,
+      "q": 1.5
+    },
+    "drive": 1
+  },
+  "syn-glass": {
+    "duration": 0.4,
+    "gain": 0.94,
+    "osc": {
+      "wave": "additive",
+      "freq": 880
+    },
+    "additive": {
+      "harmonics": [
+        [
+          1,
+          1
+        ],
+        [
+          3,
+          0.4
+        ],
+        [
+          5.2,
+          0.2
+        ]
+      ],
+      "decay": 1
+    },
+    "env": {
+      "a": 0.001,
+      "d": 1.2,
+      "s": 0,
+      "r": 0.8
+    }
+  },
+  "syn-vinyl": {
+    "duration": 4,
+    "gain": 1.87,
+    "seed": 230,
+    "osc": {
+      "wave": "crackle",
+      "freq": 40
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.1,
+      "s": 1,
+      "r": 0.05
+    },
+    "filter": {
+      "band": 3000,
+      "q": 0.5
+    }
+  },
+  "syn-fx-rise": {
+    "duration": 2,
+    "gain": 0.87,
+    "osc": {
+      "wave": "saw",
+      "freq": 200,
+      "freqEnd": 2000
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 25
+    },
+    "env": {
+      "a": 1.8,
+      "d": 0.1,
+      "s": 1,
+      "r": 0.1
+    },
+    "filter": {
+      "lowpass": 600,
+      "lowpassEnd": 9000
+    }
+  },
+  "kit-acoustic": {
+    "mode": "kit",
+    "map": {
+      "35": "perc-ac-kick",
+      "36": "perc-ac-kick",
+      "37": "perc-rim",
+      "38": "perc-ac-snare",
+      "39": "msw-clap",
+      "40": "perc-ac-snare",
+      "41": "perc-tom-lo",
+      "42": "perc-ac-hat",
+      "43": "perc-tom-lo",
+      "44": "perc-ac-hat",
+      "45": "perc-tom-mid",
+      "46": "perc-ac-hat-open",
+      "47": "perc-tom-mid",
+      "48": "perc-tom-hi",
+      "49": "perc-crash",
+      "50": "perc-tom-hi",
+      "51": "perc-ride",
+      "53": "perc-ride",
+      "54": "perc-tambourine",
+      "56": "perc-cowbell",
+      "57": "perc-crash"
+    }
+  },
+  "kit-808": {
+    "mode": "kit",
+    "map": {
+      "35": "kick-808",
+      "36": "kick-808",
+      "37": "perc-rim",
+      "38": "perc-808-snare",
+      "39": "msw-clap",
+      "40": "perc-808-snare",
+      "41": "perc-808-tom",
+      "42": "msw-hat",
+      "43": "perc-808-tom",
+      "44": "msw-hat",
+      "45": {
+        "preset": "perc-808-tom",
+        "osc": {
+          "freq": 150,
+          "freqEnd": 110
+        }
+      },
+      "46": "msw-hat-open",
+      "47": {
+        "preset": "perc-808-tom",
+        "osc": {
+          "freq": 150,
+          "freqEnd": 110
+        }
+      },
+      "48": {
+        "preset": "perc-808-tom",
+        "osc": {
+          "freq": 190,
+          "freqEnd": 140
+        }
+      },
+      "49": "perc-crash",
+      "50": {
+        "preset": "perc-808-tom",
+        "osc": {
+          "freq": 190,
+          "freqEnd": 140
+        }
+      },
+      "51": "perc-ride",
+      "56": "perc-cowbell",
+      "75": "perc-claves"
+    }
+  },
+  "kit-909": {
+    "mode": "kit",
+    "map": {
+      "35": "perc-909-kick",
+      "36": "perc-909-kick",
+      "37": "perc-rim",
+      "38": "perc-909-snare",
+      "39": "msw-clap",
+      "40": "perc-909-snare",
+      "41": "perc-tom-lo",
+      "42": "msw-hat",
+      "43": "perc-tom-lo",
+      "44": "msw-hat",
+      "45": "perc-tom-mid",
+      "46": "msw-hat-open",
+      "47": "perc-tom-mid",
+      "48": "perc-tom-hi",
+      "49": "perc-crash",
+      "50": "perc-tom-hi",
+      "51": "perc-ride"
+    }
+  },
+  "kit-chip": {
+    "mode": "kit",
+    "map": {
+      "35": "chip-kick",
+      "36": "chip-kick",
+      "38": "chip-snare",
+      "39": "chip-snare",
+      "40": "chip-snare",
+      "42": "chip-hat",
+      "44": "chip-hat",
+      "45": {
+        "duration": 0.05,
+        "gain": 0.5,
+        "osc": {
+          "wave": "square",
+          "freq": 150,
+          "freqEnd": 80
+        },
+        "env": {
+          "a": 0.001,
+          "d": 0.2,
+          "s": 0,
+          "r": 0.05
+        },
+        "crush": {
+          "bits": 6,
+          "hold": 1
+        }
+      },
+      "46": {
+        "preset": "chip-hat",
+        "env": {
+          "a": 0.001,
+          "d": 0.15,
+          "s": 0,
+          "r": 0.08
+        }
+      },
+      "48": {
+        "duration": 0.05,
+        "gain": 0.5,
+        "osc": {
+          "wave": "square",
+          "freq": 220,
+          "freqEnd": 120
+        },
+        "env": {
+          "a": 0.001,
+          "d": 0.2,
+          "s": 0,
+          "r": 0.05
+        },
+        "crush": {
+          "bits": 6,
+          "hold": 1
+        }
+      },
+      "49": {
+        "preset": "chip-hat",
+        "duration": 0.1,
+        "env": {
+          "a": 0.001,
+          "d": 0.6,
+          "s": 0,
+          "r": 0.3
+        },
+        "filter": {
+          "highpass": 4000
+        }
+      }
+    }
+  },
+  "kit-lofi": {
+    "mode": "kit",
+    "map": {
+      "35": {
+        "preset": "perc-ac-kick",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "36": {
+        "preset": "perc-ac-kick",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "37": {
+        "preset": "perc-rim",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "38": {
+        "preset": "perc-ac-snare",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "39": {
+        "preset": "msw-clap",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "40": {
+        "preset": "perc-ac-snare",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "42": {
+        "preset": "perc-ac-hat",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "44": {
+        "preset": "perc-ac-hat",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "46": {
+        "preset": "perc-ac-hat-open",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "51": {
+        "preset": "perc-ride",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      },
+      "54": {
+        "preset": "perc-shaker",
+        "crush": {
+          "bits": 8,
+          "hold": 2
+        },
+        "filter": {
+          "lowpass": 5000
+        }
+      }
+    }
+  },
+  "kit-latin": {
+    "mode": "kit",
+    "map": {
+      "36": "perc-ac-kick",
+      "37": "perc-rim",
+      "47": "perc-timpani",
+      "54": "perc-tambourine",
+      "56": "perc-cowbell",
+      "60": "perc-bongo-hi",
+      "61": "perc-bongo-lo",
+      "62": "perc-conga-hi",
+      "63": "perc-conga-hi",
+      "64": "perc-conga-lo",
+      "69": "perc-shaker",
+      "70": "perc-shaker",
+      "75": "perc-claves",
+      "76": "perc-woodblock",
+      "77": "perc-woodblock"
+    }
+  },
+  "msw-sub": {
+    "duration": 0.3,
+    "gain": 0.7,
+    "osc": {
+      "wave": "sine",
+      "freq": 55
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.1,
+      "s": 0.95,
+      "r": 0.05
+    },
+    "drive": 0.3
+  },
+  "msw-bass-pluck": {
+    "duration": 0.2,
+    "gain": 0.67,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "unison": {
+      "voices": 2,
+      "detune": 6
+    },
+    "sub": {
+      "level": 0.6,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.25,
+      "s": 0.5,
+      "r": 0.05
+    },
+    "filter": {
+      "lowpass": 1800,
+      "lowpassEnd": 250
+    },
+    "drive": 0.8
+  },
+  "msw-bass-dark": {
+    "duration": 0.2,
+    "gain": 0.49,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "unison": {
+      "voices": 3,
+      "detune": 12
+    },
+    "sub": {
+      "level": 0.7,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.2,
+      "s": 0.8,
+      "r": 0.05
+    },
+    "filter": {
+      "lowpass": 1500
+    },
+    "drive": 3.5,
+    "eq": {
+      "bass": 3,
+      "bassFreq": 100
+    }
+  },
+  "msw-supersaw": {
+    "duration": 0.4,
+    "gain": 1.67,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 9,
+      "detune": 25
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.003
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.3,
+      "s": 0.8,
+      "r": 0.3
+    },
+    "filter": {
+      "lowpass": 3200
+    }
+  },
+  "msw-lead": {
+    "duration": 0.3,
+    "gain": 1.46,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 14
+    },
+    "vibrato": {
+      "rate": 5.5,
+      "depth": 0.005
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.2,
+      "s": 0.85,
+      "r": 0.2
+    },
+    "filter": {
+      "lowpass": 2800
+    }
+  },
+  "msw-pluck": {
+    "duration": 0.15,
+    "gain": 1.88,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 3,
+      "detune": 9
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.22,
+      "s": 0,
+      "r": 0.12
+    },
+    "filter": {
+      "lowpass": 3000,
+      "lowpassEnd": 400
+    }
+  },
+  "msw-pad": {
+    "duration": 1,
+    "gain": 0.86,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 7,
+      "detune": 18
+    },
+    "vibrato": {
+      "rate": 0.25,
+      "depth": 0.003
+    },
+    "env": {
+      "a": 0.8,
+      "d": 0.6,
+      "s": 0.85,
+      "r": 1.5
+    },
+    "filter": {
+      "lowpass": 1400
+    }
+  },
+  "msw-bell": {
+    "duration": 0.1,
+    "gain": 0.77,
+    "osc": {
+      "wave": "sine",
+      "freq": 880
+    },
+    "fm": {
+      "ratio": 3.5,
+      "index": 2.5,
+      "indexEnd": 0.2
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.9,
+      "s": 0,
+      "r": 0.6
+    },
+    "filter": {
+      "lowpass": 3500
+    }
+  },
+  "msw-riser": {
+    "duration": 8,
+    "gain": 0.65,
+    "seed": 101,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 6,
+      "d": 0.1,
+      "s": 1,
+      "r": 0.05
+    },
+    "filter": {
+      "band": 400,
+      "bandEnd": 8000,
+      "q": 1.2
+    }
+  },
+  "msw-hat": {
+    "duration": 0.02,
+    "gain": 1.28,
+    "seed": 102,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.035,
+      "s": 0,
+      "r": 0.02
+    },
+    "filter": {
+      "highpass": 8000
+    }
+  },
+  "msw-hat-open": {
+    "duration": 0.1,
+    "gain": 1.11,
+    "seed": 103,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.25,
+      "s": 0,
+      "r": 0.1
+    },
+    "filter": {
+      "highpass": 7000
+    }
+  },
+  "msw-kick": {
+    "mode": "layers",
+    "gain": 0.47,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.08,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 60,
+            "freqEnd": 40
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.4,
+            "s": 0,
+            "r": 0.1
+          },
+          "drive": 1
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 190,
+            "freqEnd": 60
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.05,
+            "s": 0,
+            "r": 0.02
+          },
+          "drive": 2
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.003,
+          "gain": 0.9,
+          "seed": 104,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0003,
+            "d": 0.006,
+            "s": 0,
+            "r": 0.003
+          },
+          "filter": {
+            "highpass": 4000
+          }
+        }
+      }
+    ]
+  },
+  "msw-clap": {
+    "mode": "layers",
+    "gain": 1.46,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.004,
+          "gain": 0.9,
+          "seed": 105,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.01,
+            "s": 0,
+            "r": 0.005
+          },
+          "filter": {
+            "band": 1200,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.011,
+        "volume": 1,
+        "sound": {
+          "duration": 0.004,
+          "gain": 0.9,
+          "seed": 106,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.01,
+            "s": 0,
+            "r": 0.005
+          },
+          "filter": {
+            "band": 1250,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.022,
+        "volume": 1,
+        "sound": {
+          "duration": 0.004,
+          "gain": 0.9,
+          "seed": 107,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.01,
+            "s": 0,
+            "r": 0.005
+          },
+          "filter": {
+            "band": 1150,
+            "q": 0.8
+          }
+        }
+      },
+      {
+        "at": 0.03,
+        "volume": 0.9,
+        "sound": {
+          "duration": 0.01,
+          "gain": 0.9,
+          "seed": 108,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 1100,
+            "q": 0.7
+          }
+        }
+      }
+    ]
+  },
+  "msw-snare": {
+    "mode": "layers",
+    "gain": 0.66,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 200,
+            "freqEnd": 160
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.12,
+            "s": 0,
+            "r": 0.04
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.8,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "seed": 109,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.18,
+            "s": 0,
+            "r": 0.05
+          },
+          "filter": {
+            "band": 2000,
+            "q": 0.6
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": "msw-clap"
+      }
+    ]
+  },
+  "msw-impact": {
+    "mode": "layers",
+    "gain": 0.55,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.3,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 75,
+            "freqEnd": 28
+          },
+          "env": {
+            "a": 0.001,
+            "d": 1.6,
+            "s": 0,
+            "r": 1
+          },
+          "drive": 2
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.2,
+          "gain": 0.9,
+          "seed": 110,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.8,
+            "s": 0,
+            "r": 0.6
+          },
+          "filter": {
+            "lowpass": 6000,
+            "lowpassEnd": 200
+          }
+        }
+      }
+    ]
+  },
+  "sw-lead": {
+    "duration": 0.3,
+    "gain": 1.81,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 7,
+      "detune": 16
+    },
+    "vibrato": {
+      "rate": 5.5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 0.01,
+      "d": 0.25,
+      "s": 0.75,
+      "r": 0.25
+    },
+    "filter": {
+      "lowpass": 3500
+    },
+    "echo": {
+      "time": 0.28,
+      "feedback": 0.3,
+      "mix": 0.25
+    }
+  },
+  "sw-pad": {
+    "duration": 1,
+    "gain": 0.93,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 12
+    },
+    "vibrato": {
+      "rate": 0.3,
+      "depth": 0.002
+    },
+    "env": {
+      "a": 0.5,
+      "d": 0.6,
+      "s": 0.8,
+      "r": 1.2
+    },
+    "filter": {
+      "lowpass": 1400
+    }
+  },
+  "sw-bass": {
+    "duration": 0.2,
+    "gain": 0.73,
+    "osc": {
+      "wave": "saw",
+      "freq": 55
+    },
+    "unison": {
+      "voices": 2,
+      "detune": 5
+    },
+    "sub": {
+      "level": 0.5,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.003,
+      "d": 0.15,
+      "s": 0.4,
+      "r": 0.04
+    },
+    "filter": {
+      "lowpass": 800
+    },
+    "drive": 0.5
+  },
+  "sw-arp": {
+    "duration": 0.15,
+    "gain": 0.8,
+    "osc": {
+      "wave": "square",
+      "freq": 440,
+      "duty": 0.3
+    },
+    "unison": {
+      "voices": 3,
+      "detune": 8
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0.18,
+      "s": 0,
+      "r": 0.08
+    },
+    "filter": {
+      "lowpass": 2500
+    },
+    "echo": {
+      "time": 0.2,
+      "feedback": 0.35,
+      "mix": 0.3
+    }
+  },
+  "sw-brass": {
+    "duration": 0.5,
+    "gain": 0.98,
+    "osc": {
+      "wave": "saw",
+      "freq": 440
+    },
+    "unison": {
+      "voices": 3,
+      "detune": 10
+    },
+    "env": {
+      "a": 0.04,
+      "d": 0.3,
+      "s": 0.7,
+      "r": 0.2
+    },
+    "filter": {
+      "lowpass": 900,
+      "lowpassEnd": 3200
+    }
+  },
+  "sw-kick": {
+    "duration": 0.06,
+    "gain": 0.7,
+    "osc": {
+      "wave": "sine",
+      "freq": 150,
+      "freqEnd": 42
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.35,
+      "s": 0,
+      "r": 0.1
+    },
+    "drive": 1.2
+  },
+  "sw-snare": {
+    "duration": 0.2,
+    "gain": 1.07,
+    "seed": 91,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.03,
+      "s": 0.6,
+      "r": 0.004
+    },
+    "filter": {
+      "band": 1600,
+      "q": 0.6
+    }
+  },
+  "sw-hat": {
+    "duration": 0.02,
+    "gain": 1.41,
+    "seed": 92,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.04,
+      "s": 0,
+      "r": 0.02
+    },
+    "filter": {
+      "highpass": 8000
+    }
+  },
+  "sw-tom": {
+    "duration": 0.05,
+    "gain": 0.7,
+    "osc": {
+      "wave": "sine",
+      "freq": 170,
+      "freqEnd": 100
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0.25,
+      "s": 0,
+      "r": 0.1
+    },
+    "drive": 0.5
+  },
+  "perc-taiko": {
+    "mode": "layers",
+    "gain": 0.65,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 85,
+            "freqEnd": 48
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.7,
+            "s": 0,
+            "r": 0.4
+          },
+          "drive": 1.2
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.9,
+          "seed": 301,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.25,
+            "s": 0,
+            "r": 0.15
+          },
+          "filter": {
+            "lowpass": 900
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.25,
+        "sound": {
+          "duration": 0.005,
+          "gain": 0.9,
+          "seed": 302,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.01,
+            "s": 0,
+            "r": 0.005
+          },
+          "filter": {
+            "band": 2500,
+            "q": 1
+          }
+        }
+      }
+    ]
+  },
+  "str-spiccato": {
+    "duration": 0.1,
+    "gain": 3.74,
+    "osc": {
+      "wave": "saw",
+      "freq": 110
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 9
+    },
+    "env": {
+      "a": 0.005,
+      "d": 0.12,
+      "s": 0,
+      "r": 0.08
+    },
+    "filter": {
+      "lowpass": 2500
+    }
+  },
+  "brs-epic": {
+    "duration": 0.5,
+    "gain": 0.98,
+    "osc": {
+      "wave": "saw",
+      "freq": 110
+    },
+    "unison": {
+      "voices": 5,
+      "detune": 10
+    },
+    "sub": {
+      "level": 0.4,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "vibrato": {
+      "rate": 5,
+      "depth": 0.004
+    },
+    "env": {
+      "a": 0.06,
+      "d": 0.3,
+      "s": 0.85,
+      "r": 0.3
+    },
+    "filter": {
+      "lowpass": 700,
+      "lowpassEnd": 2600
+    },
+    "drive": 1
+  },
+  "syn-fx-crowd": {
+    "duration": 4,
+    "gain": 1.22,
+    "seed": 303,
+    "osc": {
+      "wave": "noise",
+      "freq": 22050
+    },
+    "env": {
+      "a": 1.5,
+      "d": 0.5,
+      "s": 0.8,
+      "r": 2
+    },
+    "filter": {
+      "lowpass": 1600,
+      "highpass": 200
+    },
+    "sub": {
+      "level": 0
+    }
+  },
+  "orc-horn": {
+    "duration": 0.6,
+    "gain": 1.21,
+    "osc": {
+      "wave": "sample",
+      "freq": 220
+    },
+    "sampler": {
+      "zones": [
+        [
+          46,
+          "horn_As2.wav"
+        ],
+        [
+          57,
+          "horn_A3.wav"
+        ],
+        [
+          60,
+          "horn_C4.wav"
+        ],
+        [
+          50,
+          "horn_D3.wav"
+        ],
+        [
+          74,
+          "horn_D5.wav"
+        ],
+        [
+          53,
+          "horn_F3.wav"
+        ],
+        [
+          77,
+          "horn_F5.wav"
+        ],
+        [
+          43,
+          "horn_G2.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.03,
+      "d": 0,
+      "s": 1,
+      "r": 0.35
+    }
+  },
+  "orc-trumpet": {
+    "duration": 0.6,
+    "gain": 2.5,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          70,
+          "trumpet_As4.wav"
+        ],
+        [
+          57,
+          "trumpet_A3.wav"
+        ],
+        [
+          63,
+          "trumpet_Ds4.wav"
+        ],
+        [
+          74,
+          "trumpet_D5.wav"
+        ],
+        [
+          77,
+          "trumpet_F5.wav"
+        ],
+        [
+          67,
+          "trumpet_G4.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.015,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-trombone": {
+    "duration": 0.6,
+    "gain": 1.34,
+    "osc": {
+      "wave": "sample",
+      "freq": 147
+    },
+    "sampler": {
+      "zones": [
+        [
+          46,
+          "trombone_As2.wav"
+        ],
+        [
+          60,
+          "trombone_C4.wav"
+        ],
+        [
+          50,
+          "trombone_D3.wav"
+        ],
+        [
+          53,
+          "trombone_F3.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.03,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-tuba": {
+    "duration": 0.6,
+    "gain": 0.85,
+    "osc": {
+      "wave": "sample",
+      "freq": 110
+    },
+    "sampler": {
+      "zones": [
+        [
+          46,
+          "tuba_As2.wav"
+        ],
+        [
+          50,
+          "tuba_D3.wav"
+        ],
+        [
+          41,
+          "tuba_F2.wav"
+        ],
+        [
+          53,
+          "tuba_F3.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.03,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-violins": {
+    "duration": 0.6,
+    "gain": 4.59,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "violins_A4.wav"
+        ],
+        [
+          83,
+          "violins_B5.wav"
+        ],
+        [
+          62,
+          "violins_D4.wav"
+        ],
+        [
+          86,
+          "violins_D6.wav"
+        ],
+        [
+          76,
+          "violins_E5.wav"
+        ],
+        [
+          55,
+          "violins_G3.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.08,
+      "d": 0,
+      "s": 1,
+      "r": 0.5
+    }
+  },
+  "orc-cellos": {
+    "duration": 0.6,
+    "gain": 0.81,
+    "osc": {
+      "wave": "sample",
+      "freq": 147
+    },
+    "sampler": {
+      "zones": [
+        [
+          57,
+          "cellos_A3.wav"
+        ],
+        [
+          71,
+          "cellos_B4.wav"
+        ],
+        [
+          50,
+          "cellos_D3.wav"
+        ],
+        [
+          64,
+          "cellos_E4.wav"
+        ],
+        [
+          43,
+          "cellos_G2.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.08,
+      "d": 0,
+      "s": 1,
+      "r": 0.5
+    }
+  },
+  "orc-cello-spic": {
+    "duration": 0.6,
+    "gain": 0.99,
+    "osc": {
+      "wave": "sample",
+      "freq": 147
+    },
+    "sampler": {
+      "zones": [
+        [
+          57,
+          "cellospic_A3.wav"
+        ],
+        [
+          60,
+          "cellospic_C4.wav"
+        ],
+        [
+          50,
+          "cellospic_D3.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0,
+      "s": 1,
+      "r": 0.12
+    }
+  },
+  "orc-violin-spic": {
+    "duration": 0.6,
+    "gain": 1.5,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "vlnspic_A4.wav"
+        ],
+        [
+          62,
+          "vlnspic_D4.wav"
+        ],
+        [
+          86,
+          "vlnspic_D6.wav"
+        ]
+      ],
+      "pitched": true
+    },
+    "env": {
+      "a": 0.002,
+      "d": 0,
+      "s": 1,
+      "r": 0.1
+    }
+  },
+  "orc-timpani-1": {
+    "duration": 2.6,
+    "gain": 0.78,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "timpani_1.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-timpani-2": {
+    "duration": 2.6,
+    "gain": 1.08,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "timpani_2.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-timpani-3": {
+    "duration": 2.6,
+    "gain": 0.82,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "timpani_3.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-bassdrum": {
+    "duration": 2.2,
+    "gain": 0.78,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "bassdrum_1.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-crash": {
+    "duration": 3.6,
+    "gain": 0.78,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "crash_1.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.4
+    }
+  },
+  "orc-snare": {
+    "duration": 0.9,
+    "gain": 0.78,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "snare_1.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "orc-snareroll": {
+    "duration": 2.8,
+    "gain": 0.78,
+    "osc": {
+      "wave": "sample",
+      "freq": 440
+    },
+    "sampler": {
+      "zones": [
+        [
+          69,
+          "snareroll_1.wav"
+        ]
+      ],
+      "pitched": false
+    },
+    "env": {
+      "a": 0.001,
+      "d": 0,
+      "s": 1,
+      "r": 0.3
+    }
+  },
+  "vox-choir-air": {
+    "duration": 1,
+    "gain": 1.63,
+    "osc": {
+      "wave": "saw",
+      "freq": 220
+    },
+    "unison": {
+      "voices": 9,
+      "detune": 12
+    },
+    "vibrato": {
+      "rate": 4.8,
+      "depth": 0.006,
+      "delay": 0.5
+    },
+    "breath": {
+      "level": 0.35,
+      "band": 2500,
+      "q": 0.7
+    },
+    "env": {
+      "a": 0.8,
+      "d": 0.5,
+      "s": 0.9,
+      "r": 1.5
+    },
+    "formant": {
+      "vowel": "a",
+      "vowelEnd": "o",
+      "mix": 1,
+      "q": 5
+    },
+    "filter": {
+      "lowpass": 4500
+    }
+  },
+  "kit-orchestra": {
+    "mode": "kit",
+    "map": {
+      "35": "orc-bassdrum",
+      "36": "orc-bassdrum",
+      "38": "orc-snare",
+      "39": "orc-snareroll",
+      "40": "orc-snare",
+      "41": "orc-timpani-1",
+      "43": "orc-timpani-2",
+      "45": "orc-timpani-3",
+      "47": "orc-timpani-3",
+      "49": "orc-crash",
+      "57": "orc-crash"
+    }
+  },
+  "perc-taiko-hi": {
+    "mode": "layers",
+    "gain": 0.66,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.03,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 150,
+            "freqEnd": 95
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.35,
+            "s": 0,
+            "r": 0.2
+          },
+          "drive": 1
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.5,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.9,
+          "seed": 311,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.12,
+            "s": 0,
+            "r": 0.08
+          },
+          "filter": {
+            "band": 1200,
+            "q": 0.8
+          }
+        }
+      }
+    ]
+  },
+  "syn-braam": {
+    "duration": 1.2,
+    "gain": 0.43,
+    "osc": {
+      "wave": "saw",
+      "freq": 73.42
+    },
+    "unison": {
+      "voices": 7,
+      "detune": 14
+    },
+    "sub": {
+      "level": 0.8,
+      "octave": -1,
+      "wave": "sine"
+    },
+    "env": {
+      "a": 0.02,
+      "d": 1.4,
+      "s": 0.55,
+      "r": 1.2
+    },
+    "filter": {
+      "lowpass": 1400,
+      "lowpassEnd": 350
+    },
+    "drive": 3,
+    "eq": {
+      "bass": 4,
+      "bassFreq": 90
+    }
+  },
+  "kit-epic": {
+    "mode": "kit",
+    "map": {
+      "35": "orc-bassdrum",
+      "36": "perc-taiko",
+      "37": "perc-taiko-hi",
+      "38": "orc-snare",
+      "39": "orc-snareroll",
+      "41": "perc-tom-lo",
+      "43": "perc-tom-lo",
+      "45": "perc-tom-mid",
+      "47": "perc-tom-mid",
+      "48": "perc-tom-hi",
+      "49": "orc-crash",
+      "50": "perc-tom-hi",
+      "53": "orc-timpani-1",
+      "55": "orc-timpani-2",
+      "57": "orc-crash",
+      "59": "orc-timpani-3"
+    }
+  },
+  "perc-stomp": {
+    "mode": "layers",
+    "gain": 0.68,
+    "vary": {
+      "pitch": 0.06,
+      "volume": 0.1,
+      "time": 0.008
+    },
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.12,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 58,
+            "freqEnd": 30
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.7,
+            "s": 0,
+            "r": 0.45
+          },
+          "drive": 2.2
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.7,
+        "sound": {
+          "duration": 0.04,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 110,
+            "freqEnd": 55
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.18,
+            "s": 0,
+            "r": 0.1
+          },
+          "drive": 1.5
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.6,
+        "sound": {
+          "duration": 0.05,
+          "gain": 0.9,
+          "seed": 401,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.2,
+            "s": 0,
+            "r": 0.12
+          },
+          "filter": {
+            "lowpass": 450
+          }
+        }
+      },
+      {
+        "at": 0.004,
+        "volume": 0.45,
+        "sound": {
+          "duration": 0.08,
+          "gain": 1,
+          "seed": 402,
+          "osc": {
+            "wave": "crackle",
+            "freq": 7000,
+            "freqEnd": 1200
+          },
+          "env": {
+            "a": 0.002,
+            "d": 0.1,
+            "s": 0.3,
+            "r": 0.06
+          },
+          "filter": {
+            "band": 1700,
+            "q": 0.9
+          }
+        }
+      },
+      {
+        "at": 0.01,
+        "volume": 0.12,
+        "sound": {
+          "duration": 0.02,
+          "gain": 0.8,
+          "osc": {
+            "wave": "sine",
+            "freq": 1900
+          },
+          "fm": {
+            "ratio": 1.41,
+            "index": 3,
+            "indexEnd": 0.5
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.15,
+            "s": 0,
+            "r": 0.1
+          },
+          "filter": {
+            "highpass": 800
+          }
+        }
+      }
+    ]
+  },
+  "perc-wardrum": {
+    "mode": "layers",
+    "gain": 0.68,
+    "layers": [
+      {
+        "at": 0,
+        "volume": 1,
+        "sound": {
+          "duration": 0.08,
+          "gain": 0.9,
+          "osc": {
+            "wave": "sine",
+            "freq": 72,
+            "freqEnd": 38
+          },
+          "env": {
+            "a": 0.002,
+            "d": 1.1,
+            "s": 0,
+            "r": 0.6
+          },
+          "drive": 2.5
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.55,
+        "sound": {
+          "duration": 0.04,
+          "gain": 0.9,
+          "seed": 403,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.001,
+            "d": 0.35,
+            "s": 0,
+            "r": 0.2
+          },
+          "filter": {
+            "lowpass": 800
+          }
+        }
+      },
+      {
+        "at": 0,
+        "volume": 0.3,
+        "sound": {
+          "duration": 0.005,
+          "gain": 0.9,
+          "seed": 404,
+          "osc": {
+            "wave": "noise",
+            "freq": 22050
+          },
+          "env": {
+            "a": 0.0005,
+            "d": 0.012,
+            "s": 0,
+            "r": 0.006
+          },
+          "filter": {
+            "band": 2200,
+            "q": 1
+          }
+        }
+      }
+    ]
+  }
+}
