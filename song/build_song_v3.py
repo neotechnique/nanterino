@@ -151,12 +151,20 @@ def sing(singer, text, pitches, transpose):
     cons_s = [(vs - o) / rate for o, vs, ve in syl]
     starts = [vstart[j] - cons_s[j] for j in range(len(syl))] + [line_end + 0.12]
     seg_bounds = [Fr(o) for o, _, _ in syl] + [len(f0)]
-    first_cons = cons_s[0]
+    # 30 ms of the original silence before the first consonant: without it the opening plosive
+    # ("T" of "Triez") was lost at the very start of the WORLD resynthesis ("Prie vous...").
+    PRE_S = 0.03
+    first_cons = cons_s[0] + PRE_S
     frames_sp, frames_ap, frames_vo, frames_k = [], [], [], []
     out_pos = 0  # frames written so far (time = out_pos*fr - first_cons)
+    rearticulate = []  # output frames where a vowel follows a vowel ("ici", "oh oh"): soft re-attack
     for j, (o, vs, ve) in enumerate(syl):
         k = k_of_syl[j]
+        if j > 0 and cons_s[j] < 0.015:
+            rearticulate.append(len(frames_k))
         f_o, f_vs, f_ve, f_end = Fr(o), Fr(vs), max(Fr(vs) + 1, Fr(ve)), max(Fr(ve), seg_bounds[j + 1])
+        if j == 0:
+            f_o = max(0, f_o - int(round(PRE_S / fr)))
         if j + 1 == len(syl):
             f_end = min(len(f0), f_ve + int(0.15 / fr))  # keep a short natural tail only
         target_len = max(2, int(round((starts[j + 1] + first_cons) / fr)) - out_pos)
@@ -184,13 +192,25 @@ def sing(singer, text, pitches, transpose):
             for c in idx:
                 frames_sp.append(log_sp[c]); frames_ap.append(ap[c]); frames_vo.append(f0[c] > 0); frames_k.append(k)
         out_pos = len(frames_k)
-    sp_o, ap_o = np.exp(np.array(frames_sp)), np.clip(np.array(frames_ap), 0, 1)
+    frames_sp = np.array(frames_sp)
+    # Re-attack (2026-10-27, user: "ici", "oh oh" sounded stuck/odd): two vowels in a row melt
+    # into one; a singer re-articulates with a short dip. -10 dB 25 ms dip, 50 ms recovery.
+    dip = np.array([0.32, 0.3, 0.38, 0.5, 0.65, 0.8, 0.92, 1.0])
+    for f in rearticulate:
+        for i, g in enumerate(dip):
+            if 0 <= f - 2 + i < len(frames_sp):
+                frames_sp[f - 2 + i] += 2 * np.log(g)
+    sp_o, ap_o = np.exp(frames_sp), np.clip(np.array(frames_ap), 0, 1)
     vo_o, k_o = np.array(frames_vo), np.array(frames_k)
     n = len(k_o)
     t_out = np.arange(n) * fr - first_cons
     # Pitch score with ramps: smoothstep glide (70 ms) into each new note, +30 cents overshoot on
     # rises that settles in 120 ms, vibrato 5.2 Hz / 0.22 semitone fading in after 0.35 s held.
-    target = np.array([notes[k] + transpose for k in k_o], dtype=float)
+    # Pitch follows the SCORE TIME, not the syllable index (2026-10-27: when the voice has fewer
+    # syllables than notes, e.g. "chemins" said "ch'mins", a held syllable now sings both notes
+    # as a melisma instead of stretching one pitch oddly).
+    k_time = np.clip(np.searchsorted(onsets, t_out, side="right") - 1, 0, len(notes) - 1)
+    target = np.array([notes[k] + transpose for k in k_time], dtype=float)
     midi_curve = target.copy()
     change = np.flatnonzero(np.diff(target)) + 1
     glide = int(0.07 / fr)

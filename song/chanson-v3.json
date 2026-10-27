@@ -35,7 +35,7 @@
      "notes": "E4 E4 G4 G4 A4 G4 E4:2"
     },
     {
-     "text": "Je vis i-ci à Nan-terre",
+     "text": "Je vis là, à Nan-terre",
      "notes": "F4 F4 A4 A4 G4 F4 D4:2"
     },
     {
@@ -64,16 +64,17 @@
    "lines": [
     {
      "text": "Nan-te-ri-no, Nan-te-ri-no",
-     "say": "Nanté rino, Nanté rino",
+     "say": "Nan-té-ri-no, Nan-té-ri-no",
      "notes": "C5:1/2 B4:1/2 A4:1/2 G4:3/2 D5:1/2 C5:1/2 B4:1/2 G4:7/2"
     },
     {
      "text": "Le pe-tit ro-bot ri-go-lo",
-     "notes": "A4:1/2 A4:1/2 C5:1/2 C5:1/2 E5 D5:1/2 C5:1/2 A4:4"
+     "notes": "A4:1/2 A4:1/2 C5:1/2 C5:1/2 E5 D5:1/2 C5:1/2 A4:4",
+     "say": "Le petit robot, rigolo !"
     },
     {
-     "text": "Triez vos dé-chets, pre-nez le vé-lo",
-     "notes": "E5 E5:1/2 D5:1/2 C5:2 D5:1/2 D5:1/2 C5 B4:1/2 G4:3/2"
+     "text": "Triez bien vos dé-chets, pre-nez le vé-lo",
+     "notes": "E5:1/2 E5:1/2 E5:1/2 D5:1/2 C5:2 D5:1/2 D5:1/2 C5 B4:1/2 G4:3/2"
     },
     {
      "text": "Pre-nez soin de la pla-nète, oh oh",
@@ -128,16 +129,17 @@
    "lines": [
     {
      "text": "Nan-te-ri-no, Nan-te-ri-no",
-     "say": "Nanté rino, Nanté rino",
+     "say": "Nan-té-ri-no, Nan-té-ri-no",
      "notes": "C5:1/2 B4:1/2 A4:1/2 G4:3/2 D5:1/2 C5:1/2 B4:1/2 G4:7/2"
     },
     {
      "text": "Le pe-tit ro-bot ri-go-lo",
-     "notes": "A4:1/2 A4:1/2 C5:1/2 C5:1/2 E5 D5:1/2 C5:1/2 A4:4"
+     "notes": "A4:1/2 A4:1/2 C5:1/2 C5:1/2 E5 D5:1/2 C5:1/2 A4:4",
+     "say": "Le petit robot, rigolo !"
     },
     {
-     "text": "Triez vos dé-chets, pre-nez le vé-lo",
-     "notes": "E5 E5:1/2 D5:1/2 C5:2 D5:1/2 D5:1/2 C5 B4:1/2 G4:3/2"
+     "text": "Triez bien vos dé-chets, pre-nez le vé-lo",
+     "notes": "E5:1/2 E5:1/2 E5:1/2 D5:1/2 C5:2 D5:1/2 D5:1/2 C5 B4:1/2 G4:3/2"
     },
     {
      "text": "Pre-nez soin de la pla-nète, oh oh",
@@ -162,5 +164,7 @@
    ]
   }
  ],
- "_doc_v3": "2026-10-27: refrains re-phrased with natural speech rhythm (fast short syllables, long line end) - Whisper: rigolo line 100% -> 25% word errors."
+ "_doc_v3": "2026-10-27: refrains re-phrased with natural speech rhythm (fast short syllables, long line end) - Whisper: rigolo line 100% -> 25% word errors.",
+ "_doc_v3b": "2026-10-27: 'Je vis ici' -> 'Je vis là' (i-i-i ambiguous when sung); comma in 'robot, rigolo' (Whisper 100% -> 33%).",
+ "_doc_v3c": "2026-10-27: Nanterino say back to Nan-té-ri-no (best isolated); 'Triez bien vos déchets' (+1 syllable, Whisper isolated 56% -> 43%)."
 }
