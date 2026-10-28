@@ -29,6 +29,8 @@ from nanterino.log import log  # noqa: E402
 FRAME_MS = v2.FRAME_MS
 VOWELS = set("aɑeɛiouyøœəɐɔɪʊʏɜ")  # IPA vowels espeak uses for French
 MARKS = set("ˈˌː̃")                # stress / length / nasal tilde: belong to the neighbour
+HOLD_POS = 0.5   # where in the vowel the held timbre is sampled (0 = start)
+HOLD_WIN = 2     # +/- frames averaged around that point
 BREATH_S = 0.45                    # line ends this long before its 2 bars (breath; keeps the line in 2 bars)
 
 
@@ -171,7 +173,10 @@ def sing(singer, text, pitches, transpose):
         natural = list(range(f_o, f_end))
         mid = (f_vs + f_ve) // 2
         if target_len > len(natural):
-            v0, v1 = max(f_vs, mid - 2), min(f_ve, mid + 3)
+            # Held timbre taken at HOLD_POS of the vowel, +/- HOLD_WIN frames (2026-10-28: the
+            # vowel middle already moves toward the next consonant, held "o" sounded like "ou").
+            hp = f_vs + int(HOLD_POS * max(1, f_ve - f_vs))
+            v0, v1 = max(f_vs, hp - HOLD_WIN), min(f_ve, hp + HOLD_WIN + 1)
             v_sp, v_ap = log_sp[v0:max(v1, v0 + 1)].mean(axis=0), ap[v0:max(v1, v0 + 1)].mean(axis=0)
             n_hold = target_len - len(natural)
             first_half = list(range(f_o, mid))
@@ -259,6 +264,57 @@ def main():
 
     v2.Singer = DaisySinger
     v2.sing = sing_line
+    if "--inmix" in sys.argv:
+        # In-mix take selection (2026-10-28): words clear when sung alone were masked under the
+        # refrain music. The Daisy score fixes every line's length, so the arrangement and the
+        # music of the previous build are valid: each candidate take is mixed with the music
+        # under its line (same ducking idea) and the take Whisper understands best IN the mix wins.
+        n_takes = int(sys.argv[sys.argv.index("--inmix") + 1])
+        sys.argv = [a for a in sys.argv if a not in ("--inmix", str(n_takes))]
+        import wave as _wave
+        from listen_song import letter_err
+        from nanterino.engines import STT
+        stt = STT("http://127.0.0.1:8178/inference")
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        prev = json.load(open(os.path.join(root, "media", "chanson-nanterino-daisy-final.json"), encoding="utf-8"))["lines"]
+        first_t = {}
+        for L in prev:
+            first_t.setdefault(L["text"], L["t"])
+        mrate, music = v2.read_wav(os.path.join(root, "song", "build", "music_v2.wav"))
+        music = music.mean(axis=1)
+        text_of_say = {}
+        for sec in spec["sections"]:
+            for ln in sec.get("lines", []):
+                text_of_say[ln.get("say") or ln["text"].replace("-", "")] = ln["text"].replace("-", "")
+
+        def sing_inmix(singer, text, pitches, transpose):
+            ref = text_of_say.get(text, text)
+            t0 = first_t.get(ref)
+            best = None
+            for _ in range(n_takes):
+                y, lead, ev = sing_line(singer, text, pitches, transpose)
+                if t0 is None:
+                    return y, lead, ev
+                v = v2.resample(y, singer.rate, mrate)
+                # same vocal chain as the final mix (compressor + warm EQ/double/room)
+                v = v2.warm_voice(v2.compress(v / max(1e-6, np.abs(v).max()), mrate), mrate)
+                v = v * (v2.VOCAL_RMS / max(1e-6, np.sqrt(np.mean(v[np.abs(v) > 1e-4] ** 2))))
+                st = max(0, int((t0 - lead) * mrate))
+                seg = music[st:st + len(v)]
+                mix = v[: len(seg)] + seg * v2.MUSIC_GAIN * (1 - v2.DUCK)
+                mix = mix / max(1e-6, np.abs(mix).max()) * 0.9
+                x16 = mix[np.linspace(0, len(mix), int(len(mix) * 16000 / mrate), endpoint=False).astype(int)]
+                h = stt.transcribe((x16 * 32767).astype(np.int16), 16000)
+                e = letter_err(ref, h)
+                if best is None or e < best[0]:
+                    best = (e, y, lead, ev)
+                if e < 0.02:
+                    break
+            log.info("song inmix take chosen line=%r letter_err=%.2f", ref[:30], best[0])
+            return best[1], best[2], best[3]
+
+        v2.sing = sing_inmix
+        v2.TAKES = 1
     log.info("song v3 (daisy score) start spec=%s", spec_path)
     v2.main()
 

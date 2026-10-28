@@ -29,14 +29,14 @@ from build_song import CHORDS, FRAME_MS, SOUNDGEN, midi, nuclei, read_wav, resam
 from nanterino.log import log  # noqa: E402
 
 ROOT = "/opt/robot/nanterino"
-VOCAL_RMS, MUSIC_GAIN, DUCK = 0.30, 0.8, 0.45  # v3: gentler ducking (less "flat")
+VOCAL_RMS, MUSIC_GAIN, DUCK = 0.34, 0.8, 0.55  # 2026-10-28: refrain words were masked in the mix (sung alone: clear)
 # Warm voicings: (piano/strings voicing with 7ths, guitar arpeggio notes, bass root).
 WARM = {
     "C": ("C3+G3+E4+B4", "C3 G3 E4 B4 C5", "C2"), "Am": ("A2+E3+C4+G4", "A2 E3 C4 G4 A4", "A1"),
     "F": ("F2+C3+A3+E4", "F2 C3 A3 E4 F4", "F1"), "G": ("G2+D3+B3+F4", "G2 D3 B3 F4 G4", "G1"),
     "Em": ("E2+B2+G3+D4", "E2 B2 G3 D4 E4", "E2"), "Dm": ("D2+A2+F3+C4", "D2 A2 F3 C4 D4", "D2"),
 }
-TAKES = 4  # max takes per distinct line (best one by Whisper word error rate)
+TAKES = 6  # max takes per distinct line (best one by Whisper word error rate)
 HOLD_S = 0.45  # final vowel held this long (sung feel) when the bar leaves room
 
 
@@ -125,14 +125,14 @@ def warm_voice(x, rate):
         b, a = _biquad(kind, f0, g, q, rate)
         x = lfilter(b, a, x)
     d = int(0.022 * rate)
-    double = np.concatenate([np.zeros(d), x[:-d]]) * 0.28
+    double = np.concatenate([np.zeros(d), x[:-d]]) * 0.18  # 0.28 -> 0.18 (2026-10-28: consonants blurred)
     rng = np.random.default_rng(3)
     t = np.arange(int(0.9 * rate)) / rate
     ir = rng.standard_normal(len(t)) * np.exp(-t / 0.22)
     b, a = _biquad("peak", 3000, -9, 0.5, rate)  # dark reverb tail
     ir = lfilter(b, a, ir)
     ir /= np.sqrt((ir ** 2).sum())
-    wet = fftconvolve(x, ir)[: len(x)] * 0.16
+    wet = fftconvolve(x, ir)[: len(x)] * 0.10  # 0.16 -> 0.10 (2026-10-28: consonants blurred)
     return (x + double + wet).astype(np.float32)
 
 
@@ -185,7 +185,7 @@ def main():
     # so each distinct line is sung TAKES times and the take Whisper understands best is kept;
     # repeated lines (refrains) reuse that same best take (2026-10-16: refrain 1 perfect,
     # refrain 2 garbled with the same text).
-    from listen_song import wer
+    from listen_song import letter_err as wer  # 2026-10-28: letter-level take selection
     from nanterino.engines import STT
     stt = STT("http://127.0.0.1:8178/inference")
     best = {}
@@ -278,8 +278,8 @@ def main():
             {"instrument": "gtr-nylon", "volume": 0.3, "pan": 0.3, "notes": " ".join(guitar)},
             {"instrument": "gtr-bass", "volume": 0.6, "notes": " ".join(bass)},
             {"instrument": "str-ensemble", "volume": 0.16, "pan": -0.3, "notes": " ".join(strings)},
-            {"instrument": "vox-ooh", "volume": 0.1, "pan": -0.15, "notes": " ".join(choir)},
-            {"instrument": "mal-vibraphone", "volume": 0.09, "pan": 0.25, "notes": " ".join(mel)},
+            {"instrument": "vox-ooh", "volume": 0.05, "pan": -0.15, "notes": " ".join(choir)},
+            {"instrument": "mal-vibraphone", "volume": 0.06, "pan": 0.25, "notes": " ".join(mel)},
         ],
     }
     work = f"{ROOT}/song/build"
@@ -288,6 +288,15 @@ def main():
     subprocess.run([sys.executable, SOUNDGEN, "render", f"{work}/music_v2.json", "-o", f"{work}/music_v2.wav"],
                    check=True, cwd=os.path.dirname(SOUNDGEN), stdout=subprocess.DEVNULL)
     rate, music_pcm = read_wav(f"{work}/music_v2.wav")
+    # Refrains carry the densest backing (full drums, strings, choir) and masked the words
+    # (2026-10-28 measurements): music only, -3 dB under refrain bars (0.5 s ramps).
+    att = np.ones(len(music_pcm), dtype=np.float32)
+    for i, b in enumerate(bars):
+        if b["kind"] == "chorus":
+            att[int(i * bar_s * rate):int((i + 1) * bar_s * rate)] = 0.7
+    k = int(0.5 * rate)
+    att = np.convolve(att, np.ones(k) / k, mode="same").astype(np.float32)
+    music_pcm = music_pcm * att[:, None]
 
     # 3) Mix: voice placed so its first nucleus lands on the line's downbeat; music ducks.
     voice = np.zeros(len(music_pcm), dtype=np.float32)
