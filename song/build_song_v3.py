@@ -31,6 +31,10 @@ VOWELS = set("aɑeɛiouyøœəɐɔɪʊʏɜ")  # IPA vowels espeak uses for Frenc
 MARKS = set("ˈˌː̃")                # stress / length / nasal tilde: belong to the neighbour
 HOLD_POS = 0.5   # where in the vowel the held timbre is sampled (0 = start)
 HOLD_WIN = 2     # +/- frames averaged around that point
+PAUSE_MAX_S = 0.04   # longest silence kept inside a sung line (punctuation / word gaps)
+OVERSHOOT_ST = 0.0   # rising-note overshoot (was 0.3 semitone: sounded out of tune)
+VIB_ST = 0.12        # vibrato depth in semitones (was 0.22)
+VIB_DELAY_S = 0.5    # vibrato starts after this much held note (was 0.35)
 BREATH_S = 0.45                    # line ends this long before its 2 bars (breath; keeps the line in 2 bars)
 
 
@@ -118,6 +122,24 @@ def syllables(spans):
     return out
 
 
+def take_dips(y, rate, lead):
+    """Count audible drop-outs in a sung take: 10 ms frames, runs of >= 4 frames more than 15 dB
+    under the median level of the sung part (from the first note to the breath at line end)."""
+    hop = int(rate * 0.01)
+    start, end = int(lead * rate), max(int(lead * rate) + hop, len(y) - int((BREATH_S - 0.1) * rate))
+    seg = y[start:end]
+    n = len(seg) // hop
+    if n < 10:
+        return 0
+    lvl = 20 * np.log10(np.sqrt((seg[: n * hop].reshape(n, hop) ** 2).mean(axis=1)) + 1e-9)
+    low = lvl < np.median(lvl) - 15
+    dips, run = 0, 0
+    for v in low:
+        run = run + 1 if v else 0
+        dips += run == 4
+    return dips
+
+
 def sing(singer, text, pitches, transpose):
     """-> (float32 audio, lead_s, events [(t_s, midi)]); t=0 = first note onset (downbeat)."""
     spb = SPB[0]
@@ -153,6 +175,15 @@ def sing(singer, text, pitches, transpose):
     cons_s = [(vs - o) / rate for o, vs, ve in syl]
     starts = [vstart[j] - cons_s[j] for j in range(len(syl))] + [line_end + 0.12]
     seg_bounds = [Fr(o) for o, _, _ in syl] + [len(f0)]
+    # Legato (2026-10-28 diagnostic: 85 level drop-outs): pauses from punctuation and word
+    # spaces were kept as silence inside sung lines. Keep at most PAUSE_MAX_S of each pause.
+    pause = np.zeros(len(f0), dtype=bool)
+    for sym, ps, pe in normalize(spans):
+        if sym == "sep":
+            a_, b_ = Fr(ps) + int(round(PAUSE_MAX_S / fr)), Fr(pe)
+            if b_ > a_:
+                pause[a_:b_] = True
+    keep = lambda rng: [c for c in rng if not pause[c]]  # noqa: E731
     # 30 ms of the original silence before the first consonant: without it the opening plosive
     # ("T" of "Triez") was lost at the very start of the WORLD resynthesis ("Prie vous...").
     PRE_S = 0.03
@@ -170,7 +201,7 @@ def sing(singer, text, pitches, transpose):
         if j + 1 == len(syl):
             f_end = min(len(f0), f_ve + int(0.15 / fr))  # keep a short natural tail only
         target_len = max(2, int(round((starts[j + 1] + first_cons) / fr)) - out_pos)
-        natural = list(range(f_o, f_end))
+        natural = keep(range(f_o, f_end))
         mid = (f_vs + f_ve) // 2
         if target_len > len(natural):
             # Held timbre taken at HOLD_POS of the vowel, +/- HOLD_WIN frames (2026-10-28: the
@@ -179,8 +210,8 @@ def sing(singer, text, pitches, transpose):
             v0, v1 = max(f_vs, hp - HOLD_WIN), min(f_ve, hp + HOLD_WIN + 1)
             v_sp, v_ap = log_sp[v0:max(v1, v0 + 1)].mean(axis=0), ap[v0:max(v1, v0 + 1)].mean(axis=0)
             n_hold = target_len - len(natural)
-            first_half = list(range(f_o, mid))
-            second = list(range(mid, f_end))
+            first_half = keep(range(f_o, mid))
+            second = keep(range(mid, f_end))
             for c in first_half:
                 frames_sp.append(log_sp[c]); frames_ap.append(ap[c]); frames_vo.append(f0[c] > 0 or f_vs <= c < f_ve); frames_k.append(k)
             a_sp = log_sp[max(f_o, mid - 1)]
@@ -200,7 +231,7 @@ def sing(singer, text, pitches, transpose):
     frames_sp = np.array(frames_sp)
     # Re-attack (2026-10-27, user: "ici", "oh oh" sounded stuck/odd): two vowels in a row melt
     # into one; a singer re-articulates with a short dip. -10 dB 25 ms dip, 50 ms recovery.
-    dip = np.array([0.32, 0.3, 0.38, 0.5, 0.65, 0.8, 0.92, 1.0])
+    dip = np.array([0.66, 0.63, 0.7, 0.78, 0.86, 0.93, 0.97, 1.0])  # ~-4 dB (was -10 dB: heard as drop-outs)
     for f in rearticulate:
         for i, g in enumerate(dip):
             if 0 <= f - 2 + i < len(frames_sp):
@@ -218,7 +249,7 @@ def sing(singer, text, pitches, transpose):
     target = np.array([notes[k] + transpose for k in k_time], dtype=float)
     midi_curve = target.copy()
     change = np.flatnonzero(np.diff(target)) + 1
-    glide = int(0.07 / fr)
+    glide = int(0.09 / fr)
     for c in change:
         a, b = target[c - 1], target[c]
         s0 = max(0, c - glide // 2)
@@ -228,11 +259,11 @@ def sing(singer, text, pitches, transpose):
         if b > a:  # small overshoot on rising intervals
             for i in range(s0 + glide, min(n, s0 + glide + int(0.12 / fr))):
                 u = (i - s0 - glide) / (0.12 / fr)
-                midi_curve[i] += 0.3 * (1 - u) * np.sin(np.pi * u)
+                midi_curve[i] += OVERSHOOT_ST * (1 - u) * np.sin(np.pi * u)
     since = np.zeros(n)
     for i in range(1, n):
         since[i] = since[i - 1] + fr if target[i] == target[i - 1] else 0.0
-    vib_amp = np.clip((since - 0.35) / 0.25, 0, 1) * 0.22
+    vib_amp = np.clip((since - VIB_DELAY_S) / 0.3, 0, 1) * VIB_ST
     midi_curve += vib_amp * np.sin(2 * np.pi * 5.2 * t_out)
     f0_o = np.where(vo_o, 440 * 2 ** ((midi_curve - 69) / 12), 0.0)
     y = pyworld.synthesize(np.ascontiguousarray(f0_o), np.ascontiguousarray(sp_o), np.ascontiguousarray(ap_o), rate, FRAME_MS)
@@ -307,7 +338,9 @@ def main():
                 mix = mix / max(1e-6, np.abs(mix).max()) * 0.9
                 x16 = mix[np.linspace(0, len(mix), int(len(mix) * 16000 / mrate), endpoint=False).astype(int)]
                 h = stt.transcribe((x16 * 32767).astype(np.int16), 16000)
-                e = letter_err(ref, h)
+                # Quality penalty (2026-10-28): a take Whisper understands can still have
+                # audible drop-outs; each 40 ms+ dip > 15 dB below the take's median costs 0.03.
+                e = letter_err(ref, h) + 0.03 * take_dips(y, singer.rate, lead)
                 if best is None or e < best[0]:
                     best = (e, y, lead, ev)
                 if e < 0.02:

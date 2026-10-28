@@ -67,6 +67,9 @@ def main():
             best = (mean, r)
             shutil.copy(f"{ROOT}/media/chanson-nanterino.wav", f"{ROOT}/media/chanson-nanterino-daisy-final.wav")
             shutil.copy(f"{ROOT}/media/chanson-nanterino.json", f"{ROOT}/media/chanson-nanterino-daisy-final.json")
+            # keep the stems of the best round too (voice a cappella, instrumental)
+            shutil.copy(f"{ROOT}/media/chanson-nanterino-voix.wav", f"{ROOT}/media/chanson-nanterino-voix-best.wav")
+            shutil.copy(f"{ROOT}/media/chanson-nanterino-musique.wav", f"{ROOT}/media/chanson-nanterino-musique-best.wav")
         if not bad:
             break
         json.dump(bad, open(f"{TAKES_DIR}/bad.json", "w"), ensure_ascii=False)

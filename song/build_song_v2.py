@@ -125,7 +125,7 @@ def warm_voice(x, rate):
         b, a = _biquad(kind, f0, g, q, rate)
         x = lfilter(b, a, x)
     d = int(0.022 * rate)
-    double = np.concatenate([np.zeros(d), x[:-d]]) * 0.18  # 0.28 -> 0.18 (2026-10-28: consonants blurred)
+    double = np.concatenate([np.zeros(d), x[:-d]]) * 0.0  # doubling off (2026-10-28: comb filter, metallic)
     rng = np.random.default_rng(3)
     t = np.arange(int(0.9 * rate)) / rate
     ir = rng.standard_normal(len(t)) * np.exp(-t / 0.22)
