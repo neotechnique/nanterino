@@ -258,6 +258,8 @@ def main():
             say = ln.get("say") or ln["text"].replace("-", "")
             beats_by_line[say] = [float(Fraction(t.split(":")[1])) if ":" in t else 1.0 for t in ln["notes"].split()]
 
+    NOTE_BEATS_BY_SAY = beats_by_line
+
     def sing_line(singer, text, pitches, transpose):
         NOTE_BEATS[0] = beats_by_line[text]
         return sing(singer, text, pitches, transpose)
@@ -313,7 +315,27 @@ def main():
             log.info("song inmix take chosen line=%r letter_err=%.2f", ref[:30], best[0])
             return best[1], best[2], best[3]
 
-        v2.sing = sing_inmix
+        # Repair loop support (2026-10-28): takes that were understood in the REAL final mix are
+        # frozen in song/build/takes/ and reused; only lines listed in bad.json are re-sung.
+        import hashlib
+        take_dir = os.path.join(root, "song", "build", "takes")
+        os.makedirs(take_dir, exist_ok=True)
+        bad_path = os.path.join(take_dir, "bad.json")
+        bad = set(json.load(open(bad_path))) if os.path.exists(bad_path) else None
+
+        def sing_cached(singer, text, pitches, transpose):
+            ref = text_of_say.get(text, text)
+            key = hashlib.sha1(f"{text}|{pitches}|{NOTE_BEATS_BY_SAY.get(text)}|{transpose}".encode()).hexdigest()[:16]
+            f = os.path.join(take_dir, key + ".npz")
+            if os.path.exists(f) and bad is not None and ref not in bad:
+                z = np.load(f, allow_pickle=True)
+                log.info("song take reused line=%r", ref[:30])
+                return z["y"], float(z["lead"]), [tuple(e) for e in z["events"]]
+            y, lead, ev = sing_inmix(singer, text, pitches, transpose)
+            np.savez(f, y=y, lead=lead, events=np.array(ev, dtype=float))
+            return y, lead, ev
+
+        v2.sing = sing_cached
         v2.TAKES = 1
     log.info("song v3 (daisy score) start spec=%s", spec_path)
     v2.main()
