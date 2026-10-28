@@ -330,6 +330,16 @@ def main():
     curve = np.convolve(curve, np.ones(k) / k, mode="same")
     mix *= 10 ** (curve / 20)
     mix *= 0.89 / max(1e-6, np.abs(mix).max())
+    # Separate stems (2026-10-28, user: "l'instrumental fout la merde, ou alors de façon séparée"):
+    # voice alone (a cappella, same processing) and the instrumental alone (no ducking).
+    def _write(path, y):
+        y = y * (0.89 / max(1e-6, np.abs(y).max()))
+        with wave.open(path, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
+            w.writeframes((y * 32767).astype(np.int16).tobytes())
+    gain = 10 ** (curve / 20)
+    _write(f"{ROOT}/media/chanson-nanterino-voix.wav", voice * gain)
+    _write(f"{ROOT}/media/chanson-nanterino-musique.wav", music_pcm.mean(axis=1) * MUSIC_GAIN * gain)
     out = f"{ROOT}/media/chanson-nanterino.wav"
     with wave.open(out, "wb") as w:
         w.setnchannels(1); w.setsampwidth(2); w.setframerate(rate)
