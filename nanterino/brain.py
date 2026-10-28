@@ -284,7 +284,8 @@ class Brain:
         if any(w in low for w in self.cfg["refusal_words"]):
             self._go(CLOTURE, "refus")
             return
-        if "chant" in low:  # "chante", "une chanson", "tu sais chanter ?"
+        # Whole words only (2026-10-28): "enchanté" used to start the song (substring match).
+        if re.search(r"\b(chante[rsz]?|chantons|chanson)\b", low):  # "chante", "une chanson", "tu sais chanter ?"
             self.repairs = 0
             self._handle("sing", {})
             return
