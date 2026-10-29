@@ -32,7 +32,12 @@ class PiperTRT:
         self.rate = voice.config.sample_rate
         inf = voice.config
         self.scales = np.array([inf.noise_scale, inf.length_scale, inf.noise_w_scale], dtype=np.float32)  # piper-tts 1.3 names
-        self.front = ort.InferenceSession(front, providers=["CPUExecutionProvider"])
+        # The front half is tiny: 2 intra-op threads are enough and, with spinning off, idle
+        # onnxruntime workers sleep instead of burning CPU between sentences.
+        so = ort.SessionOptions()
+        so.intra_op_num_threads, so.inter_op_num_threads = 2, 1
+        so.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        self.front = ort.InferenceSession(front, sess_options=so, providers=["CPUExecutionProvider"])
         with open(engine, "rb") as f:
             self.engine = trt.Runtime(trt.Logger(trt.Logger.ERROR)).deserialize_cuda_engine(f.read())
         self.ctx = self.engine.create_execution_context()

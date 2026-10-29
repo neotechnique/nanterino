@@ -135,7 +135,7 @@ class TTS:
         import threading
         self._lock = threading.Lock()
         t0 = time.monotonic()
-        self.voice = PiperVoice.load(voice_path)
+        self.voice = self._load_voice(PiperVoice, voice_path)
         self.rate = self.voice.config.sample_rate
         # GPU path (CPU front + TensorRT vocoder, ~5x faster, parity corr >= 0.999); CPU fallback.
         self.gpu = None
@@ -147,6 +147,42 @@ class TTS:
         self.backend = "tensorrt-gpu" if self.gpu else "onnx-cpu"
         log.info("tts voice loaded rate=%s backend=%s took_ms=%d", self.rate, self.backend, (time.monotonic() - t0) * 1000)
         self.synth("Bonjour.")  # warm-up: the first ONNX run is ~2x slower than the next ones
+
+    @staticmethod
+    def _load_voice(PiperVoice, voice_path: str):
+        """PiperVoice whose full VITS onnxruntime session is built lazily (first CPU fallback).
+
+        With the TensorRT backend the voice is only used for phonemisation + config; PiperVoice.load
+        would still build a full CPU session (~100+ MB RSS) that is never run. The lazy proxy is
+        only touched via `session.run` (CPU fallback path). Any piper API drift falls back to the
+        stock loader, so behaviour never depends on this optimisation.
+        """
+        try:
+            import json
+            from pathlib import Path
+
+            import onnxruntime
+            from piper.config import PiperConfig
+            from piper.phonemize_espeak import ESPEAK_DATA_DIR
+
+            class _LazySession:
+                def __init__(self, path):
+                    self._path, self._real = path, None
+
+                def __getattr__(self, name):  # run / get_inputs / ... -> build once, then delegate
+                    if self._real is None:
+                        log.info("tts cpu fallback: building the onnx session now")
+                        self._real = onnxruntime.InferenceSession(
+                            self._path, sess_options=onnxruntime.SessionOptions(), providers=["CPUExecutionProvider"])
+                    return getattr(self._real, name)
+
+            with open(f"{voice_path}.json", "r", encoding="utf-8") as f:
+                cfg = PiperConfig.from_dict(json.load(f))
+            return PiperVoice(config=cfg, session=_LazySession(str(voice_path)),
+                              espeak_data_dir=Path(ESPEAK_DATA_DIR), download_dir=Path.cwd())
+        except Exception as e:
+            log.warning("lazy piper session unavailable (%s): stock PiperVoice.load", e)
+            return PiperVoice.load(voice_path)
 
     def synth(self, text: str) -> np.ndarray:
         # One sentence at a time: the TensorRT context and its buffers are shared (phrase cache,
