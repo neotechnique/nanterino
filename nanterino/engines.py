@@ -86,6 +86,14 @@ class LLM:
         if pending and not thinking:
             yield pending
 
+    def warm(self, messages: list[dict]) -> int:
+        """Process a prompt and generate 1 token so llama-server keeps its prefix in the KV cache.
+        Returns the elapsed ms. Used at startup: the first visitor then skips the system prompt cost."""
+        t0 = time.monotonic()
+        body = {**self.options, "messages": messages, "stream": False, "max_tokens": 1}
+        requests.post(self.url, json=body, timeout=60).raise_for_status()
+        return int((time.monotonic() - t0) * 1000)
+
     def _raw_stream(self, body: dict):
         """Yield raw content deltas from llama-server."""
         with requests.post(self.url, json=body, stream=True, timeout=60) as r:

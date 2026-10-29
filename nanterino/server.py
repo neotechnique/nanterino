@@ -8,6 +8,8 @@ import asyncio
 import ipaddress
 import os
 import subprocess
+import threading
+import time
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
@@ -15,7 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 from . import config
 from .audio import AudioOut, SpeakerProfiles, find_device, list_devices
-from .brain import Brain
+from .brain import Brain, build_messages
 from .corpus import Corpus
 from .engines import LLM, STT, TTS
 from .log import log
@@ -34,6 +36,26 @@ speakers = SpeakerProfiles(cfg, out, config.save_overrides)
 out.muted = bool(cfg.get("muted", False))  # mute state is persisted like power
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"], cfg.get("llm_options")), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)
+
+
+def _llm_warmer():
+    """Keep the LLM prompt prefix cached: warm at startup and again whenever llama-server comes
+    back after a restart (its cache is empty then). Answers are unchanged; only latency drops."""
+    was_ready = False
+    while True:
+        ready = llm.ready()
+        if ready and not was_ready:
+            try:
+                ms = llm.warm(build_messages(cfg, [], [], "Bonjour"))
+                log.info("llm warm done took_ms=%d", ms)
+            except Exception as e:
+                log.warning("llm warm failed (%s)", e)
+                ready = False  # retry on the next check
+        was_ready = ready
+        time.sleep(30)
+
+
+threading.Thread(target=_llm_warmer, name="llm-warmer", daemon=True).start()
 vision = Vision()
 # F01 auto-greeting: a new face within 3 m wakes the robot (only from veille; ignored when off).
 # The flag is read at each event so it can be toggled without restarting.
