@@ -395,7 +395,10 @@ class Brain:
                     if first:
                         ms = int((time.monotonic() - t_end) * 1000)
                         self.latencies.append(ms)
-                        log.info("latency_first_sound_ms=%d", ms)
+                        # What the visitor really waits: from the end of their voice (VAD silence
+                        # before t_end) to the first audible sample (after the pre-roll, if any).
+                        wait = ms + self.cfg["vad_silence_ms"] + (self.out.preroll_ms if self.out.last_play_preroll else 0)
+                        log.info("latency_first_sound_ms=%d wait_visitor_ms=%d", ms, wait)
                         first = False
         except Exception:
             log.exception("answer pipeline failed")

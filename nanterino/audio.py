@@ -101,6 +101,7 @@ class AudioOut:
     preroll_ms, preroll_db = 0, -45.0  # set from the speaker profile
     PREROLL_IDLE_S = 0.5  # conservative: signal-gated amps measured 2026-10-15 cut after longer silences
     _last_sound = 0.0
+    last_play_preroll = False  # did the latest play() get a pre-roll (for the visitor-wait metric)
 
     def set_keepalive_db(self, db):
         """Live change (no restart). None = digital silence; e.g. -70 = inaudible noise."""
@@ -118,7 +119,9 @@ class AudioOut:
             x = np.interp(t, np.arange(len(x)), x).astype(np.float32)
         # Only after real silence: when the previous sentence ended < PREROLL_IDLE_S ago the amp is
         # still awake (gap while the next sentence was synthesized), so no 300 ms delay there.
+        self.last_play_preroll = False
         if not self.busy and self.preroll_ms and time.monotonic() - self._last_sound > self.PREROLL_IDLE_S:
+            self.last_play_preroll = True
             # Wake-up pre-roll: rising low noise so signal-gated amps open BEFORE the first syllable.
             # Divided by volume because the callback multiplies everything queued by self.volume.
             n = int(self.rate * self.preroll_ms / 1000)
