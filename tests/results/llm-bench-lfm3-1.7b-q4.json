@@ -1,0 +1,284 @@
+{
+ "summary": {
+  "label": "lfm3-1.7b-q4",
+  "ok": 20,
+  "n": 20,
+  "invented": 0,
+  "denials": 0,
+  "first_ms_mean": 1898,
+  "first_ms_max": 2923,
+  "first_ms_median": 1887
+ },
+ "rows": [
+  {
+   "q": "C'est quoi le parc André Malraux ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Le parc André-Malraux est un grand parc de 25 hectares juste à côté de La Défense, avec un lac, des roseaux, des oiseaux et des collines pour admirer la vue. L'entrée est gratuite et il est ouvert en permanence (le kiosque « La récré-gourmande » ouvre à 10h). Voulez-vous des conseils pour pique-niquer, jouer ou se promener ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2468,
+   "total_ms": 3934
+  },
+  {
+   "q": "Où je peux jeter mes bouteilles en verre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Vous pouvez déposer vos bouteilles en verre dans l'une des 120 bornes à verre de la ville. Attention : entre 22h et 6h, c'est interdit pour le bruit, et ne laissez rien au pied des bornes. Pour trouver la plus proche, consultez la carte « CartoPOLD » sur Paris Ouest La Défense.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1890,
+   "total_ms": 3475
+  },
+  {
+   "q": "Qu'est-ce que je fais de mes piles usagées ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Déposez vos piles usagées dans une borne en magasin, chez certains commerçants ou à la déchèterie (01 47 29 12 22). Ne les mettez pas dans le bac jaune qui provoque des feu !",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2089,
+   "total_ms": 2541
+  },
+  {
+   "q": "Comment trier mes emballages ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Triez vos papiers et vos emballages dans le bac jaune (papier, plastique, carton, conserve, canette, brique, etc.) en vrac sans sac, et mettez le verre dans les bornes à verre. Voulez-vous des précisions sur l'emplacement du bac jaune ou des points de tri pour les textiles ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2812,
+   "total_ms": 3516
+  },
+  {
+   "q": "Où est la déchetterie ?",
+   "sheets": [
+    ""
+   ],
+   "answer": "La déchèterie se trouve au 59 avenue des Guilleraies, 92000 Nanterre. Elle est ouverte du lundi au samedi de 7h-12h et 13h30-19h, fermée le 1er janvier, 1er mai et 25 décembre.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1261,
+   "total_ms": 2412
+  },
+  {
+   "q": "Que faire de mes vieux vêtements ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Mettez vos vieux vêtements dans une des bornes textiles, propres et secs dans un sac fermé de moins de 50 litres. Vous pouvez aussi les déposer à la déchèterie ou à la friperie si vous préférez. Voulez-vous que je vous guide vers le plus proche point ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1952,
+   "total_ms": 3009
+  },
+  {
+   "q": "Je peux mettre mes médicaments à la poubelle ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Non, ne mettez pas vos médicaments dans la poubelle : ils polluent l'eau et les sols. Rappelez-vous que vous pouvez les rapporter gratuitement à n'importe quelle pharmacie (comprimés, comprimé, sirop, pommade, etc.) sans la boîte en carton ni la notice. Voulez-vous savoir où aller ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1743,
+   "total_ms": 3276
+  },
+  {
+   "q": "C'est quoi les tours Nuages ?",
+   "sheets": [
+    "",
+    ""
+   ],
+   "answer": "Les Tours Nuages sont dix-huit tours arrondies dessinées par Émile Aillaud, construites entre 1973 et 1981. Elles portent des mosaïques colorées et des sculptures, et on peut y admirer le chemin piéton « le Serpent » avec ses places. Vous pouvez y accéder en RER A Nanterre-Ville puis à pied environ 10 minutes, ou prendre les bus 157, 159, 160 (arrêt Maurice Thorez).",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1800,
+   "total_ms": 3977
+  },
+  {
+   "q": "Il y a un théâtre à Nanterre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Oui, le Théâtre Nanterre-Amandiers est là-bas. On y peut voir des spectacles et manger au restaurant. Voulez-vous réserver une sortie ou en savoir plus sur les horaires ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1466,
+   "total_ms": 2351
+  },
+  {
+   "q": "Parle-moi du Mont-Valérien.",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Le Mont-Valérien est le mémorial de la France combattante où des résistants et otages ont été fusillés pendant la Seconde Guerre mondiale, choisi par le général de Gaulle pour honorer les morts pour la France. On y fait une visite guidée du « Parcours du Souvenir » d'environ 1h30, en français, anglais, espagnol et allemand. Voulez-vous réserver votre visite ? Le numéro est 01 47 28 46 35.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2490,
+   "total_ms": 4041
+  },
+  {
+   "q": "Comment économiser l'eau à la maison ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour réduire votre consommation d'eau, prenez des douches courtes et coupez l'eau pendant le savonnage. Utilisez aussi un mousseur sur les robinets et une douchette économe pour économiser environ 40 euros par an.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1670,
+   "total_ms": 2544
+  },
+  {
+   "q": "Comment je fais du compost ?",
+   "sheets": [
+    ""
+   ],
+   "answer": "Pour le compostage gratuit, venez au Service des déchets urbains au 01 47 29 50 50 et inscrivez-vous avec votre justificatif de domicile. En appartement, préférez un lombricomposteur. Votre association Naturellement Nanterre vous accompagne aussi.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1687,
+   "total_ms": 2475
+  },
+  {
+   "q": "Où me promener au bord de la Seine ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Au bord de la Seine, vous pouvez marcher sur la promenade bleue entre Colombes et Rueil-Malmaison, ou rejoindre le parc du Chemin-de-l'Île (rue Gutenberg, 92000 Nanterre) qui fait face à l'eau. Le parc Hoche est aussi proche avec un skatepark et des bois. Voulez-vous les détails sur l'accès ou les horaires ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2923,
+   "total_ms": 3834
+  },
+  {
+   "q": "Je veux me débarrasser d'un vieux frigo.",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Parfait, le gros électroménager comme votre réfrigérateur peut être enlèvement gratuit à domicile via Ecosystem. Rendez-vous sur jedonnemonelectromenager.fr ou apportez-le à la déchèterie (01 47 29 12 22). Voulez-vous que je vous guide pour le rendez-vous en ligne ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1838,
+   "total_ms": 3215
+  },
+  {
+   "q": "C'est quoi La Contemporaine ?",
+   "sheets": [
+    "",
+    ""
+   ],
+   "answer": "La Contemporaine est une bibliothèque, des archives et un musée sur l'histoire du monde aux 20e et 21e siècles, installée près de l'université. Vous pouvez y voir la collection permanente « L'atelier de l'histoire » et des expositions temporaires, lire ou consulter des documents en salle de lecture, et y avez une visite guidée gratuite environ toutes les deux semaines le samedi à 15h (sur inscription).",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1887,
+   "total_ms": 3498
+  },
+  {
+   "q": "Comment aller au travail à vélo ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Vous pouvez prendre la piste cyclable de 18 km qui a été ajoutée entre 2020 et 2025, avec des arceaux de stationnement pour vélo. Le parking sécurisé existe aussi à Nanterre Université. Voulez-vous des détails sur les stations Vélib' ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2164,
+   "total_ms": 2954
+  },
+  {
+   "q": "Où est la piscine olympique ?",
+   "sheets": [],
+   "answer": "Je ne connais pas le lieu exact de la piscine olympique à Nanterre. Pourriez-vous me dire ce que vous recherchez précisément ? Je peux vous aider avec les parcs, les lieux remarquables ou les gestes écologiques si besoin.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 923,
+   "total_ms": 1926
+  },
+  {
+   "q": "Quel est le meilleur restaurant de Nanterre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Je ne connais pas le meilleur restaurant de Nanterre. Pourriez-vous me dire où vous souhaitez manger ? Je peux vous aider avec les lieux remarquables comme le Théâtre Nanterre-Amandiers ou les bords de Seine.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1347,
+   "total_ms": 2420
+  },
+  {
+   "q": "À quelle heure passe le bus 304 ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Le bus 304 circule au Parc départemental André-Malraux (39 avenue Pablo-Picasso) et au RER A Nanterre-Université. Je ne connais pas l'heure exacte du départ, mais vous pouvez vérifier sur la carte des lignes ou demander à un conducteur. Voulez-vous que je vous guide jusqu'à l'arrêt ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2067,
+   "total_ms": 3237
+  },
+  {
+   "q": "Où est le zoo de Nanterre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Je ne connais pas le zoo de Nanterre dans mes fiches. Pourriez-vous me dire où vous l'avez entendu ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1473,
+   "total_ms": 1841
+  }
+ ]
+}

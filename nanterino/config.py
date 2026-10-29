@@ -11,6 +11,10 @@ DEFAULTS = {
     # Engine endpoints (local services, never Internet).
     "stt_url": "http://127.0.0.1:8178/inference",
     "llm_url": "http://127.0.0.1:8179/v1/chat/completions",
+    # Extra fields of every LLM request. LFM3-1.7B (Liquid AI, 2026-10-29): vendor sampling
+    # temp 0.1 / top_k 50 / repeat 1.1, reasoning off. Qwen2.5 used {"temperature": 0.3}.
+    "llm_options": {"temperature": 0.1, "top_k": 50, "repeat_penalty": 1.1,
+                    "chat_template_kwargs": {"enable_thinking": False}},
     "tts_voice": f"{ROOT}/models/piper/fr_FR-siwis-medium.onnx",
     "fiches_dir": f"{ROOT}/fiches",
     # Audio devices, matched as substrings of PortAudio names. "pipewire" routes through PipeWire,

@@ -58,6 +58,8 @@ _DEAD_END = re.compile(r"ne (peux|puis) pas (vous |t')?aider", re.IGNORECASE)
 
 
 def fix_sentence(sentence: str) -> str:
+    # LFM3 sometimes adds Markdown bold (**word**): strip it so the subtitles and the voice stay clean.
+    sentence = sentence.replace("**", "").replace("__", "")
     if _DENIALS.search(sentence):
         log.info("answer sentence replaced reason=denial")
         return "Oui, je vous entends très bien."

@@ -32,7 +32,7 @@ out = AudioOut(find_device(cfg["out_device"], "output"), rate=tts.rate, volume=c
 out.start()
 speakers = SpeakerProfiles(cfg, out, config.save_overrides)
 out.muted = bool(cfg.get("muted", False))  # mute state is persisted like power
-stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"]), Corpus(cfg["fiches_dir"]), Metrics()
+stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"], cfg.get("llm_options")), Corpus(cfg["fiches_dir"]), Metrics()
 brain = Brain(cfg, out, stt, llm, tts, corpus)
 vision = Vision()
 # F01 auto-greeting: a new face within 3 m wakes the robot (only from veille; ignored when off).

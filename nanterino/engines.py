@@ -48,12 +48,46 @@ class STT:
 
 
 class LLM:
-    def __init__(self, url: str):
+    def __init__(self, url: str, options: dict | None = None):
         self.url = url
+        # Sampling and template options merged into every request (config "llm_options").
+        # LFM3 reasons in a <think> block by default: enable_thinking=false asks the template to skip
+        # it, and stream() still drops any <think>...</think> text in case the model ignores that.
+        self.options = dict(options or {"temperature": 0.3})
 
     def stream(self, messages: list[dict], max_tokens: int = 160):
-        """Yield text deltas as they arrive (server-sent events)."""
-        body = {"messages": messages, "stream": True, "temperature": 0.3, "max_tokens": max_tokens}
+        """Yield answer text deltas as they arrive (server-sent events), reasoning removed."""
+        body = {**self.options, "messages": messages, "stream": True, "max_tokens": max_tokens}
+        thinking, pending = False, ""
+        for delta in self._raw_stream(body):
+            pending += delta
+            out = ""
+            while pending:
+                if thinking:
+                    end = pending.find("</think>")
+                    if end < 0:
+                        pending = pending[-len("</think>"):]  # keep a possible split closing tag
+                        break
+                    pending, thinking = pending[end + len("</think>"):], False
+                else:
+                    start = pending.find("<think>")
+                    if start >= 0:
+                        out += pending[:start]
+                        pending, thinking = pending[start + len("<think>"):], True
+                        continue
+                    cut = pending.rfind("<")  # a tag may be split across two deltas
+                    if cut >= 0 and "<think>".startswith(pending[cut:]):
+                        out, pending = out + pending[:cut], pending[cut:]
+                    else:
+                        out, pending = out + pending, ""
+                    break
+            if out:
+                yield out
+        if pending and not thinking:
+            yield pending
+
+    def _raw_stream(self, body: dict):
+        """Yield raw content deltas from llama-server."""
         with requests.post(self.url, json=body, stream=True, timeout=60) as r:
             r.raise_for_status()
             r.encoding = "utf-8"  # SSE has no charset header; requests would guess Latin-1
