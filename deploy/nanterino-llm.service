@@ -9,7 +9,7 @@
 Description=Nanterino LLM (llama.cpp CUDA)
 
 [Service]
-ExecStart=/opt/robot/engines/llama.cpp-lfm3/build/bin/llama-server -m /opt/robot/nanterino/models/llm/LFM3-1.7B-QAD-Q4_0.gguf --host 127.0.0.1 --port 8179 -ngl 99 -c 4096 -fa on -b 2048 -ub 512 --reasoning off --reasoning-format deepseek --log-disable
+ExecStart=/opt/robot/engines/llama.cpp-lfm3/build/bin/llama-server -m /opt/robot/nanterino/models/llm/LFM3-1.7B-QAD-Q4_0.gguf --host 127.0.0.1 --port 8179 -ngl 99 -c 4096 -fa on -b 2048 -ub 2048 --reasoning off --reasoning-format deepseek --log-disable
 #ExecStart=/opt/robot/engines/llama.cpp/build/bin/llama-server -m /opt/robot/nanterino/models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 8179 -ngl 99 -c 4096 --log-disable
 Restart=on-failure
 RestartSec=3
