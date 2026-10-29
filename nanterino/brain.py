@@ -107,7 +107,12 @@ class Brain:
         self.mic = AudioIn(self._on_utterance, self._on_speech_start,
                            device=find_device(cfg["mic_device"], "input"),
                            silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"],
-                           source_match=cfg.get("mic_source_match", ""))
+                           source_match=cfg.get("mic_source_match", ""),
+                           early_ms=cfg.get("stt_early_ms", 0), speculate=self.stt.transcribe)
+        # Fixed phrases (greeting, relance, goodbye, repair) are synthesized once and replayed:
+        # identical samples, no TTS wait before the robot starts talking.
+        self._phrases: dict[str, np.ndarray] = {}
+        threading.Thread(target=self._cache_phrases, daemon=True, name="phrase-cache").start()
         threading.Thread(target=self._loop, daemon=True, name="brain").start()
 
     # ------------------------------------------------------------------ public API (UI / sensors)
@@ -147,12 +152,14 @@ class Brain:
         if self.state == REPONSE and self.cfg["barge_in"]:
             self.post("barge_in")
 
-    def _on_utterance(self, pcm, t_end):
+    def _on_utterance(self, pcm, t_end, text=None):
+        """`text` is the early transcription of exactly `pcm` when AudioIn already made it."""
         if self._busy or self.state == ETEINT:
             return
         self._busy = True
         try:
-            text = self.stt.transcribe(pcm)
+            if text is None:
+                text = self.stt.transcribe(pcm)
         except Exception:
             log.exception("stt failed")
             text = ""
@@ -203,7 +210,9 @@ class Brain:
 
         def run():
             try:
-                pcm = self.tts.synth(text)
+                pcm = self._phrases.get(text)
+                if pcm is None:
+                    pcm = self.tts.synth(text)
                 if self._alive(gen):
                     self.out.play(pcm, self.tts.rate)
                     self._wait_audio(gen)
@@ -212,6 +221,16 @@ class Brain:
             if self._alive(gen):  # a cancelled thread never moves the state machine
                 self.post(done_event, gen=gen)
         threading.Thread(target=run, daemon=True).start()
+
+    def _cache_phrases(self):
+        for key in ("greeting", "relance", "goodbye", "repair_text"):
+            text = self.cfg.get(key)
+            if text and text not in self._phrases:
+                try:
+                    self._phrases[text] = self.tts.synth(text)
+                except Exception:
+                    log.exception("phrase cache failed key=%s", key)
+        log.info("phrase cache ready n=%d", len(self._phrases))
 
     def _wait_audio(self, gen: int):
         time.sleep(0.15)
@@ -264,9 +283,11 @@ class Brain:
             self.last_speech = time.monotonic()
             self._mic_on()  # 15 s window for an answer
         elif kind == "goodbye_done" and s == CLOTURE:
-            time.sleep(self.cfg["cloture_to_veille_s"])
-            if self.state == CLOTURE:
-                self._go(VEILLE, "cloture_done")
+            # Timer instead of sleeping in the event loop: stop/off stay instant during the pause.
+            gen = self.gen
+            threading.Timer(self.cfg["cloture_to_veille_s"], lambda: self.post("cloture_done", gen=gen)).start()
+        elif kind == "cloture_done" and s == CLOTURE:
+            self._go(VEILLE, "cloture_done")
         elif kind == "answer_done" and s == REPONSE:
             self._go(ECOUTE, "answer_done")
         elif kind == "hush":  # "Tais-toi": stop the current sentence; keep the conversation going

@@ -52,6 +52,9 @@ DEFAULTS = {
     "cloture_to_veille_s": 2,
     "lost_face_s": 10,
     "vad_silence_ms": 800,
+    # Early transcription after this much silence (0 = off); the utterance still ends at
+    # vad_silence_ms, the text is just ready sooner (AudioIn.early_ms).
+    "stt_early_ms": 390,
     "max_utterance_s": 10,
     # Microphone pinned by PipeWire description (2026-10-16: the default source had silently
     # become the Jetson's built-in input, where nothing is plugged -> the robot heard nothing).

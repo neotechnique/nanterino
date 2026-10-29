@@ -132,6 +132,8 @@ class LLM:
 class TTS:
     def __init__(self, voice_path: str):
         from piper import PiperVoice  # heavy import kept local
+        import threading
+        self._lock = threading.Lock()
         t0 = time.monotonic()
         self.voice = PiperVoice.load(voice_path)
         self.rate = self.voice.config.sample_rate
@@ -147,6 +149,12 @@ class TTS:
         self.synth("Bonjour.")  # warm-up: the first ONNX run is ~2x slower than the next ones
 
     def synth(self, text: str) -> np.ndarray:
+        # One sentence at a time: the TensorRT context and its buffers are shared (phrase cache,
+        # answers and the dashboard "say" may call this from different threads).
+        with self._lock:
+            return self._synth(text)
+
+    def _synth(self, text: str) -> np.ndarray:
         t0 = time.monotonic()
         if self.gpu is not None:
             try:

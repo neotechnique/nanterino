@@ -95,8 +95,12 @@ class AudioOut:
             block[n:] = np.random.uniform(-self.noise_amp, self.noise_amp, frames - n).astype(np.float32)
         outdata[:, 0] = block
         self.level = float(np.abs(block).mean()) * 8 if n else 0.0
+        if n:
+            self._last_sound = time.monotonic()
 
     preroll_ms, preroll_db = 0, -45.0  # set from the speaker profile
+    PREROLL_IDLE_S = 0.5  # conservative: signal-gated amps measured 2026-10-15 cut after longer silences
+    _last_sound = 0.0
 
     def set_keepalive_db(self, db):
         """Live change (no restart). None = digital silence; e.g. -70 = inaudible noise."""
@@ -112,7 +116,9 @@ class AudioOut:
         if rate != self.rate and len(x):
             t = np.linspace(0, len(x), int(len(x) * self.rate / rate), endpoint=False)
             x = np.interp(t, np.arange(len(x)), x).astype(np.float32)
-        if not self.busy and self.preroll_ms:
+        # Only after real silence: when the previous sentence ended < PREROLL_IDLE_S ago the amp is
+        # still awake (gap while the next sentence was synthesized), so no 300 ms delay there.
+        if not self.busy and self.preroll_ms and time.monotonic() - self._last_sound > self.PREROLL_IDLE_S:
             # Wake-up pre-roll: rising low noise so signal-gated amps open BEFORE the first syllable.
             # Divided by volume because the callback multiplies everything queued by self.volume.
             n = int(self.rate * self.preroll_ms / 1000)
@@ -168,8 +174,18 @@ class AudioIn:
     RATE, FRAME_MS = 16000, 30
 
     def __init__(self, on_utterance, on_speech_start=None, device=None,
-                 silence_ms: int = 800, max_s: int = 10, aggressiveness: int = 2, source_match: str = ""):
+                 silence_ms: int = 800, max_s: int = 10, aggressiveness: int = 2, source_match: str = "",
+                 early_ms: int = 0, speculate=None):
         self.on_utterance, self.on_speech_start = on_utterance, on_speech_start
+        # Early transcription: after `early_ms` of silence the audio so far is sent to `speculate`
+        # (pcm -> text). If the silence then lasts until `silence_ms`, the utterance is exactly that
+        # audio and its text is already (or nearly) ready; any new speech discards the guess.
+        self.early_ms, self.speculate = early_ms, speculate
+        self._pinned_at = -1e9  # last ensure_default_source() call (monotonic s)
+        self._spec_q: queue.Queue = queue.Queue()
+        self._spec_ids = itertools.count(1)
+        if early_ms and speculate:
+            threading.Thread(target=self._spec_worker, daemon=True, name="stt-early").start()
         self.source_match = source_match  # PipeWire mic description to pin (see ensure_default_source)
         self.device, self.silence_ms, self.max_s = device, silence_ms, max_s
         self.vad = webrtcvad.Vad(aggressiveness)
@@ -191,6 +207,7 @@ class AudioIn:
         self._pre = collections.deque(maxlen=10)  # 300 ms kept before speech onset
         self._silent_ms = 0
         self._in_speech = False
+        self._spec = None  # {"pcm", "done": Event, "text"} of the running early transcription
 
     @property
     def active(self) -> bool:
@@ -200,7 +217,11 @@ class AudioIn:
         if self.stream:
             return
         self._reset()
-        source = ensure_default_source(self.source_match) if self.source_match else None
+        # Pinning the mic runs `wpctl status` (~50-100 ms): every 30 s at most, not at every turn.
+        source = None
+        if self.source_match and time.monotonic() - self._pinned_at > 30:
+            source = ensure_default_source(self.source_match)
+            self._pinned_at = time.monotonic()
         self.stream = sd.RawInputStream(samplerate=self.RATE, channels=1, dtype="int16",
                                         blocksize=self.frame_len, device=self.device,
                                         callback=self._callback)
@@ -232,37 +253,65 @@ class AudioIn:
             return
         self._speech.append(frame)
         self._silent_ms = 0 if speech else self._silent_ms + self.FRAME_MS
+        if speech and self._spec is not None:
+            self._spec = None  # the visitor went on talking: the early guess is obsolete
         too_long = len(self._speech) * self.FRAME_MS >= self.max_s * 1000
-        if self._silent_ms >= self.silence_ms or too_long:
+        if (self.early_ms and self.speculate and self._spec is None and not too_long
+                and self.early_ms <= self._silent_ms < self.silence_ms):
             pcm = np.frombuffer(b"".join(self._speech), dtype=np.int16)
+            if self._gate(pcm)[0]:
+                self._spec = {"pcm": pcm, "done": threading.Event(), "text": None}
+                self._spec_q.put(self._spec)
+        if self._silent_ms >= self.silence_ms or too_long:
+            spec = self._spec if not too_long else None
+            pcm = spec["pcm"] if spec else np.frombuffer(b"".join(self._speech), dtype=np.int16)
             self._reset()
-            # Loudness of the voiced part only: mean of the loudest half of the 30 ms frames.
-            # The whole-clip mean was diluted by the 300 ms pre-roll and 800 ms trailing silence,
-            # so normal speech at 1-1.5 m was often rejected as "too quiet" (2026-10-16).
-            frames = np.abs(pcm[: len(pcm) // self.frame_len * self.frame_len].astype(np.float32))
-            per = np.sort(frames.reshape(-1, self.frame_len).mean(axis=1)) if len(frames) else np.zeros(1)
-            loud = float(per[len(per) // 2:].mean())
-            need = max(self.min_energy, self.noise_floor * self.snr)
+            ok, loud, need = self._gate(pcm)
             end = "max" if too_long else "silence"
-            # Real speech must be clearly above the noise floor; otherwise Whisper "hears" phantom
-            # sentences in noise (2026-10-15: 13 self-triggered exchanges in a loop).
             if len(pcm) <= self.RATE * 0.4:
                 log.info("utterance ignored reason=short dur_s=%.2f", len(pcm) / self.RATE)
-            elif loud < need:
+            elif not ok:
                 self.rejected += 1
                 log.info("utterance rejected reason=energy dur_s=%.1f loud=%d need=%d floor=%d end=%s",
                          len(pcm) / self.RATE, loud, need, self.noise_floor, end)
             else:
-                log.info("utterance accepted dur_s=%.1f loud=%d need=%d floor=%d end=%s",
-                         len(pcm) / self.RATE, loud, need, self.noise_floor, end)
-                self._out.put((pcm, time.monotonic()))
+                log.info("utterance accepted dur_s=%.1f loud=%d need=%d floor=%d end=%s early=%s",
+                         len(pcm) / self.RATE, loud, need, self.noise_floor, end, spec is not None)
+                self._out.put((pcm, time.monotonic(), spec))
+
+    def _gate(self, pcm: np.ndarray) -> tuple[bool, float, float]:
+        """(accepted, loud, need): is this clip loud enough to be real speech?"""
+        # Loudness of the voiced part only: mean of the loudest half of the 30 ms frames.
+        # The whole-clip mean was diluted by the 300 ms pre-roll and 800 ms trailing silence,
+        # so normal speech at 1-1.5 m was often rejected as "too quiet" (2026-10-16).
+        frames = np.abs(pcm[: len(pcm) // self.frame_len * self.frame_len].astype(np.float32))
+        per = np.sort(frames.reshape(-1, self.frame_len).mean(axis=1)) if len(frames) else np.zeros(1)
+        loud = float(per[len(per) // 2:].mean())
+        need = max(self.min_energy, self.noise_floor * self.snr)
+        # Real speech must be clearly above the noise floor; otherwise Whisper "hears" phantom
+        # sentences in noise (2026-10-15: 13 self-triggered exchanges in a loop).
+        return len(pcm) > self.RATE * 0.4 and loud >= need, loud, need
+
+    def _spec_worker(self):
+        while True:
+            spec = self._spec_q.get()
+            try:
+                spec["text"] = self.speculate(spec["pcm"])
+            except Exception:
+                log.exception("early transcription failed")
+            finally:
+                spec["done"].set()
 
     def _worker(self):
         # Transcription runs outside the audio callback to never block capture.
         while True:
-            pcm, t_end = self._out.get()
+            pcm, t_end, spec = self._out.get()
+            text = None
+            if spec is not None:  # early transcription of exactly this audio: wait for it, no new STT call
+                spec["done"].wait(30)
+                text = spec["text"]
             try:
-                self.on_utterance(pcm, t_end)
+                self.on_utterance(pcm, t_end, text)
             except Exception:
                 log.exception("utterance handler failed")
 
