@@ -41,15 +41,20 @@ class YuNetTRT:
             err, ptr = rt.cudaMalloc(arr.nbytes); _check(err)
             self.host[name], self.dev[name] = arr, ptr
             self.ctx.set_tensor_address(name, ptr)
-        self.blob = np.zeros((1, 3, SIZE, SIZE), dtype=np.float32)
+        # The host input tensor doubles as the letterbox canvas: zeroed once, then only the image
+        # area is rewritten; the padding is re-zeroed only if the image size changes.
+        self.host["input"][...] = 0
+        self._pad_hw = None
         log.info("yunet trt engine loaded tensors=%d", len(self.host))
 
     def detect(self, bgr: np.ndarray) -> np.ndarray:
         """bgr: HxW (H, W <= 640) uint8 image -> (N, 15) float32 detections."""
         h, w = bgr.shape[:2]
-        self.blob[:] = 0  # letterbox: image top-left, zero padding (same as OpenCV padding)
-        self.blob[0, :, :h, :w] = bgr.transpose(2, 0, 1)
-        inp = self.host["input"]; inp[...] = self.blob
+        inp = self.host["input"]
+        if self._pad_hw != (h, w):  # letterbox: image top-left, zero padding (same as OpenCV padding)
+            inp[...] = 0
+            self._pad_hw = (h, w)
+        inp[0, :, :h, :w] = bgr.transpose(2, 0, 1)
         H2D, D2H = rt.cudaMemcpyKind.cudaMemcpyHostToDevice, rt.cudaMemcpyKind.cudaMemcpyDeviceToHost
         _check(rt.cudaMemcpyAsync(self.dev["input"], inp.ctypes.data, inp.nbytes, H2D, self.stream))
         if not self.ctx.execute_async_v3(self.stream):

@@ -113,7 +113,8 @@ class Dashboard(QWidget):
         f.addRow("Anti-veille (dB)", self.keep); f.addRow("Enceinte", self.sink)
         # Gaze calibration (camera above the eye screen): applied live, saved on the robot.
         self.scale = QSlider(Qt.Horizontal); self.scale.setRange(50, 160)
-        self.scale.valueChanged.connect(lambda v: self.api.post({"action": "face_scale", "value": v / 100}))
+        self.scale.valueChanged.connect(lambda v: self._slide(self.scale, {"action": "face_scale", "value": v / 100}))
+        self.scale.sliderReleased.connect(lambda: self._slide(self.scale, {"action": "face_scale", "value": self.scale.value() / 100}, final=True))
         f.addRow("Taille du visage", self.scale)
         self.gaze_sliders = {}
         for key, label, lo, hi in (("offset_x", "Regard : décalage ←→", -100, 100),
@@ -121,7 +122,8 @@ class Dashboard(QWidget):
                                    ("gain_x", "Regard : amplitude ←→", 0, 300),
                                    ("gain_y", "Regard : amplitude ↑↓", 0, 300)):
             sl = QSlider(Qt.Horizontal); sl.setRange(lo, hi)
-            sl.valueChanged.connect(lambda v, k=key: self.api.post({"action": "gaze", k: v / 100}))
+            sl.valueChanged.connect(lambda v, k=key, s=sl: self._slide(s, {"action": "gaze", k: v / 100}))
+            sl.sliderReleased.connect(lambda k=key, s=sl: self._slide(s, {"action": "gaze", k: s.value() / 100}, final=True))
             self.gaze_sliders[key] = sl
             f.addRow(label, sl)
         grid.addWidget(box, 0, 1)
@@ -144,6 +146,13 @@ class Dashboard(QWidget):
         grid.addWidget(box, 2, 0, 1, 2)
         hint = QLabel("Tab : visage / tableau · H : tais-toi · M : muet · D : sourd · I : masquer muet/sourd · F11 : plein écran · Échap : quitter le plein écran")
         hint.setStyleSheet("color:gray"); grid.addWidget(hint, 3, 0, 1, 2)
+
+    def _slide(self, slider: QSlider, body: dict, final: bool = False):
+        """Live preview while dragging (save=false: the robot applies it but does not write its
+        overrides file each step); the value is persisted on release, or at once for keyboard/wheel."""
+        if slider.isSliderDown() and not final:
+            body = {**body, "save": False}
+        self.api.post(body)
 
     def _send(self, action, field: QLineEdit):
         if field.text().strip():
@@ -200,6 +209,7 @@ class Main(QMainWindow):
             self.stack.setCurrentWidget(self.dash)
         QTimer(self, timeout=lambda: self.api.get("/live", self._live), interval=100).start()
         QTimer(self, timeout=self._slow, interval=2000).start()
+        self.stack.currentChanged.connect(lambda _i: self._slow())  # fresh data as soon as it is shown
         self._slow()
 
     def _live(self, s):
@@ -209,6 +219,10 @@ class Main(QMainWindow):
             self.dash.live(s)
 
     def _slow(self):
+        # /status runs two engine health probes and /errors forks `tail`: skip them while the
+        # dashboard is not on screen (face view or minimised window); refreshed on the next show.
+        if not self.dash.isVisible() or self.isMinimized():
+            return
         self.api.get("/status", lambda s: isinstance(s, dict) and self.dash.status(s))
         self.api.get("/errors", lambda t: isinstance(t, str) and self.dash.err.setPlainText(t))
 
