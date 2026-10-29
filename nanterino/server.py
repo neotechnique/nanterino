@@ -13,6 +13,7 @@ import time
 
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 
 from . import config
@@ -148,7 +149,10 @@ async def control(body: dict):
     elif action == "ask" and body.get("text"):
         brain.post("ask", text=body["text"])
     elif action == "say" and body.get("text"):
-        out.play(tts.synth(body["text"]), tts.rate)
+        # TTS synthesis takes hundreds of ms: run it off the event loop so /api/live (10 Hz) and the
+        # websocket keep answering. TTS.synth() holds its own lock, so concurrent calls stay safe.
+        wav = await run_in_threadpool(tts.synth, body["text"])
+        out.play(wav, tts.rate)
     elif action == "volume":  # stored in the current speaker's profile
         speakers.update(volume=max(0.0, min(1.0, float(body.get("value", 0.8)))))
     elif action == "keepalive_db":  # "off" = pure digital silence
@@ -176,10 +180,12 @@ async def control(body: dict):
                 lo, hi = (-1.0, 1.0) if k.startswith("offset") else (0.0, 3.0)
                 g[k] = max(lo, min(hi, float(body[k])))
         cfg["gaze"] = g
-        config.save_overrides({"gaze": g})
+        if body.get("save", True):  # the UI sends save=false while a slider is dragged (live preview)
+            config.save_overrides({"gaze": g})
     elif action == "face_scale":  # {"value": 0.5..1.6}
         cfg["face_scale"] = max(0.5, min(1.6, float(body.get("value", 1.0))))
-        config.save_overrides({"face_scale": cfg["face_scale"]})
+        if body.get("save", True):
+            config.save_overrides({"face_scale": cfg["face_scale"]})
     elif action == "sing":  # the Nanterino song (media/chanson-nanterino.wav)
         brain.post("sing")
     elif action == "reload_corpus":
