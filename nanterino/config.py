@@ -13,6 +13,12 @@ DEFAULTS = {
     "llm_url": "http://127.0.0.1:8179/v1/chat/completions",
     # Extra fields of every LLM request. LFM3-1.7B (Liquid AI, 2026-10-29): vendor sampling
     # temp 0.1 / top_k 50 / repeat 1.1, reasoning off. Qwen2.5 used {"temperature": 0.3}.
+    # Prompt shape, measured 2026-10-29 on the 20-question bench (scripts/llm-bench.py, LFM3):
+    # sheets after the cached system prompt + examples, and sheets scoring < 50 % of the best match
+    # dropped (2.55 -> 2.05 sheets): first sentence 1.77 s -> 1.39 s, answers unchanged or better.
+    "prompt_layout": "sheets_last",
+    "corpus_k": 3,
+    "corpus_rel_min": 0.5,
     "llm_options": {"temperature": 0.1, "top_k": 50, "repeat_penalty": 1.1,
                     "chat_template_kwargs": {"enable_thinking": False}},
     "tts_voice": f"{ROOT}/models/piper/fr_FR-siwis-medium.onnx",
@@ -90,7 +96,7 @@ DEFAULTS = {
         "simplement puis propose ton aide sur les parcs, les lieux remarquables de Nanterre ou "
         "les bons gestes écologiques (tri, compost, économies d'eau et d'énergie). Pour les faits, utilise uniquement les fiches fournies ; si la réponse "
         "n'y est pas, dis-le simplement et pose une question pour rester sur le sujet du visiteur. "
-        "N'invente jamais de lieu, d'adresse ni d'horaire."
+        "N'invente jamais de lieu, d'adresse, d'horaire ni de ligne de bus."
     ),
 }
 

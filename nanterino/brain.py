@@ -69,6 +69,26 @@ def fix_sentence(sentence: str) -> str:
     return sentence
 
 
+NO_SHEET = ("AUCUNE FICHE PERTINENTE : tu ne connais pas la réponse. Ne donne aucun lieu ni chemin ; dis que tu "
+            "n'as pas encore cette information et demande ce que le visiteur cherche exactement.")
+
+
+def build_messages(cfg: dict, sheets: list[dict], history: list[dict], question: str) -> list[dict]:
+    """Chat messages for one answer (shared with /opt/robot/scripts/llm-bench.py).
+
+    "sheets_last" layout keeps the system prompt and examples identical between questions, so
+    llama-server can reuse that prefix from its cache, and puts the sheets just before the question.
+    """
+    context = "\n\n---\n\n".join(s["text"] for s in sheets) or NO_SHEET
+    # No sheet found: show the model how to say "I do not know" without inventing.
+    examples = list(cfg.get("few_shot", [])) + ([] if sheets else list(cfg.get("few_shot_no_sheet", [])))
+    if cfg.get("prompt_layout") == "sheets_last":
+        return ([{"role": "system", "content": cfg["system_prompt"]}] + examples + history
+                + [{"role": "user", "content": f"Fiches :\n{context}\n\nQuestion du visiteur : {question}"}])
+    return ([{"role": "system", "content": f"{cfg['system_prompt']}\n\nFiches :\n{context}"}]
+            + examples + history + [{"role": "user", "content": question}])
+
+
 class Brain:
     def __init__(self, cfg, out, stt, llm, tts, corpus):
         self.cfg, self.out, self.stt, self.llm, self.tts, self.corpus = cfg, out, stt, llm, tts, corpus
@@ -334,16 +354,8 @@ class Brain:
 
     def _answer(self, question: str, t_end: float, gen: int):
         cfg = self.cfg
-        sheets = self.corpus.search(question)
-        context = "\n\n---\n\n".join(s["text"] for s in sheets) or ("AUCUNE FICHE PERTINENTE : tu ne connais pas la réponse. Ne donne aucun lieu ni "
-                                                         "chemin ; dis que tu n'as pas encore cette information et "
-                                                         "demande ce que le visiteur cherche exactement.")
-        messages = ([{"role": "system", "content": f"{cfg['system_prompt']}\n\nFiches :\n{context}"}]
-                    + list(cfg.get("few_shot", []))
-                    # No sheet found: show the model how to say "I do not know" without inventing.
-                    + ([] if sheets else list(cfg.get("few_shot_no_sheet", [])))
-                    + self.history[-2 * cfg["history_turns"]:]
-                    + [{"role": "user", "content": question}])
+        sheets = self.corpus.search(question, cfg.get("corpus_k", 3), cfg.get("corpus_rel_min", 0.0))
+        messages = build_messages(cfg, sheets, self.history[-2 * cfg["history_turns"]:], question)
         log.info("answer start sheets=%d", len(sheets))
         full, spoken, first = [], 0, True
         try:
