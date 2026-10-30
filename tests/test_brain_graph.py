@@ -344,7 +344,7 @@ def _(h):
 
 @sc("enchante_is_not_the_song")
 def _(h):
-    h.post("start"); h.settle(); h.say("Enchanté de vous voir"); h.settle(); h.at("end")
+    h.post("start"); h.settle(); h.say("Quel enchanteur, bravo"); h.settle(); h.at("end")
 
 
 @sc("sing_ui_in_veille")
@@ -426,9 +426,11 @@ def _(h):
     brain_mod.MAX_TURNS = 2
     try:
         h.post("start"); h.settle()
-        for i in range(3):
+        for i in range(2):
             h.say("Question %d" % i); h.settle(); h.at("turn_%d" % i)
-        h.wait_state("veille"); h.settle(); h.at("end")
+        # Third question exceeds MAX_TURNS -> cloture -> veille. No snapshot in between: the
+        # cloture pause (~0.5 s) is as long as settle()'s quiet period, so it would race.
+        h.say("Question 2"); h.wait_state("veille"); h.settle(); h.at("end")
     finally:
         brain_mod.MAX_TURNS = old
 
@@ -526,7 +528,172 @@ def compare(baseline, new):
     return bad
 
 
+# ------------------------------------------------------------------ graph / heartbeat tests (new code only)
+def _graph_mod():
+    try:
+        from nanterino import graph
+        return graph
+    except ImportError:
+        return None
+
+
+def _write(tmp_name, text):
+    path = os.path.join("/tmp", tmp_name)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+    return path
+
+
+def _default_text():
+    with open(os.path.join(os.path.dirname(HERE), "nanterino", "graph.yaml"), encoding="utf-8") as f:
+        return f.read()
+
+
+def test_default_graph_valid():
+    g = _graph_mod().load_graph(_graph_mod().DEFAULT_PATH, dict(config.DEFAULTS))
+    assert not g.warnings, g.warnings            # every state / transition / intent has a French description
+    assert set(g.states) == set(STATES), sorted(g.states)
+    assert [i.name for i in g.intents] == ["appel", "au_revoir", "chanson"]
+
+
+def test_invalid_graphs_rejected():
+    gm, cfg = _graph_mod(), dict(config.DEFAULTS)
+    base = _default_text()
+    cases = {
+        "unknown state 'nowhere'": base.replace("to: ecoute\n        description: \"Salutation", "to: nowhere\n        description: \"Salutation"),
+        "unknown action": base.replace("on_enter: [clear_conversation, reset_repairs, mic_on]", "on_enter: [clear_conversation, fly_away]"),
+        "unknown guard": base.replace("when: auto_greet_on_face", "when: moon_is_full"),
+        "unknown event": base.replace("- on: visage\n", "- on: nobody_home\n"),
+        "required state": base.replace("  eteint:\n", "  eteint_renamed:\n"),
+        "not a config key": base.replace("text: greeting,", "text: no_such_key,"),
+        "neither a number nor": base.replace("after: silence_relance_s", "after: silence_typo_s"),
+        "unknown key": base.replace("version: 1", "version: 1\nsurprise: true"),
+    }
+    for needle, text in cases.items():
+        assert text != base, "case did not change the file: " + needle
+        try:
+            gm.load_graph(_write("g_bad.yaml", text), cfg)
+        except gm.GraphError as e:
+            assert needle in str(e), (needle, str(e)[:300])
+        else:
+            raise AssertionError("graph accepted although invalid: " + needle)
+
+
+def test_invalid_override_falls_back_and_robot_starts():
+    path = _write("g_override_bad.yaml", _default_text().replace("to: accueil\n        description: \"Un visage", "to: atlantis\n        description: \"Un visage"))
+    h = H({"graph_file": path})
+    try:
+        assert h.brain.graph_error and "atlantis" in h.brain.graph_error, h.brain.graph_error
+        h.post("start"); h.wait_state("accueil")             # the default graph is running
+        h.settle(); assert h.brain.state == "ecoute"
+        with open("/var/log/robot/errors.log", encoding="utf-8", errors="replace") as f:
+            assert "graph override invalid" in f.read()[-20000:], "error not in errors.log"
+    finally:
+        h.close()
+
+
+def test_valid_override_and_reload_rules():
+    h = H({"graph_file": "/tmp/g_override_ok.yaml"})            # file does not exist yet -> default
+    try:
+        h.post("start"); h.wait_state("accueil"); h.settle()
+        h.post("stop"); h.wait_state("veille")
+        _write("g_override_ok.yaml", _default_text().replace(
+            "  veille:\n    description: \"Le robot attend", "  veille:\n    description: \"Variante : le robot attend", 1)
+            .replace("      - on: start\n        to: accueil\n        reason: $source\n        description: \"Bouton Démarrer du tableau",
+                     "      - on: start\n        to: ecoute\n        reason: $source\n        description: \"Bouton Démarrer du tableau", 1))
+        ok, err = h.brain.reload_graph()
+        assert ok and err is None and h.brain.engine.graph.source == "/tmp/g_override_ok.yaml", (ok, err)
+        h.post("start"); h.settle()
+        assert h.brain.state == "ecoute", h.brain.state     # the edited file changed the behaviour
+        assert h.brain.reload_graph() == (False, "busy")     # refused while a conversation is running
+    finally:
+        h.close()
+        try:
+            os.remove("/tmp/g_override_ok.yaml")
+        except OSError:
+            pass
+
+
+def test_visage_perdu_is_ignored_by_default_graph():
+    h = H({})
+    try:
+        h.post("start"); h.settle(); h.post("visage_perdu"); h.settle()
+        assert h.brain.state == "ecoute"
+    finally:
+        h.close()
+
+
+def test_heartbeat_rate_and_lag():
+    h = H({})
+    try:
+        lags = []
+        for _ in range(40):
+            time.sleep(0.1)
+            lags.append(h.brain.snapshot()["heartbeat"]["lag_ms"])
+        hb = h.brain.snapshot()["heartbeat"]
+        assert 8.0 <= hb["hz"] <= 12.0, hb
+        assert hb["trips"] == 0 and hb["age_ms"] < 500, hb
+        assert max(lags) < 20, "heartbeat lag too high: max %.1f ms" % max(lags)
+        snap = h.brain.snapshot()
+        assert "state_age_s" in snap and "turns" in snap
+    finally:
+        h.close()
+
+
+def test_watchdog_trips_once_and_recovers():
+    h = H({"watchdog_s": 5})
+    try:
+        blocked = threading.Event()
+        real_stop = h.brain.mic.stop
+
+        def slow_stop():            # runs in the brain loop thread: the loop is stuck for 6 s
+            blocked.set()
+            time.sleep(6.0)
+            real_stop()
+        h.brain.mic.stop = slow_stop
+        h.post("start")             # veille -> accueil: on_enter calls mic_off -> blocks
+        assert blocked.wait(3)
+        h.wait(lambda: h.brain.snapshot()["heartbeat"]["trips"] >= 1, 9)
+        h.brain.mic.stop = real_stop
+        h.wait_state("veille", 10)  # the priority stop ran once the handler returned
+        h.settle(0.5)
+        hb = h.brain.snapshot()["heartbeat"]
+        assert hb["trips"] == 1, hb
+        assert h.brain._loop_thread.is_alive()
+        time.sleep(0.5)
+        assert h.brain.snapshot()["heartbeat"]["age_ms"] < 500       # beats flow again
+        h.post("start"); h.wait_state("ecoute", 5)                   # and the robot works normally
+        with open("/var/log/robot/errors.log", encoding="utf-8", errors="replace") as f:
+            assert "watchdog: no heartbeat processed" in f.read()[-20000:]
+    finally:
+        h.close()
+
+
+EXTRA_TESTS = [test_default_graph_valid, test_invalid_graphs_rejected,
+               test_invalid_override_falls_back_and_robot_starts, test_valid_override_and_reload_rules,
+               test_visage_perdu_is_ignored_by_default_graph, test_heartbeat_rate_and_lag,
+               test_watchdog_trips_once_and_recovers]
+
+
+def run_extras():
+    if _graph_mod() is None:
+        print("graph module absent: extra tests skipped (baseline brain)")
+        return 0
+    failed = 0
+    for fn in EXTRA_TESTS:
+        try:
+            fn()
+            print("PASS", fn.__name__, flush=True)
+        except Exception as e:  # report every failure, not just the first
+            failed += 1
+            print("FAIL", fn.__name__, "%s: %s" % (type(e).__name__, e), flush=True)
+    print("extra tests: %d passed, %d failed" % (len(EXTRA_TESTS) - failed, failed))
+    return failed
+
+
 def main(argv):
+    if "--extras-only" in argv:
+        return 1 if run_extras() else 0
     names = list(SCENARIOS)
     if "--only" in argv:
         names = argv[argv.index("--only") + 1].split(",")
@@ -546,7 +713,8 @@ def main(argv):
     for n, why in bad:
         print("DIFF", n, why)
     print("trace parity: %d scenarios, %d different" % (len(traces), len(bad)))
-    return 1 if bad else 0
+    failed = run_extras() if "--only" not in argv else 0
+    return 1 if (bad or failed) else 0
 
 
 if __name__ == "__main__":

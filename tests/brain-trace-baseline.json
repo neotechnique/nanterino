@@ -1326,15 +1326,6 @@ true,
 ],
 [
 "at",
-"turn_2",
-"veille",
-true,
-0,
-0,
-0
-],
-[
-"at",
 "end",
 "veille",
 true,
