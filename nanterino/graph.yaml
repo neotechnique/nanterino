@@ -1,0 +1,218 @@
+# Graphe de dialogue de Nanterino (version livrée avec le code).
+#
+# Pour changer le comportement SANS toucher au Python : copier ce fichier en
+# /opt/robot/nanterino/graph.yaml, le modifier, puis POST /api/graph/reload (robot en veille ou éteint).
+# Si le fichier est invalide, l'erreur est écrite dans errors.log et le robot garde CE graphe-ci.
+#
+# Lecture :
+#   - un état = un endroit où le robot peut se trouver ; `on_enter` = ce qu'il fait en y arrivant ;
+#   - une transition se déclenche sur un événement (`on:`) ou après un délai mesuré par le
+#     battement de coeur (`after:` + `since:`), si ses gardes (`when:`) passent ;
+#   - ordre d'évaluation : transitions `global` d'abord, puis celles de l'état courant ; la première
+#     qui s'applique gagne : `do` (avant), changement d'état `to`, puis `then` (après) ;
+#   - `reason` est le motif noté dans le journal ; `$source` = origine de l'ordre de démarrage.
+# Les noms d'actions, de gardes et d'événements sont un vocabulaire fermé défini dans graph.py :
+# un nom inconnu est refusé au chargement.
+#
+# Événement prévu mais NON utilisé par ce graphe (parité avec l'ancien code) :
+#   visage_perdu : posté par la vision quand plus aucun visage n'est vu depuis `lost_face_s` (10 s).
+#   Branchement possible : dans `ecoute` ou `relance`, `- on: visage_perdu` puis `to: cloture`.
+version: 1
+
+states:
+  veille:
+    description: "Le robot attend un visiteur, micro ouvert pour entendre son nom."
+    on_enter: [clear_conversation, reset_repairs, mic_on]
+    transitions:
+      - on: visage
+        when: auto_greet_on_face
+        to: accueil
+        description: "Un visage apparaît devant la caméra (accueil automatique activé) : saluer."
+      - on: start
+        to: accueil
+        reason: $source
+        description: "Bouton Démarrer du tableau de bord ou appui sur le visage : saluer."
+      - on: intent.appel
+        to: accueil
+        reason: appel
+        description: "Le visiteur dit « Nanterino » : saluer."
+      - on: ask
+        to: ecoute
+        reason: ask
+        then: [as_utterance]
+        description: "Question tapée sur le tableau de bord (test sans micro) : passer en écoute puis la traiter."
+
+  accueil:
+    description: "Le robot salue le visiteur ; le micro est coupé pendant qu'il parle."
+    on_enter: [mic_off, {speak_phrase: {text: greeting, done: greeting_done}}]
+    transitions:
+      - on: greeting_done
+        to: ecoute
+        description: "Salutation terminée : écouter le visiteur."
+
+  ecoute:
+    description: "Le robot écoute la question du visiteur."
+    on_enter: [subtitle_listening, reset_silence, mic_on]
+    transitions:
+      - after: silence_relance_s
+        since: last_speech
+        when: not_busy
+        to: relance
+        reason: silence
+        description: "Silence prolongé (silence_relance_s, 8 s) et aucune transcription en cours : relancer."
+      - on: intent.au_revoir
+        to: cloture
+        reason: refus
+        description: "Le visiteur veut partir (non merci, stop, au revoir…) : dire au revoir."
+      - on: intent.chanson
+        do: [reset_repairs, {emit: {event: sing}}]
+        description: "Le visiteur demande une chanson : déclencher la chanson (événement sing)."
+      - on: intent.question
+        when: turns_left
+        do: [reset_repairs, count_turn]
+        to: reponse
+        reason: phrase
+        then: [mic_off_no_barge_in, start_answer]
+        description: "Une question : répondre (micro coupé sauf si l'interruption est activée)."
+      - on: intent.question
+        do: [reset_repairs, count_turn]
+        to: cloture
+        reason: max_turns
+        description: "Trop d'échanges dans la même conversation (garde-fou MAX_TURNS) : conclure."
+      - on: not_understood
+        when: [not_speaking, repairs_left]
+        do: [count_repair, set_relance_text]
+        to: relance
+        reason: pas_compris
+        description: "Bruit ou parole inexploitable : demander de répéter (2 fois au plus de suite)."
+      - on: not_understood
+        when: not_speaking
+        do: [count_repair]
+        description: "Déjà deux demandes de répétition : ne plus insister, les délais prennent le relais."
+
+  reponse:
+    description: "Le robot répond (ou chante) ; les phrases sont dites au fil de la génération."
+    transitions:
+      - on: answer_done
+        to: ecoute
+        description: "Réponse terminée : écouter la suite."
+      - on: barge_in
+        do: [cancel_all]
+        to: ecoute
+        description: "Le visiteur coupe la parole (si activé) : se taire et écouter."
+
+  relance:
+    description: "Le robot relance un visiteur silencieux (ou lui demande de répéter), puis attend encore."
+    on_enter: [mic_off, speak_relance]
+    transitions:
+      - on: relance_done
+        do: [reset_silence, mic_on]
+        description: "Relance terminée : rouvrir le micro, fenêtre de réponse de silence_cloture_s."
+      - after: silence_cloture_s
+        since: last_speech
+        when: mic_active
+        to: cloture
+        reason: silence
+        description: "Toujours rien (silence_cloture_s, 15 s) : conclure."
+      - on: intent.au_revoir
+        to: cloture
+        reason: refus
+        description: "Le visiteur veut partir : dire au revoir."
+      - on: intent.chanson
+        do: [reset_repairs, {emit: {event: sing}}]
+        description: "Le visiteur demande une chanson."
+      - on: intent.question
+        when: turns_left
+        do: [reset_repairs, count_turn]
+        to: reponse
+        reason: phrase
+        then: [mic_off_no_barge_in, start_answer]
+        description: "Une question : répondre."
+      - on: intent.question
+        do: [reset_repairs, count_turn]
+        to: cloture
+        reason: max_turns
+        description: "Trop d'échanges : conclure."
+      - on: not_understood
+        when: [not_speaking, repairs_left]
+        do: [count_repair, set_relance_text]
+        to: relance
+        reason: pas_compris
+        description: "Parole inexploitable : demander de répéter (2 fois au plus de suite)."
+      - on: not_understood
+        when: not_speaking
+        do: [count_repair]
+        description: "Déjà deux demandes de répétition : ne plus insister."
+
+  cloture:
+    description: "Le robot dit au revoir, oublie la conversation, puis retourne en veille."
+    on_enter: [mic_off, clear_history, {speak_phrase: {text: goodbye, done: goodbye_done}}]
+    transitions:
+      - on: goodbye_done
+        do: [{schedule: {event: cloture_done, delay: cloture_to_veille_s}}]
+        description: "Au revoir terminé : courte pause (cloture_to_veille_s) vérifiée par le battement de coeur."
+      - on: cloture_done
+        to: veille
+        description: "Pause terminée : retour en veille."
+
+  eteint:
+    description: "Robot éteint : micro coupé, il n'écoute ni ne parle jusqu'à « on » ou « start »."
+    on_enter: [clear_conversation, mic_off]
+    transitions:
+      - on: "on"
+        to: veille
+        description: "Bouton Allumer : retour en veille."
+      - on: start
+        to: accueil
+        reason: $source
+        description: "Bouton Démarrer : saluer directement."
+
+global:
+  - on: stop
+    do: [cancel_all]
+    to: veille
+    description: "Bouton Stop (tout état) : se taire immédiatement et revenir en veille."
+  - on: "off"
+    do: [cancel_all]
+    to: eteint
+    description: "Bouton Éteindre (tout état) : se taire, couper le micro, ignorer tout jusqu'à « on »."
+  - on: hush
+    only_in: [reponse, accueil, relance]
+    do: [cancel_all]
+    to: ecoute
+    description: "« Tais-toi » pendant que le robot parle : se taire mais garder la conversation."
+  - on: hush
+    only_in: [cloture]
+    do: [cancel_all]
+    to: veille
+    description: "« Tais-toi » pendant l'au revoir : couper court et retourner en veille."
+  - on: hush
+    only_in: [veille, ecoute]
+    do: [cancel_all]
+    description: "« Tais-toi » alors que le robot ne parle pas : rien d'autre que couper le son."
+  - on: sing
+    not_in: [eteint]
+    do: [cancel_all, mic_off]
+    to: reponse
+    reason: chanson
+    then: [start_sing]
+    description: "La chanson de Nanterino (bouton ou demande) ; micro coupé pour ne pas s'entendre chanter."
+  - on: ask
+    not_in: [eteint, veille]
+    do: [as_utterance]
+    description: "Question tapée sur le tableau de bord : la traiter comme si elle avait été dite."
+
+intents:
+  appel:
+    only_in: [veille]
+    words: ["nanter"]
+    description: "Le nom du robot entendu en veille (en attendant un vrai mot d'appel)."
+  au_revoir:
+    only_in: [ecoute, relance]
+    words_from: refusal_words
+    description: "Le visiteur veut partir ; les mots viennent de la clé refusal_words de config.json."
+  chanson:
+    only_in: [ecoute, relance]
+    regex: "\\b(chante[rsz]?|chantons|chanson)\\b"
+    description: "Demande de chanson, mots entiers seulement (« enchanté » ne compte pas)."
+  # Aucune correspondance : événement intent.question (une vraie question à traiter).

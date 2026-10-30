@@ -50,7 +50,13 @@ DEFAULTS = {
     "silence_relance_s": 8,
     "silence_cloture_s": 15,
     "cloture_to_veille_s": 2,
-    "lost_face_s": 10,
+    "lost_face_s": 10,  # no face for this long -> vision posts `visage_perdu` (unused by the default graph)
+    # Heartbeat: the brain loop ticks at this rate (delays are accurate to one tick); the watchdog
+    # trips when no tick was processed for watchdog_s seconds (stuck handler). See nanterino/graph.py.
+    "heartbeat_hz": 10,
+    "watchdog_s": 5,
+    # Optional dialogue graph override (YAML, French); invalid -> logged, default graph.yaml used.
+    "graph_file": f"{ROOT}/graph.yaml",
     "vad_silence_ms": 800,
     # Early transcription after this much silence (0 = off); the utterance still ends at
     # vad_silence_ms, the text is just ready sooner (AudioIn.early_ms).
