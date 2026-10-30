@@ -94,8 +94,10 @@ class Dashboard(QWidget):
         self.ask.returnPressed.connect(lambda: self._send("ask", self.ask))
         self.say = QLineEdit(placeholderText="Faire parler le robot puis Entrée")
         self.say.returnPressed.connect(lambda: self._send("say", self.say))
-        for wdg in (self.state, self.sub):
-            v.addWidget(wdg)
+        # Heart dot: the brain's heartbeat (green < 0.5 s since the last processed beat, orange < 2 s, red).
+        self.heart = QLabel("●"); self.heart.setToolTip("Battement de coeur du robot")
+        head = QHBoxLayout(); head.addWidget(self.state, 1); head.addWidget(self.heart)
+        v.addLayout(head); v.addWidget(self.sub)
         v.addLayout(row); v.addLayout(row2); v.addWidget(self.ask); v.addWidget(self.say)
         grid.addWidget(box, 0, 0)
         # Audio
@@ -161,6 +163,9 @@ class Dashboard(QWidget):
 
     def live(self, s):
         self.state.setText(s.get("state", "?"))
+        age = (s.get("heartbeat") or {}).get("age_ms")
+        color = "#7a7a7a" if age is None else "#1f9d63" if age < 500 else "#e08a00" if age < 2000 else "#c63d3d"
+        self.heart.setStyleSheet(f"color:{color};font-size:20px")
         self._off = s.get("state") == "eteint"
         self.power.setText("⏻ Allumer" if self._off else "⏻ Éteindre")
         self.sub.setText(s.get("subtitle", ""))

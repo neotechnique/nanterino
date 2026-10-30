@@ -57,10 +57,12 @@ def _llm_warmer():
 
 
 threading.Thread(target=_llm_warmer, name="llm-warmer", daemon=True).start()
-vision = Vision()
+vision = Vision(lost_face_s=cfg["lost_face_s"])
 # F01 auto-greeting: a new face within 3 m wakes the robot (only from veille; ignored when off).
 # The flag is read at each event so it can be toggled without restarting.
 vision.on_face = lambda dist: cfg.get("auto_greet_on_face") and brain.post("visage")
+# `visage_perdu` (no face for lost_face_s) is posted for graph authors; the default graph ignores it.
+vision.on_face_lost = lambda: brain.post("visage_perdu")
 app = FastAPI(title="Nanterino")
 
 
@@ -99,6 +101,22 @@ def status():
 
 def engines() -> dict:
     return {"stt": stt.ready(), "llm": llm.ready(), "tts": True}
+
+
+@app.get("/api/graph")
+def graph():
+    """The dialogue graph the robot runs (states, transitions, descriptions) + validation error if the
+    override file was rejected."""
+    return {**brain.engine.graph.to_dict(), "error": brain.graph_error}
+
+
+@app.post("/api/graph/reload")
+def graph_reload():
+    """Re-read graph.yaml; refused (409) unless the robot is idle (veille/eteint)."""
+    ok, err = brain.reload_graph()
+    if not ok:
+        return JSONResponse({"ok": False, "error": "robot busy: reload only in veille/eteint"}, status_code=409)
+    return {"ok": err is None, "source": brain.engine.graph.source, "error": err}
 
 
 @app.get("/api/live")

@@ -32,12 +32,15 @@ def _iou(a, b) -> float:
 
 
 class Vision:
-    def __init__(self, max_dist_m: float = 3.0):
+    def __init__(self, max_dist_m: float = 3.0, lost_face_s: float = 10.0):
         self.max_dist_m = max_dist_m
+        self.lost_face_s = lost_face_s  # absence needed before on_face_lost fires
         self.state = {"present": False, "x": 0.0, "y": 0.0, "dist_m": None, "track_id": None, "fps": 0.0,
                       "camera": False}
         self._box, self._last_seen, self._next_id = None, 0.0, 1
         self.on_face = None  # optional callback(dist_m) when a face appears within max_dist_m
+        self.on_face_lost = None  # optional callback() once, after lost_face_s without any face
+        self._lost_fired = False
         threading.Thread(target=self._run, daemon=True, name="vision").start()
 
     def _run(self):
@@ -120,7 +123,13 @@ class Vision:
             if self.state["present"] and now - self._last_seen > LOST_AFTER_S:
                 self.state.update(present=False, track_id=None)
                 self._box = None
+            # Fire once per absence, only after a face was really seen (_last_seen > 0).
+            if (self.on_face_lost and not self._lost_fired and self._last_seen
+                    and now - self._last_seen > self.lost_face_s):
+                self._lost_fired = True
+                self.on_face_lost()
             return
+        self._lost_fired = False
         # F02: keep following the same person (best overlap with the previous box); otherwise the
         # largest (closest) face. A second person passing behind does not steal the gaze.
         if self._box is not None:

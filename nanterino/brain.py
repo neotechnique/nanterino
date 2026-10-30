@@ -8,11 +8,21 @@ plus "eteint" (OFF): mic closed, no listening, no speech, until "start"/"on".
 Exits from veille: UI "start" (button / face tap), the word "Nanterino" heard while in veille
 (STT-based stand-in until the openWakeWord model of step 9), or `visage` events (step 6).
 
+Graph + heartbeat (2026-10-30): the transitions are no longer coded here. They live in
+nanterino/graph.yaml (French, editable; override file /opt/robot/nanterino/graph.yaml) and are run by
+nanterino.graph.GraphEngine. This module keeps the *capabilities*: the closed registry of actions and
+guards (`_build_engine`) and the audio/LLM/TTS threads. A heartbeat thread posts a `tick` at
+cfg["heartbeat_hz"] (10 Hz); the single "brain" loop blocks on the event queue and every tick evaluates
+the graph's `after:` delays and the scheduled events. A watchdog thread trips when no tick was processed
+for cfg["watchdog_s"] seconds (a handler is stuck): it logs to errors.log, cancels speech, queues a
+priority `stop` and restarts a dead loop thread.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
 running answers missed it and kept talking after "Stop".)
 """
+import itertools
 import re
 import numpy as np
 import os
@@ -21,6 +31,7 @@ import queue
 import threading
 import time
 
+from . import graph as graph_mod
 from .audio import AudioIn, find_device
 from .log import log
 
@@ -96,7 +107,10 @@ class Brain:
         self.subtitle, self.last_speech = "", time.monotonic()
         self.history: list[dict] = []
         self.latencies = collections.deque(maxlen=20)  # ms, end of user speech -> first sound
-        self.events: queue.Queue = queue.Queue()
+        # PriorityQueue: the watchdog's `stop` (priority -1) must pass ahead of anything queued.
+        # The sequence number keeps FIFO order inside one priority and avoids comparing payload dicts.
+        self.events: queue.PriorityQueue = queue.PriorityQueue()
+        self._seq = itertools.count()
         self.gen = 0        # bumped on every cancellation; threads compare with their own copy
         self._busy = False  # an utterance is being transcribed
         self.turns = 0      # exchanges in the current conversation (MAX_TURNS guard)
@@ -112,17 +126,49 @@ class Brain:
         # Fixed phrases (greeting, relance, goodbye, repair) are synthesized once and replayed:
         # identical samples, no TTS wait before the robot starts talking.
         self._phrases: dict[str, np.ndarray] = {}
+        # Heartbeat / watchdog bookkeeping (read by snapshot() from other threads: plain floats/ints only).
+        self.hb_hz = max(0.5, float(cfg.get("heartbeat_hz", 10)))
+        self.watchdog_s = float(cfg.get("watchdog_s", 5))
+        self._closing = threading.Event()
+        self._tick_pending = False   # at most one tick in the queue: a stuck loop must not pile them up
+        self._last_beat = time.monotonic()
+        self._lag_ms, self._hz, self._trips, self._wd_tripped = 0.0, 0.0, 0, False
+        self._beats: collections.deque = collections.deque(maxlen=30)
+        self._tick_err_at = 0.0
+        self._scheduled: list = []   # (due monotonic, event, gen): replaces the old threading.Timer
+        self._sched_lock = threading.Lock()
+        self.graph_error = None
+        self.engine = self._build_engine()
         threading.Thread(target=self._cache_phrases, daemon=True, name="phrase-cache").start()
-        threading.Thread(target=self._loop, daemon=True, name="brain").start()
+        self._start_threads()
 
     # ------------------------------------------------------------------ public API (UI / sensors)
     def post(self, kind: str, **kw):
-        self.events.put((kind, kw))
+        self.events.put((0, next(self._seq), kind, kw))
+
+    def post_priority(self, kind: str, **kw):
+        """Handled before every queued event (used by the watchdog)."""
+        self.events.put((-1, next(self._seq), kind, kw))
 
     def snapshot(self) -> dict:
+        now = time.monotonic()
         return {"state": self.state, "subtitle": self.subtitle, "mic_on": self.mic.active,
                 "mic_level": round(self.mic.level, 3), "out_level": round(self.out.level, 3),
-                "speaking": self.out.busy, "muted": self.out.muted, "deaf": self.deaf, "latencies_ms": list(self.latencies)}
+                "speaking": self.out.busy, "muted": self.out.muted, "deaf": self.deaf, "latencies_ms": list(self.latencies),
+                "state_age_s": round(now - self.since, 1), "turns": self.turns,
+                "heartbeat": {"hz": round(self._hz, 1), "lag_ms": round(self._lag_ms, 1),
+                              "age_ms": int((now - self._last_beat) * 1000), "trips": self._trips}}
+
+    def reload_graph(self) -> tuple[bool, str | None]:
+        """Re-read the graph file; only while idle (veille/eteint) so no conversation is cut mid-state.
+
+        Returns (applied, error): error is the validation message when the file was invalid and the
+        default graph is running instead.
+        """
+        if self.state not in (VEILLE, ETEINT):
+            return False, "busy"
+        self.engine = self._build_engine()
+        return True, self.graph_error
 
     def set_deaf(self, deaf: bool):
         self.deaf = deaf
@@ -178,31 +224,78 @@ class Brain:
     def _go(self, state: str, reason: str):
         log.info("transition %s -> %s reason=%s", self.state, state, reason)
         self.state, self.since = state, time.monotonic()
-        self._enter(state)
+        self.engine.enter(state)  # the graph's `on_enter` actions
 
-    def _enter(self, state: str):
+    def _build_engine(self) -> "graph_mod.GraphEngine":
+        """Load the active graph (override file or default) and bind it to this brain's capabilities.
+
+        The dicts below are the CLOSED vocabulary implemented here; graph.ACTION_SPECS / GUARDS list the
+        names a graph file may use and GraphEngine refuses to start if one is missing.
+        """
         cfg = self.cfg
-        if state == VEILLE:
-            self.history.clear(); self.turns = 0; self.subtitle = ""; self.repairs = 0
-            self._mic_on()  # listens only for the call word while idle
-        elif state == ETEINT:
+        graph, self.graph_error = graph_mod.load_active(cfg)
+
+        def clear_conversation(kw):
             self.history.clear(); self.turns = 0; self.subtitle = ""
-            self.mic.stop()   # really off: nothing captured, nothing said
-        elif state == ACCUEIL:
-            self.mic.stop()
-            self._speak_then(cfg["greeting"], "greeting_done")
-        elif state == ECOUTE:
-            self.subtitle = "Je vous écoute"
+
+        def reset_silence(kw):
             self.last_speech = time.monotonic()
-            self._mic_on()
-        elif state == RELANCE:
-            self.mic.stop()
-            text, self._relance_text = self._relance_text or cfg["relance"], None
+
+        def speak_relance(kw):
+            text, self._relance_text = self._relance_text or cfg["relance"], None  # one-shot repair text
             self._speak_then(text, "relance_done")
-        elif state == CLOTURE:
-            self.mic.stop()
-            self.history.clear()
-            self._speak_then(cfg["goodbye"], "goodbye_done")
+
+        def schedule(kw, event, delay):
+            d = float(delay if isinstance(delay, (int, float)) else cfg[delay])
+            with self._sched_lock:  # gen captured now: stop/off before the due time drops the event
+                self._scheduled.append((time.monotonic() + d, event, self.gen))
+
+        def count_turn(kw):
+            self.turns += 1
+
+        def count_repair(kw):
+            self.repairs += 1
+
+        def set_relance_text(kw):
+            self._relance_text = cfg.get("repair_text") or cfg["relance"]
+
+        def start_answer(kw):
+            threading.Thread(target=self._answer, args=(kw["text"], kw["t_end"], self.gen), daemon=True).start()
+
+        def start_sing(kw):
+            threading.Thread(target=self._sing, args=(self.gen,), daemon=True).start()
+
+        def as_utterance(kw):  # typed text (dashboard "ask") handled exactly like a spoken one
+            self.engine.dispatch("utterance", {"text": kw["text"], "t_end": kw.get("t_end") or time.monotonic()})
+
+        actions = {
+            "cancel_all": lambda kw: self._cancel_all(),
+            "mic_on": lambda kw: self._mic_on(),
+            "mic_off": lambda kw: self.mic.stop(),
+            # Without echo cancellation the robot would hear itself, unless barge-in is wanted.
+            "mic_off_no_barge_in": lambda kw: None if cfg["barge_in"] else self.mic.stop(),
+            "clear_conversation": clear_conversation,
+            "clear_history": lambda kw: self.history.clear(),
+            "reset_repairs": lambda kw: setattr(self, "repairs", 0),
+            "reset_silence": reset_silence,
+            "subtitle_listening": lambda kw: setattr(self, "subtitle", "Je vous écoute"),
+            "count_turn": count_turn, "count_repair": count_repair, "set_relance_text": set_relance_text,
+            "speak_phrase": lambda kw, text, done: self._speak_then(cfg[text], done),
+            "speak_relance": speak_relance,
+            "schedule": schedule,
+            "emit": lambda kw, event: self.engine.dispatch(event, {}),
+            "start_answer": start_answer, "start_sing": start_sing, "as_utterance": as_utterance,
+        }
+        guards = {
+            "auto_greet_on_face": lambda kw: bool(cfg.get("auto_greet_on_face")),
+            "barge_in": lambda kw: bool(cfg.get("barge_in")),
+            "not_busy": lambda kw: not self._busy,
+            "mic_active": lambda kw: bool(self.mic.active),
+            "not_speaking": lambda kw: not self.out.busy,
+            "repairs_left": lambda kw: self.repairs < 2,          # "pardon ?" at most twice in a row
+            "turns_left": lambda kw: self.turns < MAX_TURNS,       # looked up at call time (tests patch it)
+        }
+        return graph_mod.GraphEngine(graph, self, actions, guards, cfg)
 
     def _speak_then(self, text: str, done_event: str):
         self.subtitle = text
@@ -237,110 +330,98 @@ class Brain:
         while self.out.busy and self._alive(gen):
             time.sleep(0.05)
 
-    def _loop(self):
-        # Power state survives restarts: an "off" robot stays off after a reboot (user request).
-        if self.cfg.get("power") == "off":
-            self.state = ETEINT
-        self._enter(self.state)
-        while True:
+    # ------------------------------------------------------------------ threads: loop, heartbeat, watchdog
+    def _start_threads(self):
+        self._hb_thread = threading.Thread(target=self._heartbeat, daemon=True, name="heartbeat")
+        self._hb_thread.start()
+        self._start_loop(boot=True)
+        threading.Thread(target=self._watchdog, daemon=True, name="watchdog").start()
+
+    def _start_loop(self, boot: bool):
+        self._loop_thread = threading.Thread(target=self._loop, args=(boot,), daemon=True, name="brain")
+        self._loop_thread.start()
+
+    def shutdown(self):
+        """Stop the three threads (tests; the service itself never calls it)."""
+        self._closing.set()
+        self.post_priority("_quit")
+
+    def _loop(self, boot: bool = True):
+        if boot:
+            # Power state survives restarts: an "off" robot stays off after a reboot (user request).
+            if self.cfg.get("power") == "off":
+                self.state = ETEINT
             try:
-                kind, kw = self.events.get(timeout=0.25)
+                self.engine.enter(self.state)
+            except Exception:
+                log.exception("boot entry failed")
+        while not self._closing.is_set():
+            try:
+                _, _, kind, kw = self.events.get()  # blocks: the heartbeat wakes it 10x/s
+                if kind == "_quit":
+                    return
+                if kind == "tick":
+                    self._on_tick(kw)
+                    continue
                 if "gen" in kw and kw["gen"] != self.gen:
                     continue  # late event from a cancelled thread
-                self._handle(kind, kw)
-            except queue.Empty:
-                pass
+                self.engine.dispatch(kind, kw)
             except Exception:
                 log.exception("event handling failed")
-            self._timers()
 
-    def _timers(self):
-        now, cfg = time.monotonic(), self.cfg
-        if self.state == ECOUTE and not self._busy and now - self.last_speech > cfg["silence_relance_s"]:
-            self._go(RELANCE, "silence")
-        elif self.state == RELANCE and self.mic.active and now - self.last_speech > cfg["silence_cloture_s"]:
-            self._go(CLOTURE, "silence")
+    def _on_tick(self, kw: dict):
+        now = time.monotonic()
+        # Beat accounting comes first: "a beat was processed" is what the watchdog measures.
+        self._tick_pending, self._wd_tripped, self._last_beat = False, False, now
+        self._lag_ms = (now - kw["t"]) * 1000.0
+        self._beats.append(now)
+        if len(self._beats) > 2 and now > self._beats[0]:
+            self._hz = (len(self._beats) - 1) / (now - self._beats[0])
+        try:
+            self._release_scheduled(now)
+            self.engine.tick(now)
+        except Exception:
+            if now - self._tick_err_at > 5:  # a systematic bug must not flood the log at 10 Hz
+                self._tick_err_at = now
+                log.exception("tick handling failed")
 
-    def _handle(self, kind: str, kw: dict):
-        s = self.state
-        if kind == "stop":  # UI / emergency button: silence now, back to veille (still listening for its name)
-            self._cancel_all()
-            self._go(VEILLE, "stop")
-        elif kind == "off":  # "Éteindre": silence now, mic closed, ignores everything until "on"/"start"
-            self._cancel_all()
-            self._go(ETEINT, "off")
-        elif kind == "on" and s == ETEINT:
-            self._go(VEILLE, "on")
-        elif kind == "start" and s in (VEILLE, ETEINT):
-            self._go(ACCUEIL, kw.get("source", "ui"))
-        elif s == ETEINT:
-            return  # nothing else may wake the robot while it is off
-        elif kind == "visage" and s == VEILLE:
-            self._go(ACCUEIL, "visage")
-        elif kind == "greeting_done" and s == ACCUEIL:
-            self._go(ECOUTE, "greeting_done")
-        elif kind == "relance_done" and s == RELANCE:
-            self.last_speech = time.monotonic()
-            self._mic_on()  # 15 s window for an answer
-        elif kind == "goodbye_done" and s == CLOTURE:
-            # Timer instead of sleeping in the event loop: stop/off stay instant during the pause.
-            gen = self.gen
-            threading.Timer(self.cfg["cloture_to_veille_s"], lambda: self.post("cloture_done", gen=gen)).start()
-        elif kind == "cloture_done" and s == CLOTURE:
-            self._go(VEILLE, "cloture_done")
-        elif kind == "answer_done" and s == REPONSE:
-            self._go(ECOUTE, "answer_done")
-        elif kind == "hush":  # "Tais-toi": stop the current sentence; keep the conversation going
-            self._cancel_all()
-            if s in (REPONSE, ACCUEIL, RELANCE):
-                self._go(ECOUTE, "hush")
-            elif s == CLOTURE:
-                self._go(VEILLE, "hush")
-        elif kind == "barge_in" and s == REPONSE:
-            self._cancel_all()
-            self._go(ECOUTE, "barge_in")
-        elif kind == "sing":  # UI button or "chante" request: the Nanterino song
-            self._cancel_all()
-            self.mic.stop()  # no echo cancellation: never listen to its own song
-            self._go(REPONSE, "chanson")
-            threading.Thread(target=self._sing, args=(self.gen,), daemon=True).start()
-        elif kind == "utterance":
-            self._on_text(kw["text"], kw["t_end"])
-        elif kind == "not_understood" and s in (ECOUTE, RELANCE) and not self.out.busy:
-            self.repairs += 1
-            if self.repairs <= 2:
-                self._relance_text = self.cfg.get("repair_text") or self.cfg["relance"]
-                self._go(RELANCE, "pas_compris")
-        elif kind == "ask":  # typed question from the dashboard (tests without a microphone)
-            if s == VEILLE:
-                self.state = ECOUTE
-            self._on_text(kw["text"], time.monotonic())
+    def _release_scheduled(self, now: float):
+        with self._sched_lock:
+            due = [x for x in self._scheduled if x[0] <= now]
+            self._scheduled = [x for x in self._scheduled if x[0] > now]
+        for _, event, gen in due:
+            self.post(event, gen=gen)  # dropped by the loop if a stop/off bumped gen meanwhile
 
-    def _on_text(self, text: str, t_end: float):
-        low = text.lower()
-        if self.state == VEILLE:
-            if "nanter" in low:  # call word stand-in until openWakeWord (step 9)
-                self._go(ACCUEIL, "appel")
-            return
-        if self.state not in (ECOUTE, RELANCE):
-            return
-        if any(w in low for w in self.cfg["refusal_words"]):
-            self._go(CLOTURE, "refus")
-            return
-        # Whole words only (2026-10-28): "enchanté" used to start the song (substring match).
-        if re.search(r"\b(chante[rsz]?|chantons|chanson)\b", low):  # "chante", "une chanson", "tu sais chanter ?"
-            self.repairs = 0
-            self._handle("sing", {})
-            return
-        self.repairs = 0
-        self.turns += 1
-        if self.turns > MAX_TURNS:
-            self._go(CLOTURE, "max_turns")
-            return
-        self._go(REPONSE, "phrase")
-        if not self.cfg["barge_in"]:
-            self.mic.stop()  # without echo cancellation the robot would hear itself
-        threading.Thread(target=self._answer, args=(text, t_end, self.gen), daemon=True).start()
+    def _heartbeat(self):
+        period = 1.0 / self.hb_hz
+        nxt = time.monotonic() + period
+        while not self._closing.wait(max(0.0, nxt - time.monotonic())):
+            now = time.monotonic()
+            nxt += period
+            if nxt < now:  # we overslept (suspend, heavy load): do not fire a burst to catch up
+                nxt = now + period
+            if not self._tick_pending:
+                self._tick_pending = True
+                self.events.put((0, next(self._seq), "tick", {"t": now}))
+
+    def _watchdog(self):
+        check = max(0.05, min(1.0, self.watchdog_s / 4))
+        while not self._closing.wait(check):
+            if not self._hb_thread.is_alive():
+                log.error("watchdog: heartbeat thread died, restarting it")
+                self._hb_thread = threading.Thread(target=self._heartbeat, daemon=True, name="heartbeat")
+                self._hb_thread.start()
+            if not self._loop_thread.is_alive():
+                log.error("watchdog: brain loop thread died, restarting it")
+                self._start_loop(boot=False)
+            age = time.monotonic() - self._last_beat
+            if age > self.watchdog_s and not self._wd_tripped:
+                self._wd_tripped = True  # one trip per stall; cleared by the next processed beat
+                self._trips += 1
+                log.error("watchdog: no heartbeat processed for %.1fs in state=%s, forcing stop (trip %d)",
+                          age, self.state, self._trips)
+                self._cancel_all()
+                self.post_priority("stop", source="watchdog")
 
     def _sing(self, gen: int):
         """Play the pre-built song (song/build_song.py) with line-by-line subtitles."""
