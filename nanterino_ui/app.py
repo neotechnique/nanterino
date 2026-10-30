@@ -16,6 +16,7 @@ sys.path.insert(0, "/opt/robot/lib")
 from robotlog import get_logger  # noqa: E402
 
 from PySide6.QtCore import QByteArray, Qt, QTimer, QUrl  # noqa: E402
+from PySide6.QtGui import QDesktopServices  # noqa: E402
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGridLayout, QGroupBox,  # noqa: E402
                                QHBoxLayout, QLabel, QLineEdit, QMainWindow, QPlainTextEdit,
@@ -98,7 +99,10 @@ class Dashboard(QWidget):
         self.heart = QLabel("●"); self.heart.setToolTip("Battement de coeur du robot")
         head = QHBoxLayout(); head.addWidget(self.state, 1); head.addWidget(self.heart)
         v.addLayout(head); v.addWidget(self.sub)
-        v.addLayout(row); v.addLayout(row2); v.addWidget(self.ask); v.addWidget(self.say)
+        # Visual graph editor lives in the web page served by the core (system browser, same machine).
+        editor_btn = QPushButton("🧩 Éditeur visuel"); editor_btn.setStyleSheet("padding:10px;font-weight:700")
+        editor_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("http://localhost:8080/editor")))
+        v.addLayout(row); v.addLayout(row2); v.addWidget(editor_btn); v.addWidget(self.ask); v.addWidget(self.say)
         grid.addWidget(box, 0, 0)
         # Audio
         box = QGroupBox("Audio"); f = QFormLayout(box)

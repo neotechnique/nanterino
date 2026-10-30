@@ -127,6 +127,26 @@ def _graph_paths() -> tuple[str, str]:
     return gp, graph_visual.layout_path_for(gp)
 
 
+_EDITOR_ASSETS = {"editor.js": "text/javascript", "editor.css": "text/css"}
+_VENDOR_ASSETS = {"drawflow.min.js": "text/javascript", "drawflow.min.css": "text/css", "LICENSE": "text/plain"}
+
+
+@app.get("/web/{name}")
+def web_asset(name: str):
+    """Editor page assets (whitelist: no directory listing, no other web file is exposed here)."""
+    if name not in _EDITOR_ASSETS:
+        return PlainTextResponse("not found", status_code=404)
+    return FileResponse(os.path.join(WEB, name), media_type=_EDITOR_ASSETS[name])
+
+
+@app.get("/web/vendor/drawflow/{name}")
+def web_vendor(name: str):
+    """Vendored Drawflow (MIT) files, served from disk so the editor works offline."""
+    if name not in _VENDOR_ASSETS:
+        return PlainTextResponse("not found", status_code=404)
+    return FileResponse(os.path.join(WEB, "vendor", "drawflow", name), media_type=_VENDOR_ASSETS[name])
+
+
 @app.get("/editor")
 def editor():
     path = os.path.join(WEB, "editor.html")

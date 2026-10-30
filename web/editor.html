@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Nanterino - Éditeur visuel</title>
+<!-- Offline page: no CDN. Drawflow (MIT) is vendored in /web/vendor/drawflow/. See editor.js header. -->
+<link rel="stylesheet" href="/web/vendor/drawflow/drawflow.min.css">
+<link rel="stylesheet" href="/web/editor.css">
+</head>
+<body>
+<header id="bar">
+  <button id="btnLeft" class="icon only-narrow" title="Palette">☰</button>
+  <strong class="brand">Éditeur visuel</strong>
+  <span id="heart" class="heart" title="Battement du robot"></span>
+  <span id="liveState" class="livestate" title="État courant du robot">…</span>
+  <span id="dirty" class="dirty" hidden>modifié</span>
+  <span class="sp"></span>
+  <button id="btnUndo" title="Annuler (Ctrl+Z)">↶ Annuler</button>
+  <button id="btnRedo" title="Refaire (Ctrl+Y)">↷ Refaire</button>
+  <button id="btnFit" title="Tout voir">⤢ Ajuster</button>
+  <button id="btnValidate">✔ Valider</button>
+  <button id="btnSave" class="primary">Enregistrer et appliquer</button>
+  <button id="btnYaml">Voir le YAML</button>
+  <button id="btnReset" class="danger">Revenir au graphe par défaut</button>
+  <button id="btnRight" class="icon only-narrow" title="Inspecteur">⚙</button>
+</header>
+<div id="banner" hidden></div>
+<main id="main">
+  <aside id="left">
+    <input id="search" type="search" placeholder="Rechercher un nœud…" autocomplete="off">
+    <div id="palette"></div>
+  </aside>
+  <section id="stage">
+    <div id="drawflow"></div>
+    <div id="msgs" class="msgs" hidden></div>
+    <button id="btnMsgs" class="msgtoggle" hidden></button>
+  </section>
+  <aside id="right">
+    <nav class="tabs">
+      <button id="tabNode" class="on">Nœud</button>
+      <button id="tabIntents">Intentions</button>
+    </nav>
+    <div id="inspector"></div>
+    <div id="intents" hidden></div>
+  </aside>
+</main>
+<div id="toast" hidden></div>
+<div id="modal" hidden><div class="box"><h3 id="mTitle"></h3><div id="mBody"></div><div id="mBtns" class="mbtns"></div></div></div>
+<script src="/web/vendor/drawflow/drawflow.min.js"></script>
+<script src="/web/editor.js"></script>
+</body>
+</html>
