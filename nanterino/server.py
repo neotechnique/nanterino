@@ -20,6 +20,8 @@ from . import config
 from .audio import AudioOut, SpeakerProfiles, find_device, list_devices
 from .brain import Brain, build_messages
 from .corpus import Corpus
+from . import graph as graph_mod
+from . import graph_visual
 from .engines import LLM, STT, TTS
 from .log import log
 from .metrics import Metrics
@@ -117,6 +119,61 @@ def graph_reload():
     if not ok:
         return JSONResponse({"ok": False, "error": "robot busy: reload only in veille/eteint"}, status_code=409)
     return {"ok": err is None, "source": brain.engine.graph.source, "error": err}
+
+
+# ---- visual graph editor (contract: Notes/graph-visual-format.md)
+def _graph_paths() -> tuple[str, str]:
+    gp = cfg["graph_file"]
+    return gp, graph_visual.layout_path_for(gp)
+
+
+@app.get("/editor")
+def editor():
+    path = os.path.join(WEB, "editor.html")
+    if not os.path.exists(path):
+        return PlainTextResponse("editor.html is not installed yet", status_code=404)
+    return FileResponse(path)
+
+
+@app.get("/api/graph/vocab")
+def graph_vocab():
+    """Palette of the visual editor: events, actions (with argument schema), guards, delays, states, intents."""
+    return graph_mod.vocabulary(brain.cfg, brain.engine.graph)
+
+
+@app.get("/api/graph/visual")
+def graph_visual_get():
+    """Node document of the active graph (positions from graph.layout.json, else automatic)."""
+    raw = graph_visual.load_raw(brain.engine.graph.source)
+    layout = graph_visual.load_layout(_graph_paths()[1])
+    doc = graph_visual.to_visual(raw, layout, "eteint" if cfg.get("power") == "off" else "veille")
+    return {**doc, "error": brain.graph_error, "pending": brain.graph_pending}
+
+
+@app.post("/api/graph/visual")
+async def graph_visual_post(request: Request):
+    """Compile + validate + back up + write the node document; apply now (idle) or at the next veille."""
+    try:
+        doc = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False, "errors": [{"node": None, "message": "JSON invalide."}]}, status_code=400)
+    gp, lp = _graph_paths()
+    ok, errors = await run_in_threadpool(graph_visual.save, doc, brain.cfg, gp, lp)
+    if not ok:
+        return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+    applied = await run_in_threadpool(brain.request_graph_reload)
+    return {"ok": True, "applied": applied, "message": (
+        "Graphe enregistré et appliqué." if applied else "Graphe enregistré : il sera appliqué à la prochaine veille.")}
+
+
+@app.post("/api/graph/reset")
+async def graph_reset():
+    """Back up the override, delete it and run the packaged default graph again."""
+    gp, lp = _graph_paths()
+    await run_in_threadpool(graph_visual.reset, gp, lp)
+    applied = await run_in_threadpool(brain.request_graph_reload)
+    return {"ok": True, "applied": applied, "message": (
+        "Graphe par défaut rétabli." if applied else "Graphe par défaut rétabli : appliqué à la prochaine veille.")}
 
 
 @app.get("/api/live")

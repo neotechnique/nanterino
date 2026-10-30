@@ -39,6 +39,11 @@ log = get_logger("test_brain_graph")
 HERE = os.path.dirname(os.path.abspath(__file__))
 BASELINE = os.path.join(HERE, "brain-trace-baseline.json")
 
+# Graph file the scenarios run on. Default: a path that does not exist, i.e. the packaged graph.yaml
+# (hermetic: a live override in /opt/robot/nanterino/graph.yaml must not change test results).
+# tests/test_graph_visual.py sets it to a COMPILED graph to rerun the same 68 traces on it.
+GRAPH_FILE = os.environ.get("NANTERINO_TEST_GRAPH") or "/nonexistent/graph.yaml"
+
 PHRASE_KEYS = ("greeting", "relance", "goodbye", "repair_text")
 BASE_CFG = {
     "silence_relance_s": 3.0, "silence_cloture_s": 3.0, "cloture_to_veille_s": 0.3,
@@ -142,7 +147,7 @@ class H:
 
     def __init__(self, over):
         self.rec = Rec()
-        cfg = dict(config.DEFAULTS); cfg.update(BASE_CFG); cfg.update(over)
+        cfg = dict(config.DEFAULTS); cfg.update(BASE_CFG); cfg["graph_file"] = GRAPH_FILE; cfg.update(over)
         self.cfg = cfg
         self.tts, self.stt = FakeTTS(), FakeSTT()
         self.out = FakeOut(self.rec, self.tts)

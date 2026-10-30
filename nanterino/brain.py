@@ -138,6 +138,7 @@ class Brain:
         self._scheduled: list = []   # (due monotonic, event, gen): replaces the old threading.Timer
         self._sched_lock = threading.Lock()
         self.graph_error = None
+        self.graph_pending = False   # a saved graph waits for the next idle state (see request_graph_reload)
         self.engine = self._build_engine()
         threading.Thread(target=self._cache_phrases, daemon=True, name="phrase-cache").start()
         self._start_threads()
@@ -167,8 +168,18 @@ class Brain:
         """
         if self.state not in (VEILLE, ETEINT):
             return False, "busy"
+        self.graph_pending = False
         self.engine = self._build_engine()
         return True, self.graph_error
+
+    def request_graph_reload(self) -> bool:
+        """Apply the graph file now when idle; otherwise remember it and apply on the next entry into
+        veille/eteint (see `_go`). Returns True when it was applied immediately."""
+        ok, _err = self.reload_graph()
+        if not ok:
+            self.graph_pending = True
+            log.info("graph saved while busy: will be applied at the next idle state")
+        return ok
 
     def set_deaf(self, deaf: bool):
         self.deaf = deaf
@@ -224,6 +235,12 @@ class Brain:
     def _go(self, state: str, reason: str):
         log.info("transition %s -> %s reason=%s", self.state, state, reason)
         self.state, self.since = state, time.monotonic()
+        if self.graph_pending and state in (VEILLE, ETEINT):
+            # Deferred editor save: swap graphs here, before the new state's on_enter runs. The old engine
+            # object that called us may still run its remaining `then` actions; that is harmless.
+            self.graph_pending = False
+            self.engine = self._build_engine()
+            log.info("pending graph applied on entry into %s error=%s", state, bool(self.graph_error))
         self.engine.enter(state)  # the graph's `on_enter` actions
 
     def _build_engine(self) -> "graph_mod.GraphEngine":

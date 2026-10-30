@@ -18,7 +18,7 @@ File format (see nanterino/graph.yaml, the commented default)
     states.<name>: description, on_enter [actions], transitions [..]
     global: transitions valid from any state; searched BEFORE the current state's transitions
     transition: on <event> | after <cfg key or seconds> + since <state|last_speech>,
-                when <guard(s)>, only_in/not_in <states>, do [actions], to <state>,
+                when <guard(s); `{not: guard}` negates one>, only_in/not_in <states>, do [actions], to <state>,
                 reason <text | $source>, then [actions after the move], description
     intents.<name>: words | words_from <cfg key> | regex, only_in, description; first match in file
                 order wins; no match = event `intent.question`
@@ -49,26 +49,87 @@ DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph.y
 # ---------------------------------------------------------------- closed vocabulary
 # Events a transition may react to (`on:`). `utterance` and `tick` are engine-internal: an utterance
 # is classified into an `intent.*` event, a tick drives `after:` delays.
-EVENTS = frozenset({
-    "stop", "off", "on", "start", "visage", "visage_perdu", "greeting_done", "relance_done",
-    "goodbye_done", "cloture_done", "answer_done", "hush", "barge_in", "sing", "not_understood",
-    "ask", "utterance", "tick"})
-INTERNAL_EVENTS = frozenset({"utterance", "tick"})
-
-# Action name -> {argument name: kind}. kinds: cfgkey (a config key), event, delay (seconds or cfg key).
-ACTION_SPECS = {
-    "cancel_all": {}, "mic_on": {}, "mic_off": {}, "mic_off_no_barge_in": {},
-    "clear_conversation": {}, "clear_history": {}, "reset_repairs": {}, "reset_silence": {},
-    "subtitle_listening": {}, "count_turn": {}, "count_repair": {}, "set_relance_text": {},
-    "speak_relance": {}, "start_answer": {}, "start_sing": {}, "as_utterance": {},
-    "speak_phrase": {"text": "cfgkey", "done": "event"},
-    "schedule": {"event": "event", "delay": "delay"},
-    "emit": {"event": "event"},
+#
+# SINGLE SOURCE of the vocabulary: each registry below carries the French label + help shown by the
+# visual editor (`vocabulary()` -> GET /api/graph/vocab). EVENTS / ACTION_SPECS / GUARDS are derived
+# from them, so a name cannot exist for the validator without being documented for the editor.
+# value = (label, help); events add an `internal` flag.
+EVENT_DOC = {
+    "stop": ("Bouton Stop", "Le bouton Stop du tableau de bord est pressé : se taire et revenir en veille.", False),
+    "off": ("Bouton Éteindre", "Le bouton Éteindre est pressé : le robot s'éteint (micro coupé).", False),
+    "on": ("Bouton Allumer", "Le bouton Allumer est pressé : le robot sort de l'état éteint.", False),
+    "start": ("Bouton Démarrer", "Le bouton Démarrer du tableau de bord, ou un appui sur le visage de l'écran.", False),
+    "visage": ("Un visage apparaît", "La caméra voit un visage alors qu'il n'y en avait plus.", False),
+    "visage_perdu": ("Le visage disparaît", "Plus aucun visage vu depuis lost_face_s (10 s). Non utilisé par le graphe par défaut.", False),
+    "greeting_done": ("Salutation terminée", "Le robot a fini de dire la phrase d'accueil.", False),
+    "relance_done": ("Relance terminée", "Le robot a fini de dire la phrase de relance (ou de demande de répétition).", False),
+    "goodbye_done": ("Au revoir terminé", "Le robot a fini de dire au revoir.", False),
+    "cloture_done": ("Pause de clôture terminée", "Le délai programmé après l'au revoir est écoulé (action « Programmer un événement »).", False),
+    "answer_done": ("Réponse terminée", "Le robot a fini de répondre (ou de chanter).", False),
+    "hush": ("« Tais-toi »", "Le visiteur ou le bouton demande au robot de se taire.", False),
+    "barge_in": ("Le visiteur coupe la parole", "Le visiteur parle pendant que le robot répond (interruption activée dans la configuration).", False),
+    "sing": ("Demande de chanson", "Le bouton Chanson ou le visiteur demande à Nanterino de chanter.", False),
+    "not_understood": ("Parole non comprise", "Du bruit ou une parole inexploitable a été entendu.", False),
+    "ask": ("Question tapée", "Une question est tapée sur le tableau de bord (test sans micro).", False),
+    "utterance": ("Phrase du visiteur", "Interne : une phrase transcrite, classée en événement intent.*.", True),
+    "tick": ("Battement de coeur", "Interne : le battement de coeur (10 Hz) qui fait avancer les délais.", True),
 }
-GUARDS = frozenset({"auto_greet_on_face", "barge_in", "not_busy", "mic_active", "not_speaking",
-                    "repairs_left", "turns_left"})
-SINCE = ("state", "last_speech")
+EVENTS = frozenset(EVENT_DOC)
+INTERNAL_EVENTS = frozenset(k for k, v in EVENT_DOC.items() if v[2])
+
+# Action name -> (label, help, {argument name: (kind, label)}).
+# kinds: cfgkey (a config key), event, delay (seconds or cfg key).
+ACTION_DOC = {
+    "cancel_all": ("Se taire", "Coupe immédiatement le son et annule toute réponse en cours.", {}),
+    "mic_on": ("Ouvrir le micro", "Le robot se remet à écouter (sauf mode sourd).", {}),
+    "mic_off": ("Couper le micro", "Le robot n'écoute plus.", {}),
+    "mic_off_no_barge_in": ("Couper le micro (sauf interruption)", "Coupe le micro, sauf si l'interruption est activée dans la configuration.", {}),
+    "clear_conversation": ("Oublier la conversation", "Efface l'historique, le compteur de tours et le sous-titre.", {}),
+    "clear_history": ("Effacer l'historique", "Efface seulement l'historique des échanges.", {}),
+    "reset_repairs": ("Remettre à zéro les demandes de répétition", "Le compteur de « pardon ? » repart de zéro.", {}),
+    "reset_silence": ("Redémarrer le chrono de silence", "La dernière parole est considérée comme étant maintenant.", {}),
+    "subtitle_listening": ("Afficher « Je vous écoute »", "Met le sous-titre de l'écran sur « Je vous écoute ».", {}),
+    "count_turn": ("Compter un tour de parole", "Ajoute un échange au compteur de la conversation.", {}),
+    "count_repair": ("Compter une demande de répétition", "Ajoute un « pardon ? » au compteur.", {}),
+    "set_relance_text": ("Préparer la phrase « répétez »", "La prochaine relance dira la phrase de demande de répétition.", {}),
+    "speak_relance": ("Dire la relance", "Dit la phrase de relance (ou de répétition si elle est préparée), puis relance_done.", {}),
+    "start_answer": ("Répondre à la question", "Lance la recherche et la réponse à la phrase du visiteur.", {}),
+    "start_sing": ("Chanter", "Lance la chanson de Nanterino.", {}),
+    "as_utterance": ("Traiter la question tapée", "Traite le texte tapé comme s'il avait été dit.", {}),
+    "speak_phrase": ("Dire une phrase fixe", "Dit une phrase de la configuration, puis déclenche l'événement indiqué.",
+                     {"text": ("cfgkey", "Phrase à dire"), "done": ("event", "Événement à la fin")}),
+    "schedule": ("Programmer un événement", "Déclenche un événement après un délai (annulé si le robot est arrêté entre-temps).",
+                 {"event": ("event", "Événement à déclencher"), "delay": ("delay", "Délai (secondes ou clé de configuration)")}),
+    "emit": ("Déclencher un événement", "Envoie tout de suite un événement au graphe.", {"event": ("event", "Événement à déclencher")}),
+}
+ACTION_SPECS = {n: {a: kd[0] for a, kd in spec[2].items()} for n, spec in ACTION_DOC.items()}
+
+GUARD_DOC = {
+    "auto_greet_on_face": ("L'accueil automatique est activé", "Réglage « accueil automatique » de la configuration."),
+    "barge_in": ("L'interruption est activée", "Réglage « barge_in » : le visiteur peut couper la parole du robot."),
+    "not_busy": ("Aucune transcription en cours", "Le robot n'est pas en train de transcrire une phrase."),
+    "mic_active": ("Le micro est ouvert", "Le micro écoute en ce moment."),
+    "not_speaking": ("Le robot ne parle pas", "Aucun son n'est en cours de lecture."),
+    "repairs_left": ("Il reste des demandes de répétition", "Le robot a demandé de répéter moins de 2 fois de suite."),
+    "turns_left": ("Il reste des tours de parole", "La conversation n'a pas atteint le nombre maximal d'échanges."),
+}
+GUARDS = frozenset(GUARD_DOC)
+
+# Config keys usable as `after:` / `schedule.delay` (seconds); the current value is read from cfg.
+DELAY_DOC = {
+    "silence_relance_s": "Silence avant relance",
+    "silence_cloture_s": "Silence avant de conclure",
+    "cloture_to_veille_s": "Pause avant le retour en veille",
+}
+SINCE_DOC = {"state": "depuis l'entrée dans l'état", "last_speech": "depuis la dernière parole"}
+SINCE = tuple(SINCE_DOC)
 REQUIRED_STATES = ("veille", "eteint")
+# Label + help of the states the default graph ships (other states fall back to their description).
+STATE_DOC = {
+    "veille": "Veille", "accueil": "Accueil", "ecoute": "Écoute", "reponse": "Réponse",
+    "relance": "Relance", "cloture": "Clôture", "eteint": "Éteint",
+}
+PHRASE_KEYS = ("greeting", "relance", "goodbye", "repair_text")  # config keys offered for speak_phrase.text
 
 _TOP_KEYS = {"version", "description", "states", "global", "intents"}
 _STATE_KEYS = {"description", "on_enter", "transitions"}
@@ -77,7 +138,15 @@ _INTENT_KEYS = {"description", "words", "words_from", "regex", "only_in"}
 
 
 class GraphError(ValueError):
-    """The graph file is unreadable or invalid; the message lists every problem found."""
+    """The graph file is unreadable or invalid; the message lists every problem found.
+
+    `items` keeps the problems as (where, message) pairs so the visual compiler can map them back
+    to editor nodes.
+    """
+
+    def __init__(self, message, items=()):
+        super().__init__(message)
+        self.items = tuple(items)
 
 
 # ---------------------------------------------------------------- frozen model
@@ -88,6 +157,16 @@ class Call:
 
     def label(self) -> str:
         return self.name if not self.args else "%s(%s)" % (self.name, ", ".join("%s=%s" % kv for kv in self.args.items()))
+
+
+@dataclass(frozen=True)
+class Cond:
+    """One guard of a `when:` list; `negate` comes from the `{not: guard}` form."""
+    name: str
+    negate: bool = False
+
+    def label(self) -> str:
+        return ("not " if self.negate else "") + self.name
 
 
 @dataclass(frozen=True)
@@ -141,7 +220,7 @@ class Graph:
                     d[k] = getattr(t, k)
             for k in ("when", "only_in", "not_in"):
                 if getattr(t, k):
-                    d[k] = list(getattr(t, k))
+                    d[k] = [c.label() if k == "when" else c for c in getattr(t, k)]
             for k in ("do", "then"):
                 if getattr(t, k):
                     d[k] = [c.label() for c in getattr(t, k)]
@@ -179,10 +258,11 @@ class _Parser:
 
     def __init__(self, data, cfg, source):
         self.data, self.cfg, self.source = data, cfg, source
-        self.errors, self.warnings = [], []
+        self.errors, self.warnings, self.items = [], [], []
 
     def err(self, where, msg):
         self.errors.append("%s: %s" % (where, msg))
+        self.items.append((where, msg))
 
     def need_desc(self, where, d):
         if not (isinstance(d.get("description"), str) and d["description"].strip()):
@@ -249,10 +329,17 @@ class _Parser:
                 self.err(where, "`since` must be one of %s" % (SINCE,))
         elif since is not None:
             self.err(where, "`since:` only goes with `after:`")
-        when = tuple(self.as_list(where, t.get("when")))
-        for g in when:
+        when = []
+        for g in self.as_list(where, t.get("when")):
+            neg = False
+            if isinstance(g, dict):  # negated guard: `when: [{not: guard}]`
+                if set(g) != {"not"}:
+                    self.err(where, "a guard mapping must be {not: guard}, got %r" % (g,)); continue
+                g, neg = g["not"], True
             if g not in GUARDS:
-                self.err(where, "unknown guard %r (allowed: %s)" % (g, ", ".join(sorted(GUARDS))))
+                self.err(where, "unknown guard %r (allowed: %s)" % (g, ", ".join(sorted(GUARDS)))); continue
+            when.append(Cond(g, neg))
+        when = tuple(when)
         lists = {}
         for k in ("only_in", "not_in"):
             v = t.get(k)
@@ -333,7 +420,8 @@ class _Parser:
             if tr:
                 globs.append(tr)
         if self.errors:
-            raise GraphError("%s: %d problem(s):\n  - %s" % (self.source, len(self.errors), "\n  - ".join(self.errors)))
+            raise GraphError("%s: %d problem(s):\n  - %s" % (self.source, len(self.errors), "\n  - ".join(self.errors)),
+                             self.items)
         return Graph(types.MappingProxyType(states), tuple(globs), tuple(intents), self.source, tuple(self.warnings))
 
 
@@ -370,6 +458,39 @@ def load_active(cfg: dict) -> tuple[Graph, str | None]:
     return load_graph(DEFAULT_PATH, cfg), None
 
 
+def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
+    """Palette for the visual editor (GET /api/graph/vocab), derived from the registries above.
+
+    `graph` (the active one) supplies the states and intents, which are data, not code; delay values
+    are read from `cfg` so the editor shows the current seconds.
+    """
+    ev = [{"id": k, "label": v[0], "help": v[1]} for k, v in EVENT_DOC.items() if not v[2]]
+    ev_ids = [e["id"] for e in ev]
+    actions = []
+    for name, (label, hlp, spec) in ACTION_DOC.items():
+        args = []
+        for a, (kind, alabel) in spec.items():
+            if kind == "cfgkey":
+                args.append({"name": a, "type": "enum", "options": list(PHRASE_KEYS), "label": alabel})
+            elif kind == "event":
+                args.append({"name": a, "type": "enum", "options": ev_ids, "label": alabel})
+            else:  # delay: a number of seconds, or one of the `options` config keys
+                args.append({"name": a, "type": "number", "options": list(DELAY_DOC), "label": alabel})
+        actions.append({"id": name, "label": label, "help": hlp, "args": args})
+    guards = [{"id": k, "label": v[0], "help": v[1]} for k, v in GUARD_DOC.items()]
+    delays = [{"key": k, "value": cfg.get(k), "label": v} for k, v in DELAY_DOC.items()]
+    since = [{"id": k, "label": v} for k, v in SINCE_DOC.items()]
+    states, intents = [], [{"id": "question", "label": "Une question (aucun autre motif reconnu)",
+                            "event": "intent.question"}]
+    if graph is not None:
+        states = [{"id": n, "label": STATE_DOC.get(n, n.capitalize()), "description": s.description}
+                  for n, s in graph.states.items()]
+        intents = [{"id": i.name, "label": i.description or i.name, "event": "intent." + i.name}
+                   for i in graph.intents] + intents
+    return {"events": ev, "actions": actions, "guards": guards, "delays": delays, "since": since,
+            "states": states, "intents": intents}
+
+
 # ---------------------------------------------------------------- engine
 class GraphEngine:
     """Runs a Graph against a Brain-like object. All methods are called from the brain loop thread."""
@@ -390,7 +511,7 @@ class GraphEngine:
             return False
         if tr.not_in is not None and state in tr.not_in:
             return False
-        return all(self.guards[g](kw) for g in tr.when)
+        return all(bool(self.guards[g.name](kw)) != g.negate for g in tr.when)
 
     def _fire(self, tr: Transition, kw: dict):
         self._run(tr.do, kw)
