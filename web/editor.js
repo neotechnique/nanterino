@@ -42,7 +42,7 @@
   window.addEventListener('error', (e) => { errLog.push(String(e.message)); dbg('ERR ' + e.message); });
   window.addEventListener('unhandledrejection', (e) => { errLog.push(String(e.reason)); dbg('REJ ' + e.reason); });
   function dbg(msg) {
-    if (!location.hash.includes('debug')) return;
+    if (!location.hash.includes('debug') || location.hash.includes('quiet')) return;
     let d = $('#dbg');
     if (!d) { d = h('div', { id: 'dbg' }); document.body.append(d); }
     d.textContent += msg + '\n';
@@ -139,7 +139,7 @@
   }
   function nodeHtml(m) {
     const k = KINDS[m.kind];
-    const tag = m.group ? `<span class="ntag" style="background:${esc(stateColor(m.group))}">${esc(m.group === 'global' ? 'global' : stateLabel(m.group))}</span>` : '';
+    const tag = m.group === 'global' ? `<span class="ntag" style="background:${esc(stateColor(m.group))}">${esc(m.group === 'global' ? 'global' : stateLabel(m.group))}</span>` : '';
     const desc = m.description ? `<div class="nsum" style="color:var(--mut)">${esc(m.description)}</div>` : '';
     return `<div class="nhead">${esc(k.label)}${tag}</div><div class="nsum">${esc(summary(m))}</div>${desc}<div class="nmsg"></div>`;
   }
@@ -205,7 +205,7 @@
       editor.addConnection(a, b, l.port === 'false' ? 'output_2' : 'output_1', 'input_1');
     });
     loading = false;
-    if (!keepView) fit();
+    if (!keepView) initialView();
     analyze();
     renderInspector();
     renderIntents();
@@ -292,6 +292,7 @@
     });
     issues = out;
     for (const dfid in data) markNode(dfid);
+    drawBands();
     renderMsgs();
   }
   function markNode(dfid) {
@@ -301,12 +302,11 @@
     const hasErr = list.some((i) => i.level === 'err');
     el.classList.toggle('err', hasErr);
     el.classList.toggle('warn', !hasErr && list.length > 0);
-    el.classList.toggle('live', !!liveState && m.group === liveState);
     const msg = el.querySelector('.nmsg');
     if (msg) msg.textContent = list.map((i) => i.message).join(' ');
     el.title = list.map((i) => (i.level === 'err' ? 'Erreur : ' : 'Attention : ') + i.message).join('\n');
   }
-  function markLive() { for (const dfid in dfData()) markNode(dfid); }
+  function markLive() { drawBands(); }
 
   function renderMsgs() {
     const box = $('#msgs'), tg = $('#btnMsgs');
@@ -326,14 +326,71 @@
   }
 
   // ---------- view ----------
-  function fit() {
-    const data = dfData(), ids = Object.keys(data);
-    const st = $('#stage');
-    if (!ids.length) return;
+  // State bands: one translucent labelled frame per state, drawn in a layer inside Drawflow's canvas so it
+  // follows pan/zoom; recomputed from node positions after every change (analyze()).
+  let bandsEl = null;
+  function ensureBands() {
+    if (!bandsEl || !bandsEl.isConnected) { bandsEl = h('div', { id: 'bands' }); editor.precanvas.insertBefore(bandsEl, editor.precanvas.firstChild); }
+    return bandsEl;
+  }
+  function nodeBox(dfid) {
+    const d = dfNode(dfid), el = nodeEl(dfid);
+    return { x0: d.pos_x, y0: d.pos_y, x1: d.pos_x + (el ? el.offsetWidth : 214), y1: d.pos_y + (el ? el.offsetHeight : 80) };
+  }
+  function bandRects() {
+    const g = {};
+    for (const dfid in dfData()) {
+      const m = model(dfid); if (!m.group) continue;
+      const b = nodeBox(dfid), r = g[m.group] || (g[m.group] = { x0: 1e9, y0: 1e9, x1: -1e9, y1: -1e9 });
+      r.x0 = Math.min(r.x0, b.x0); r.y0 = Math.min(r.y0, b.y0); r.x1 = Math.max(r.x1, b.x1); r.y1 = Math.max(r.y1, b.y1);
+    }
+    for (const k in g) { g[k].x0 -= 24; g[k].x1 += 24; g[k].y0 -= 48; g[k].y1 += 24; }
+    return g;
+  }
+  function drawBands() {
+    if (!editor) return;
+    const root = ensureBands(); root.innerHTML = '';
+    const rects = bandRects();
+    for (const gid in rects) {
+      const r = rects[gid];
+      const live = gid === liveState;
+      root.append(h('div', { class: 'band' + (live ? ' live' : ''), style: `--c:${stateColor(gid)};left:${r.x0}px;top:${r.y0}px;width:${r.x1 - r.x0}px;height:${r.y1 - r.y0}px` },
+        h('div', { class: 'btitle' }, (gid === 'global' ? 'Règles globales' : stateLabel(gid)) + (live ? '  ● état courant du robot' : ''))));
+    }
+  }
+  function bbox() {
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
-    ids.forEach((i) => { const d = data[i]; x0 = Math.min(x0, d.pos_x); y0 = Math.min(y0, d.pos_y); x1 = Math.max(x1, d.pos_x + 230); y1 = Math.max(y1, d.pos_y + 110); });
-    const z = Math.max(0.08, Math.min(1, Math.min(st.clientWidth / (x1 - x0 + 60), st.clientHeight / (y1 - y0 + 60))));
-    setView(z, 30 - x0 * z, 30 - y0 * z);
+    for (const dfid in dfData()) { const b = nodeBox(dfid); x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1); }
+    return x0 > x1 ? null : { x0, y0, x1, y1 };
+  }
+  function fitZoom() {
+    const b = bbox(), c = $('#drawflow');
+    if (!b) return 1;
+    return Math.max(0.05, Math.min(1, c.clientWidth / ((b.x1 - b.x0) * 1.1), c.clientHeight / ((b.y1 - b.y0) * 1.1)));
+  }
+  // "Ajuster": whole graph, centred, ~5 % padding each side.
+  function fit() {
+    const b = bbox(), c = $('#drawflow');
+    if (!b) return;
+    const z = fitZoom(), w = b.x1 - b.x0, hh = b.y1 - b.y0;
+    setView(z, (c.clientWidth - w * z) / 2 - b.x0 * z, (c.clientHeight - hh * z) / 2 - b.y0 * z);
+  }
+  // Jump to a state band: fit it to the canvas (or use a fixed readable zoom when given).
+  function focusBand(gid, zoom) {
+    const r = bandRects()[gid], c = $('#drawflow');
+    if (!r) return false;
+    const w = r.x1 - r.x0, hh = r.y1 - r.y0;
+    const z = zoom || Math.max(0.1, Math.min(1, c.clientWidth / (w * 1.05), c.clientHeight / (hh * 1.05)));
+    const cx = w * z <= c.clientWidth ? (c.clientWidth - w * z) / 2 - r.x0 * z : 20 - r.x0 * z;
+    const cy = hh * z <= c.clientHeight ? (c.clientHeight - hh * z) / 2 - r.y0 * z : 20 - r.y0 * z;
+    setView(z, cx, cy);
+    return true;
+  }
+  // First view: the true fit when readable, else a readable zoom on the start state's band.
+  function initialView() {
+    if (fitZoom() >= 0.5) { fit(); return; }
+    const st = Object.values(dfData()).find((d) => d.data.model.kind === 'start');
+    if (!focusBand((st && st.data.model.params.state) || 'veille', 0.55)) fit();
   }
   function setView(z, cx, cy) {
     // Drawflow scales around the centre of its canvas (no transform-origin), so convert the wanted
@@ -346,7 +403,7 @@
   function focusNode(nid) {
     const dfid = nidToDf.get(nid);
     if (dfid == null) return;
-    const d = dfNode(dfid), st = $('#stage'), z = Math.max(editor.zoom, 0.6);
+    const d = dfNode(dfid), st = $('#drawflow'), z = Math.max(editor.zoom, 0.6);
     setView(z, st.clientWidth / 2 - (d.pos_x + 107) * z, st.clientHeight / 2 - (d.pos_y + 40) * z);
     selectDf(dfid);
   }
@@ -394,6 +451,9 @@
     const q = $('#search').value.trim().toLowerCase();
     const box = $('#palette'); box.innerHTML = '';
     const items = [];
+    const rects = bandRects();
+    V.states.forEach((st) => { if (rects[st.id]) items.push({ sec: 'États (cliquer pour y aller)', kind: 'band', band: true, id: st.id, label: st.label, sub: st.id, hay: st.label + st.id }); });
+    if (rects.global) items.push({ sec: 'États (cliquer pour y aller)', kind: 'band', band: true, id: 'global', label: 'Règles globales', sub: 'global', hay: 'global règles globales' });
     Object.keys(KINDS).forEach((k) => items.push({ sec: 'Blocs', kind: k, label: KINDS[k].label, sub: '', hay: KINDS[k].label + ' ' + k }));
     evs().forEach((e) => items.push({ sec: 'Événements', kind: 'trigger', preset: { event: e.id }, label: e.label, sub: e.id, hay: e.label + e.id + (e.help || '') }));
     V.guards.forEach((g) => items.push({ sec: 'Conditions', kind: 'condition', preset: { guard: g.id }, label: g.label, sub: g.id, hay: g.label + g.id + (g.help || '') }));
@@ -402,9 +462,9 @@
     let sec = '';
     items.filter((i) => !q || i.hay.toLowerCase().includes(q)).forEach((i) => {
       if (i.sec !== sec) { sec = i.sec; box.append(h('div', { class: 'psec' }, sec)); }
-      const el = h('div', { class: 'pitem', draggable: 'true', title: i.hay },
-        h('span', { class: 'dot', style: 'background:' + KINDS[i.kind].color }), i.label, h('small', {}, i.sub));
-      el.addEventListener('click', () => { addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
+      const el = h('div', { class: 'pitem', draggable: i.band ? null : 'true', title: i.hay },
+        h('span', { class: 'dot', style: 'background:' + (i.band ? stateColor(i.id) : KINDS[i.kind].color) }), i.label, h('small', {}, i.sub));
+      el.addEventListener('click', () => { if (i.band) focusBand(i.id); else addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
       el.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', JSON.stringify({ kind: i.kind, preset: i.preset || null })); });
       box.append(el);
     });
@@ -540,10 +600,12 @@
   }
 
   // ---------- toast / modal ----------
-  let toastTimer = null;
+  // Toasts stack top-right of the canvas (never over the drawer or the nodes' ports area).
   function toast(msg, kind) {
-    const t = $('#toast'); t.textContent = msg; t.className = kind || ''; t.hidden = false;
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.hidden = true; }, 6000);
+    const box = $('#toasts'), t = h('div', { class: 'toast ' + (kind || '') }, msg);
+    box.append(t);
+    while (box.children.length > 4) box.firstChild.remove();
+    setTimeout(() => t.remove(), 6000);
   }
   function modal(title, body, buttons) {
     $('#mTitle').textContent = title;
@@ -611,6 +673,7 @@
     V = vocab.json; serverErrors = [];
     renderPalette();
     rebuild(vis.json, false);
+    renderPalette();
     hist = [snap()]; histIdx = 0; savedSnap = hist[0];
     const b = $('#banner');
     if (vis.json.error) { b.hidden = false; b.className = 'bad'; b.textContent = 'Le fichier du graphe a été refusé au démarrage : ' + vis.json.error; }
@@ -630,11 +693,15 @@
     if (s.state !== liveState) { liveState = s.state; $('#liveState').textContent = 'État : ' + stateLabel(s.state); markLive(); }
     paintHeart();
   }
+  // After two failed handshakes (server without a WebSocket library) stop retrying for the session:
+  // each attempt would log a console error. Polling /api/live keeps the live view working.
+  let wsFails = 0, wsOpened = false;
   function connectWs() {
     let ws;
     try { ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host + '/ws'); } catch (e) { return; }
+    ws.onopen = () => { wsOpened = true; wsFails = 0; };
     ws.onmessage = (m) => { try { onLive(JSON.parse(m.data)); } catch (e) { /* ignore bad frame */ } };
-    ws.onclose = () => setTimeout(connectWs, 15000);
+    ws.onclose = () => { if (!wsOpened && ++wsFails >= 2) return; setTimeout(connectWs, wsOpened ? 3000 : 1500); };
   }
   async function pollLive() {
     if (Date.now() - lastWs < 1500) return;
@@ -657,7 +724,7 @@
     if (hold) document.body.append(h('img', { src: 'http://127.0.0.1:' + hold + '/hold.gif', width: 1, height: 1 }));
     editor = new Drawflow($('#drawflow'));
     editor.reroute = false;
-    editor.zoom_min = 0.08; editor.zoom_max = 1.6;
+    editor.zoom_min = 0.03; editor.zoom_max = 1.6;
     editor.start();
     editor.on('nodeSelected', (id) => { selDf = id; renderInspector(); if (innerWidth <= 900) document.body.classList.remove('hide-right'); });
     editor.on('nodeUnselected', () => { selDf = null; renderInspector(); });
@@ -720,7 +787,9 @@
     const mode = (location.hash.match(/debug=(\w+)/) || [])[1];
     if (!mode) return;
     await new Promise((r) => setTimeout(r, 800));
-    if (mode === 'select') {
+    if (mode === 'band') { focusBand('veille'); dbg('band'); }
+    else if (mode === 'fit') { fit(); }
+    else if (mode === 'select') {
       const first = Object.keys(dfData()).find((i) => model(i).kind === 'action');
       focusNode(model(first).id);
       dbg('select done; errors=' + errLog.length);
