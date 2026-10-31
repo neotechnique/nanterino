@@ -12,6 +12,8 @@
  *           panels Tester / Versions / Journal, editable intents, forms for say_text / set_expression / wait / gaze.
  *           computeChains() mirrors the server compiler's chain keys (<state>/t<n>, global/t<n>, <state>/enter)
  *           so a simulator or journal entry (which only carries a chain key) can light its nodes.
+ *           Groups (cosmetic frames, meta.frames): drawn in #frames, saved only in graph.layout.json by the server;
+ *           they never reach graph.yaml.
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -254,7 +256,10 @@
     });
     loading = false;
     if (!keepView) initialView();
+    if (selFrame && !frameById(selFrame)) selFrame = null;
     analyze();
+    drawFrames();
+    renderPalette();
     renderInspector();
     renderIntents();
     if (curTab === 'tester') renderTester();
@@ -531,6 +536,184 @@
           (gid === 'global' ? 'Règles globales' : stateLabel(gid)) + (live ? '  ● état courant du robot' : '') + (sim ? '  ▶ état simulé' : ''))));
     }
   }
+  // ---------- groups (cosmetic frames, "Groupe") ----------
+  // meta.frames = [{id, title, color, x, y, w, h, note?}] lives in the document (serialize() copies meta), so undo/redo,
+  // dirty tracking and Enregistrer cover it for free. The server stores it only in graph.layout.json: it is never
+  // compiled into graph.yaml. Drawn in a #frames layer inside precanvas (so pan/zoom apply), after #bands and before
+  // the nodes; only the title bar and the resize handle take pointer events, the rest lets clicks reach the canvas.
+  const FRAME_COLORS = [['Jaune', '#e3b341'], ['Bleu', '#4f8ef7'], ['Vert', '#56d364'], ['Rouge', '#e5534b'],
+    ['Violet', '#a371f7'], ['Orange', '#f0883e'], ['Gris', '#8b949e'], ['Cyan', '#39c5cf']];
+  const FRAME_PAD = { l: 32, r: 32, t: 72, b: 32 };      // around a node box; t leaves room for the 30 px title bar and the band title
+  let selFrame = null;
+  let framesEl = null;
+  let frameDrag = null;
+  const frameEls = new Map();
+  const frames = () => (meta.frames = Array.isArray(meta.frames) ? meta.frames : []);
+  const frameById = (id) => frames().find((f) => f.id === id);
+  function ensureFrames() {
+    const b = ensureBands();
+    if (!framesEl || !framesEl.isConnected) { framesEl = h('div', { id: 'frames' }); editor.precanvas.insertBefore(framesEl, b.nextSibling); }
+    return framesEl;
+  }
+  // Readable text colour on a frame colour (#rrggbb).
+  function inkOn(hex) {
+    const n = parseInt(hex.slice(1), 16), lum = 0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+    return lum > 150 ? '#10141a' : '#ffffff';
+  }
+  function placeFrame(f, el) {
+    el.style.cssText = `--c:${f.color};--ink:${inkOn(f.color)};left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
+  }
+  function drawFrames() {
+    if (!editor) return;
+    const root = ensureFrames(); root.innerHTML = ''; frameEls.clear();
+    frames().forEach((f) => {
+      const text = h('span', { class: 'ftext' }, f.title || '(sans nom)');
+      if (!f.title) text.classList.add('empty');
+      const title = h('div', { class: 'ftitle', title: 'Glisser pour déplacer le groupe et ses nœuds. Double-clic pour renommer.' }, ico('square'), text);
+      const grip = h('div', { class: 'fresize', title: 'Redimensionner' });
+      const el = h('div', { class: 'frame' + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id }, title, grip);
+      placeFrame(f, el);
+      for (const part of [title, grip]) {
+        part.addEventListener('mousedown', (e) => startFrameDrag(e, f, part === grip ? 'resize' : 'move'));
+        part.addEventListener('touchstart', (e) => startFrameDrag(e, f, part === grip ? 'resize' : 'move'), { passive: false });
+      }
+      title.addEventListener('dblclick', (e) => { e.stopPropagation(); editFrameTitle(f); });
+      frameEls.set(f.id, el);
+      root.append(el);
+    });
+  }
+  function clearNodeSelection() {
+    if (editor.node_selected) { editor.node_selected.classList.remove('selected'); editor.node_selected = null; }
+    selDf = null;
+  }
+  function selectFrame(id) {
+    if (selFrame === id) return;
+    clearNodeSelection();
+    selFrame = id;
+    drawFrames(); renderInspector();
+    if (id && innerWidth <= 900) document.body.classList.remove('hide-right');
+  }
+  function unselectFrame() { if (selFrame) { selFrame = null; drawFrames(); renderInspector(); } }
+  const evPoint = (e) => (e.touches && e.touches[0]) || (e.changedTouches && e.changedTouches[0]) || e;
+  function startFrameDrag(e, f, mode) {
+    if (e.button) return;                 // left button / touch only
+    e.stopPropagation(); e.preventDefault();   // Drawflow must not pan the canvas or select a node
+    selectFrame(f.id);
+    const p = evPoint(e), ctr = (b) => [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
+    const inside = (cx, cy) => cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h;
+    frameDrag = { f, mode, cx: p.clientX, cy: p.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, moved: false, nodes: [], frames: [] };
+    if (mode === 'move') {
+      // Nodes whose centre lies in the frame at drag start follow it (and so do the frames wholly centred inside).
+      frameDrag.nodes = Object.keys(dfData()).filter((dfid) => inside(...ctr(nodeBox(dfid))))
+        .map((dfid) => ({ dfid, x: dfNode(dfid).pos_x, y: dfNode(dfid).pos_y }));
+      frameDrag.frames = frames().filter((g) => g !== f && inside(g.x + g.w / 2, g.y + g.h / 2)).map((g) => ({ g, x: g.x, y: g.y }));
+    }
+  }
+  function moveFrameDrag(e) {
+    const d = frameDrag; if (!d) return;
+    if (e.cancelable) e.preventDefault();
+    const p = evPoint(e), dx = (p.clientX - d.cx) / editor.zoom, dy = (p.clientY - d.cy) / editor.zoom;
+    if (!d.moved && Math.hypot(p.clientX - d.cx, p.clientY - d.cy) < 3) return;   // a click is not a move
+    d.moved = true;
+    const f = d.f;
+    if (d.mode === 'resize') { f.w = Math.max(80, Math.round(d.ow + dx)); f.h = Math.max(60, Math.round(d.oh + dy)); }
+    else {
+      f.x = Math.round(d.ox + dx); f.y = Math.round(d.oy + dy);
+      d.nodes.forEach((n) => {
+        const nd = dfNode(n.dfid), el = nodeEl(n.dfid);
+        nd.pos_x = n.x + dx; nd.pos_y = n.y + dy;
+        if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
+        editor.updateConnectionNodes('node-' + n.dfid);
+      });
+      d.frames.forEach((o) => { o.g.x = Math.round(o.x + dx); o.g.y = Math.round(o.y + dy); const el = frameEls.get(o.g.id); if (el) placeFrame(o.g, el); });
+    }
+    const el = frameEls.get(f.id); if (el) placeFrame(f, el);
+  }
+  function endFrameDrag() {
+    const d = frameDrag; if (!d) return;
+    frameDrag = null;
+    if (!d.moved) return;
+    drawBands(); drawFrames(); renderInspector();
+    commitSoon();
+  }
+  function editFrameTitle(f) {
+    const el = frameEls.get(f.id), t = el && el.querySelector('.ftext'); if (!t) return;
+    const inp = h('input', { class: 'finput', type: 'text', maxlength: 60 });
+    inp.value = f.title;
+    t.replaceWith(inp); inp.focus(); inp.select();
+    let done = false;
+    const fin = (ok) => {
+      if (done) return; done = true;
+      if (ok && inp.value !== f.title) { f.title = inp.value.slice(0, 60); commitSoon(); }
+      drawFrames(); renderInspector(); renderPalette();
+    };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') fin(true); else if (e.key === 'Escape') fin(false); });
+    inp.addEventListener('blur', () => fin(true));
+    for (const ev of ['mousedown', 'dblclick']) inp.addEventListener(ev, (e) => e.stopPropagation());
+  }
+  function editFrame(f, patch, rerender) {
+    Object.assign(f, patch);
+    if (f.note === '' || f.note == null) delete f.note;
+    drawFrames(); renderPalette();
+    if (rerender) renderInspector();
+    commitSoon();
+  }
+  function deleteFrame(id) {
+    meta.frames = frames().filter((f) => f.id !== id);
+    if (selFrame === id) selFrame = null;
+    drawFrames(); renderInspector(); renderPalette();
+    commitSoon();
+  }
+  // "Groupe" / key G: a frame around the selected node's chain(s) (Drawflow selects one node at a time, so the
+  // whole rule it belongs to is wrapped), else a default box at the visible centre.
+  function addFrame() {
+    let b = null;
+    if (selDf != null && dfNode(selDf)) {
+      const nid = nidOf(selDf), ids = new Set([nid]);
+      try { computeChains(serialize()).keys.forEach((arr) => { if (arr.includes(nid)) arr.forEach((i) => ids.add(i)); }); } catch (e) { /* keep the single node */ }
+      ids.forEach((i) => {
+        const dfid = nidToDf.get(i); if (dfid == null) return;
+        const nb = nodeBox(dfid);
+        b = b ? { x0: Math.min(b.x0, nb.x0), y0: Math.min(b.y0, nb.y0), x1: Math.max(b.x1, nb.x1), y1: Math.max(b.y1, nb.y1) } : nb;
+      });
+    }
+    let x, y, w, hh;
+    if (b) { x = b.x0 - FRAME_PAD.l; y = b.y0 - FRAME_PAD.t; w = b.x1 - b.x0 + FRAME_PAD.l + FRAME_PAD.r; hh = b.y1 - b.y0 + FRAME_PAD.t + FRAME_PAD.b; }
+    else {
+      const st = $('#stage').getBoundingClientRect(), c = canvasPoint(st.x + st.width / 2, st.y + st.height / 2);
+      w = 420; hh = 260; x = c.x - w / 2; y = c.y - hh / 2;
+    }
+    const used = new Set(frames().map((f) => f.id));
+    let k = 1; while (used.has('f' + k)) k++;
+    const f = { id: 'f' + k, title: 'Groupe ' + (frames().length + 1), color: FRAME_COLORS[frames().length % FRAME_COLORS.length][1],
+      x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(hh) };
+    frames().push(f);
+    selFrame = null; selectFrame(f.id);
+    renderPalette(); commitSoon();
+  }
+  function focusFrame(id) {
+    const f = frameById(id); if (!f) return;
+    focusRect({ x0: f.x, y0: f.y, x1: f.x + f.w, y1: f.y + f.h });
+    selectFrame(id);
+  }
+  function renderFrameInspector(box, f) {
+    box.append(h('div', { class: 'insttitle' }, ico('square', f.color), 'Groupe', h('small', { class: 'hint' }, f.id)));
+    const name = textCtl(f.title, (v) => editFrame(f, { title: v.slice(0, 60) }));
+    name.maxLength = 60;
+    box.append(field('Nom', name));
+    const sw = h('div', { class: 'swatches' });
+    FRAME_COLORS.forEach(([n, c]) => sw.append(h('button', { type: 'button', class: 'sw' + (c === f.color ? ' on' : ''), title: n, 'aria-label': n,
+      style: 'background:' + c, onclick: () => editFrame(f, { color: c }, true) })));
+    const custom = h('input', { type: 'color', class: 'swc', title: 'Couleur personnalisée' });
+    custom.value = f.color;
+    custom.addEventListener('change', () => editFrame(f, { color: custom.value.toLowerCase() }, true));
+    sw.append(custom);
+    box.append(h('div', { class: 'fld' }, h('span', {}, 'Couleur'), sw));
+    box.append(field('Note', areaCtl(f.note || '', (v) => editFrame(f, { note: v }), 2000), 'Texte libre, purement décoratif : le robot ne le lit pas.'));
+    box.append(h('p', { class: 'hint' }, 'Un groupe ne change rien au comportement du robot : il sert seulement à ranger le graphe. Glisser la barre de titre déplace aussi les nœuds qu’il contient.'));
+    box.append(h('button', { type: 'button', class: 'danger', onclick: () => deleteFrame(f.id) }, 'Supprimer le groupe (les nœuds restent)'));
+  }
+
   function bbox() {
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     for (const dfid in dfData()) { const b = nodeBox(dfid); x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1); }
@@ -549,15 +732,18 @@
     setView(z, (c.clientWidth - w * z) / 2 - b.x0 * z, (c.clientHeight - hh * z) / 2 - b.y0 * z);
   }
   // Jump to a state band: fit it to the canvas (or use a fixed readable zoom when given).
-  function focusBand(gid, zoom) {
-    const r = bandRects()[gid], c = $('#drawflow');
-    if (!r) return false;
+  function focusRect(r, zoom) {
+    const c = $('#drawflow');
     const w = r.x1 - r.x0, hh = r.y1 - r.y0;
     const z = zoom || Math.max(0.1, Math.min(1, c.clientWidth / (w * 1.05), c.clientHeight / (hh * 1.05)));
     const cx = w * z <= c.clientWidth ? (c.clientWidth - w * z) / 2 - r.x0 * z : 20 - r.x0 * z;
     const cy = hh * z <= c.clientHeight ? (c.clientHeight - hh * z) / 2 - r.y0 * z : 20 - r.y0 * z;
     setView(z, cx, cy);
     return true;
+  }
+  function focusBand(gid, zoom) {
+    const r = bandRects()[gid];
+    return r ? focusRect(r, zoom) : false;
   }
   // First view: the true fit when readable, else a readable zoom on the start state's band.
   function initialView() {
@@ -642,6 +828,8 @@
     const rects = bandRects();
     V.states.forEach((st) => { if (rects[st.id]) items.push({ sec: 'États (cliquer pour y aller)', kind: 'band', band: true, id: st.id, label: st.label, sub: st.id, icon: stateIcon(st.id), hay: st.label + st.id }); });
     if (rects.global) items.push({ sec: 'États (cliquer pour y aller)', kind: 'band', band: true, id: 'global', label: 'Règles globales', sub: 'global', icon: 'git-branch', hay: 'global règles globales' });
+    items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: addFrame, label: 'Groupe', sub: 'nouveau (G)', icon: 'plus', color: '#e3b341', hay: 'groupe nouveau cadre commentaire' });
+    frames().forEach((f) => items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: () => focusFrame(f.id), label: f.title || '(sans nom)', sub: '', icon: 'square', color: f.color, hay: 'groupe ' + f.title + ' ' + (f.note || '') }));
     Object.keys(KINDS).forEach((k) => items.push({ sec: 'Blocs', kind: k, label: KINDS[k].label, sub: '', icon: KINDS[k].icon, hay: KINDS[k].label + ' ' + k }));
     evs().forEach((e) => items.push({ sec: 'Événements', kind: 'trigger', preset: { event: e.id }, label: e.label, sub: e.id, icon: e.icon, hay: e.label + e.id + (e.help || '') }));
     V.guards.forEach((g) => items.push({ sec: 'Conditions', kind: 'condition', preset: { guard: g.id }, label: g.label, sub: g.id, icon: g.icon, hay: g.label + g.id + (g.help || '') }));
@@ -650,9 +838,9 @@
     let sec = '';
     items.filter((i) => !q || i.hay.toLowerCase().includes(q)).forEach((i) => {
       if (i.sec !== sec) { sec = i.sec; box.append(h('div', { class: 'psec' }, sec)); }
-      const el = h('div', { class: 'pitem', draggable: i.band ? null : 'true', title: i.hay },
-        ico(i.icon, i.band ? stateColor(i.id) : KINDS[i.kind].color), i.label, h('small', {}, i.sub));
-      el.addEventListener('click', () => { if (i.band) focusBand(i.id); else addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
+      const el = h('div', { class: 'pitem', draggable: i.band || i.fn ? null : 'true', title: i.hay },
+        ico(i.icon, i.color || (i.band ? stateColor(i.id) : KINDS[i.kind].color)), i.label, h('small', {}, i.sub));
+      el.addEventListener('click', () => { if (i.fn) i.fn(); else if (i.band) focusBand(i.id); else addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
       el.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', JSON.stringify({ kind: i.kind, preset: i.preset || null })); });
       box.append(el);
     });
@@ -717,6 +905,8 @@
 
   function renderInspector() {
     const box = $('#inspector'); box.innerHTML = '';
+    const fr = selFrame && frameById(selFrame);
+    if (fr) { renderFrameInspector(box, fr); return; }
     const m = selDf != null ? model(selDf) : null;
     if (!m) { box.append(h('p', { class: 'hint' }, 'Sélectionnez un nœud pour le modifier, ou ajoutez-en un depuis la palette.')); return; }
     const p = m.params;
@@ -1258,7 +1448,7 @@
     editor.reroute = false;
     editor.zoom_min = 0.03; editor.zoom_max = 1.6;
     editor.start();
-    editor.on('nodeSelected', (id) => { selDf = id; renderInspector(); if (innerWidth <= 900) document.body.classList.remove('hide-right'); });
+    editor.on('nodeSelected', (id) => { selDf = id; if (selFrame) { selFrame = null; drawFrames(); } renderInspector(); if (innerWidth <= 900) document.body.classList.remove('hide-right'); });
     editor.on('nodeUnselected', () => { selDf = null; renderInspector(); });
     editor.on('nodeMoved', commitSoon);
     editor.on('nodeRemoved', (id) => { if (loading) return; for (const [k, v] of nidToDf) if (String(v) === String(id)) nidToDf.delete(k); selDf = null; renderInspector(); commitSoon(); });
@@ -1267,12 +1457,20 @@
 
     // Keys typed in inspector fields must never reach Drawflow (its Delete handler would remove the selected node).
     window.addEventListener('keydown', (e) => {
+      if (e.target.classList && e.target.classList.contains('finput')) return;   // inline group rename handles its own Enter/Escape
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.stopPropagation(); return; }
+      if (selFrame && e.key === 'Delete') { e.preventDefault(); e.stopPropagation(); deleteFrame(selFrame); return; }
+      if (e.key.toLowerCase() === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey && $('#modal').hidden) { e.preventDefault(); addFrame(); return; }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
     }, true);
 
     const dfEl = $('#drawflow');
+    // Frame drags are tracked on the document so they survive the pointer leaving the title bar.
+    document.addEventListener('mousemove', moveFrameDrag); document.addEventListener('mouseup', endFrameDrag);
+    document.addEventListener('touchmove', moveFrameDrag, { passive: false }); document.addEventListener('touchend', endFrameDrag);
+    // A press on the bare canvas or on a node unselects the frame (frame title/handle presses stop before here).
+    dfEl.addEventListener('mousedown', (e) => { if (!e.target.closest('.drawflow-node')) unselectFrame(); });
     dfEl.addEventListener('dragover', (e) => e.preventDefault());
     dfEl.addEventListener('drop', (e) => {
       e.preventDefault();
@@ -1280,6 +1478,12 @@
     });
 
     $('#search').addEventListener('input', renderPalette);
+    $('#btnGroup').onclick = addFrame;
+    const bandsOn = $('#chkBands');
+    try { if (localStorage.getItem('nanterino.editor.bands') === '0') bandsOn.checked = false; } catch (e) { /* storage blocked */ }
+    const paintBandsToggle = () => document.body.classList.toggle('nobands', !bandsOn.checked);
+    bandsOn.addEventListener('change', () => { paintBandsToggle(); try { localStorage.setItem('nanterino.editor.bands', bandsOn.checked ? '1' : '0'); } catch (e) { /* ignore */ } });
+    paintBandsToggle();
     $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnFit').onclick = fit;
     $('#btnValidate').onclick = () => validate(true);
     $('#btnSave').onclick = save;
@@ -1317,6 +1521,7 @@
   window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () => Object.keys(dfData()).length,
     activateTab, sim, addStep, simRun, computeChains, liveChains: () => liveChains, focusBand, focusNode, fit, intentCard, renderIntents,
     panDf: (dfid) => { const d = dfNode(dfid), st = $('#drawflow'), z = 0.9; setView(z, st.clientWidth / 2 - (d.pos_x + 400) * z, st.clientHeight / 2 - (d.pos_y + 40) * z); },
+    frames, addFrame, selectFrame, focusFrame, editFrame, deleteFrame, editFrameTitle, selFrame: () => selFrame,
     meta: () => meta, journal: () => journal, loadJournal, loadVersions, selectTrace, toast };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

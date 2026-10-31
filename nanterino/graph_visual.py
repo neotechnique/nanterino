@@ -215,7 +215,58 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     }
     if graph_dict.get("description"):
         doc["description"] = str(graph_dict["description"])
+    # cosmetic frames ("groupes"): only what passes validation is shown, a hand-edited layout never breaks the GET
+    doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
     return doc
+
+
+# ---------------------------------------------------------------- cosmetic frames
+MAX_FRAMES, MAX_FRAME_TITLE, MAX_FRAME_NOTE = 100, 60, 2000
+FRAME_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+def _num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e7
+
+
+def _frame_problem(f: dict):
+    """French message for the first problem of a frame dict, or None when it is valid."""
+    if not isinstance(f.get("id"), str) or not f["id"] or len(f["id"]) > 64:
+        return "Identifiant de groupe invalide."
+    if not isinstance(f.get("title"), str) or len(f["title"]) > MAX_FRAME_TITLE:
+        return "Le titre du groupe doit être un texte de %d caractères au plus." % MAX_FRAME_TITLE
+    if not isinstance(f.get("color"), str) or not FRAME_COLOR.match(f["color"]):
+        return "La couleur du groupe doit être au format #rrggbb."
+    if not all(_num(f.get(k)) for k in ("x", "y", "w", "h")) or f["w"] <= 0 or f["h"] <= 0:
+        return "La position et la taille du groupe doivent être numériques (largeur et hauteur > 0)."
+    if "note" in f and f["note"] is not None and (not isinstance(f["note"], str) or len(f["note"]) > MAX_FRAME_NOTE):
+        return "La note du groupe doit être un texte de %d caractères au plus." % MAX_FRAME_NOTE
+    return None
+
+
+def clean_frames(frames):
+    """Validate the `frames` list of a document. Returns (clean_list, errors); each error carries `frame` (id)."""
+    if frames is None:
+        return [], []
+    if not isinstance(frames, list):
+        return [], [{"node": None, "frame": None, "message": "`frames` doit être une liste."}]
+    if len(frames) > MAX_FRAMES:
+        return [], [{"node": None, "frame": None, "message": "Trop de groupes (%d au plus)." % MAX_FRAMES}]
+    out, errors, ids = [], [], set()
+    for f in frames:
+        fid = f.get("id") if isinstance(f, dict) and isinstance(f.get("id"), str) else None
+        msg = "Un groupe n'est pas un objet." if not isinstance(f, dict) else _frame_problem(f)
+        if msg is None and f["id"] in ids:
+            msg = "Identifiant de groupe en double : %s." % f["id"]
+        if msg:
+            errors.append({"node": None, "frame": fid, "message": msg}); continue
+        ids.add(f["id"])
+        c = {"id": f["id"], "title": f["title"], "color": f["color"].lower(),
+             "x": f["x"], "y": f["y"], "w": f["w"], "h": f["h"]}
+        if f.get("note"):
+            c["note"] = f["note"]
+        out.append(c)
+    return out, errors
 
 
 # ---------------------------------------------------------------- visual document -> raw dict
@@ -479,6 +530,10 @@ def from_visual(doc: dict, cfg: dict):
     for nid, n in nodes.items():
         if n["kind"] == "start":
             layout["nodes"]["start"] = {"x": n.get("x", 0), "y": n.get("y", 0)}
+    frames, ferrors = clean_frames(doc.get("frames"))
+    errors.extend(ferrors)
+    if frames:   # purely cosmetic: lives in the layout file only, never compiled into graph.yaml
+        layout["frames"] = frames
     return (None if errors else raw), layout, errors
 
 

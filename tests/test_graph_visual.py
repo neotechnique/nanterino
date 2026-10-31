@@ -356,9 +356,65 @@ def test_deferred_reload_applies_at_next_veille():
         shutil.rmtree(TMP, ignore_errors=True)
 
 
+def test_frames_cosmetic_groups():
+    """Frames ("groupes"): round trip, no effect on the compiled graph, validation, restore with versions."""
+    shutil.rmtree(TMP, ignore_errors=True)
+    os.makedirs(TMP)
+    gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
+    base = V.to_visual(default_raw())
+    assert base["frames"] == []
+    f1 = {"id": "f1", "title": "Accueil", "color": "#F2C94C", "x": -20, "y": 10.5, "w": 400, "h": 220, "note": "chaine visage"}
+    f2 = {"id": "f2", "title": "", "color": "#4f8ef7", "x": 500, "y": 0, "w": 100, "h": 80}
+    doc = copy.deepcopy(base)
+    doc["frames"] = [f1, f2]
+    raw0, _ = compile_ok(base)
+    raw1, layout = compile_ok(doc)
+    assert semantic(raw0) == semantic(raw1), "frames must not change the compiled graph"
+    assert "frames" not in V.dump_yaml(raw1)
+    assert [f["id"] for f in layout["frames"]] == ["f1", "f2"] and layout["frames"][0]["color"] == "#f2c94c"
+    # save -> load layout -> to_visual returns the frames (colour normalised to lower case)
+    assert V.save(doc, CFG, gp, lp)[0]
+    back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert [(f["id"], f["title"], f["x"], f["y"], f["w"], f["h"], f.get("note")) for f in back["frames"]] == \
+        [("f1", "Accueil", -20, 10.5, 400, 220, "chaine visage"), ("f2", "", 500, 0, 100, 80, None)]
+    # validation: each bad frame is refused with its id, nothing written
+    before = open(lp, encoding="utf-8").read()
+    for patch in ({"title": "x" * 61}, {"color": "red"}, {"color": "#12345"}, {"x": "3"}, {"w": 0}, {"h": -4},
+                  {"x": float("nan")}, {"note": 5}):
+        bad = copy.deepcopy(doc)
+        bad["frames"][1].update(patch)
+        ok, errs = V.save(bad, CFG, gp, lp)
+        assert not ok and any(e.get("frame") == "f2" for e in errs), (patch, errs)
+    dup = copy.deepcopy(doc)
+    dup["frames"][1]["id"] = "f1"
+    ok, errs = V.save(dup, CFG, gp, lp)
+    assert not ok and errs[0]["frame"] == "f1"
+    many = copy.deepcopy(base)
+    many["frames"] = [dict(f2, id="g%d" % i) for i in range(101)]
+    assert not V.save(many, CFG, gp, lp)[0]
+    many["frames"] = many["frames"][:100]
+    assert V.from_visual(many, CFG)[2] == []
+    assert open(lp, encoding="utf-8").read() == before
+    # versions: a later save without frames, then restoring the previous version brings them back
+    clean = copy.deepcopy(base)
+    assert V.save(clean, CFG, gp, lp)[0]
+    assert V.to_visual(V.load_raw(gp), V.load_layout(lp))["frames"] == []
+    vids = [v["id"] for v in V.list_versions(gp)]
+    found = None
+    for vid in vids:
+        with open("%s.bak-%s" % (lp, vid), encoding="utf-8") as f:
+            if json.load(f).get("frames"):
+                found = vid
+    assert found, "a backup layout copy holds the frames"
+    ok, status, _ = V.restore_version(found, CFG, gp, lp)
+    assert ok
+    assert len(V.to_visual(V.load_raw(gp), V.load_layout(lp))["frames"]) == 2
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
 FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabulary, test_error_cases,
         test_negated_guard_compiles_and_evaluates, test_false_port_and_order, test_save_backups_and_reset,
-        test_deferred_reload_applies_at_next_veille]
+        test_deferred_reload_applies_at_next_veille, test_frames_cosmetic_groups]
 
 
 def parity_on_compiled_graph():
