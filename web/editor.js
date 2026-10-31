@@ -69,12 +69,12 @@
   }
 
   const KINDS = {
-    start:     { label: 'Début',            cls: 'start',     ins: 0, outs: 1, color: 'var(--grey)',    icon: 'flag' },
+    start:     { label: 'Début',            cls: 'start',     ins: 0, outs: 1, color: 'var(--start)',   icon: 'flag' },
     trigger:   { label: 'Déclencheur',      cls: 'trigger',   ins: 0, outs: 1, color: 'var(--trigger)', icon: 'bolt' },
     condition: { label: 'Condition',        cls: 'condition', ins: 1, outs: 2, color: 'var(--cond)',    icon: 'git-branch' },
     action:    { label: 'Action',           cls: 'action',    ins: 1, outs: 1, color: 'var(--action)',  icon: 'player-play' },
     goto:      { label: "Aller à l'état",   cls: 'goto',      ins: 1, outs: 0, color: 'var(--goto)',    icon: 'arrow-right' },
-    end:       { label: 'Fin',              cls: 'end',       ins: 1, outs: 0, color: 'var(--grey)',    icon: 'square' },
+    end:       { label: 'Fin',              cls: 'end',       ins: 1, outs: 0, color: 'var(--end)',     icon: 'square' },
   };
 
   // ---------- state ----------

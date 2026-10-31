@@ -1,6 +1,6 @@
 /* Nanterino visual graph editor styles. Dark, offline, touch friendly (44px targets on coarse pointers). */
 :root{--bg:#14171c;--panel:#1c2027;--panel2:#242933;--line:#343b48;--fg:#e6e9ef;--mut:#9aa4b5;
-  --trigger:#f0883e;--cond:#4f8ef7;--action:#3fb27f;--goto:#a371f7;--grey:#6e7787;--err:#f85149;--warn:#f0a030;--ok:#3fb950}
+  --trigger:#e3b341;--cond:#56d364;--action:#4f8ef7;--start:#2ea043;--end:#e5534b;--goto:#a371f7;--grey:#6e7787;--err:#f85149;--warn:#f0a030;--ok:#3fb950}
 *{box-sizing:border-box}
 :root{color-scheme:dark}
 html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 system-ui,Segoe UI,sans-serif}
@@ -75,7 +75,8 @@ button.danger{border-color:#7a2b2b}button.danger:hover{background:#4a1f1f}
 .drawflow .drawflow-node.node-condition{border-left:6px solid var(--cond)}
 .drawflow .drawflow-node.node-action{border-left:6px solid var(--action)}
 .drawflow .drawflow-node.node-goto{border-left:6px solid var(--goto)}
-.drawflow .drawflow-node.node-start,.drawflow .drawflow-node.node-end{border-left:6px solid var(--grey)}
+.drawflow .drawflow-node.node-start{border-left:6px solid var(--start)}
+.drawflow .drawflow-node.node-end{border-left:6px solid var(--end)}
 .drawflow .drawflow-node.live{box-shadow:0 0 0 3px #ffd54a99}
 .drawflow .drawflow-node.warn{border-color:var(--warn)}
 .drawflow .drawflow-node.err{border-color:var(--err);box-shadow:0 0 0 3px #f8514966}
