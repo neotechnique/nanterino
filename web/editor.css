@@ -393,3 +393,56 @@ body.nav-ro #palette{opacity:.75}
 .navhelp dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0}
 .navhelp dt{font-weight:600;color:#c9d1d9;white-space:nowrap}
 .navhelp dd{margin:0;color:var(--mut)}
+
+/* ---------- Vars L2 (2026-10-31): state column glow, Variables panel, typed args, Tester variables ---------- */
+/* live robot state / simulated state = its automatic column frame (no State hub any more) */
+.frame.auto.live{border:3px solid #ffd54a;box-shadow:0 0 18px 2px #ffd54a55;background:color-mix(in srgb,#ffd54a 7%,transparent)}
+.frame.auto.live .ftitle .ftext::after{content:'  ● robot';color:#ffd54a;font-size:.8em}
+.frame.auto.sim{outline:3px solid #39c5cf;outline-offset:3px}
+.frame.auto.sim .ftitle .ftext::after{content:'  ▶ simulé';color:#39c5cf;font-size:.8em}
+.frame.auto.live.sim .ftitle .ftext::after{content:'  ● robot  ▶ simulé'}
+/* the tabs row holds six panels: keep labels on one line */
+.tabs button{white-space:nowrap;font-size:12.5px;padding:10px 2px}
+/* Variables panel */
+#vars .vtabs{display:flex;gap:6px;margin:6px 0 10px}
+#vars .vtabs button{flex:1}
+#vars .vtabs button.on{border-color:var(--cond);color:#fff;background:color-mix(in srgb,var(--cond) 18%,var(--panel2))}
+.vtable{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.vtable th{text-align:left;color:var(--mut);font-weight:normal;font-size:12px;border-bottom:1px solid var(--line);padding:4px}
+.vtable th:nth-child(1){width:38%}.vtable th:nth-child(2){width:22%}
+.vtable td{padding:5px 4px;border-bottom:1px solid #2a303b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vtable tr.vrow{cursor:pointer}
+.vtable tr.vrow:hover td{background:var(--panel2)}
+.vtable tr.vrow.on td{background:color-mix(in srgb,var(--action) 20%,var(--panel))}
+.vtable tr.vrow.ro code{color:var(--mut)}
+.vtable code{color:var(--cond)}
+.vtable td.vlive{color:#ffd54a;font-family:ui-monospace,Consolas,monospace}
+.vtable tr.vdesc td{color:var(--mut);font-size:11.5px;white-space:normal;padding-top:0;border-bottom:1px solid var(--line)}
+.vtable tr.vrow:has(+ tr.vdesc) td{border-bottom:0}
+.lock{display:inline-flex;margin-right:4px;color:var(--mut);vertical-align:-2px}
+.vedit{margin-top:10px;padding:8px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+.vedit .addrow,#vars .addrow{display:flex;gap:6px}
+.vedit .addrow input,#vars .addrow input[type=text]{flex:1;min-width:0}
+.vuses a{color:#ffd58a}
+.vlists{display:grid;grid-template-columns:minmax(90px,38%) 1fr;gap:8px}
+.vlleft{display:flex;flex-direction:column;gap:4px;min-width:0}
+.vlitem{display:flex;align-items:center;gap:4px;text-align:left;padding:6px;min-width:0;overflow:hidden}
+.vlitem code{color:var(--cond);overflow:hidden;text-overflow:ellipsis}
+.vlitem small{margin-left:auto;color:var(--mut)}
+.vlitem.on{border-color:var(--cond);background:color-mix(in srgb,var(--cond) 15%,var(--panel2))}
+.vlright{min-width:0}
+.vitems{margin:6px 0;padding-left:22px}
+.vitems li{display:flex;align-items:center;gap:6px;padding:2px 0}
+.vitems li::marker{color:var(--mut)}
+.vitems .vit{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.vitems .vbtns{display:flex;gap:2px}
+.vitems .vbtns button{padding:1px 7px;font-size:12px}
+/* typed argument controls */
+select.varsel{font-family:ui-monospace,Consolas,monospace;font-size:13px}
+.statechk{display:flex;flex-wrap:wrap;gap:2px 10px}
+/* Tester: simulated variables */
+.simvars{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0 2px}
+.simvars .sv{font-size:12px;padding:1px 7px;border-radius:10px;background:var(--panel2);color:var(--mut)}
+.simvars .sv code{color:var(--fg)}
+.simvars .sv.chg{background:color-mix(in srgb,#39c5cf 30%,var(--panel2));color:#fff;box-shadow:0 0 0 1px #39c5cf}
+.simvars .svlab{width:100%;font-size:11.5px;color:var(--mut)}

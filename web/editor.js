@@ -3,7 +3,7 @@
  *
  * Purpose : draw / edit the robot dialogue graph as nodes (Start, Trigger, Condition, Action, Goto, End) and
  *           round-trip it through the node-document contract (Notes/graph-visual-format.md).
- * Boundary: talks only to GET /api/graph/visual, /api/graph/vocab, /api/graph, /api/graph/versions,
+ * Boundary: talks only to GET /api/graph/visual, /api/graph/vocab, /api/graph, /api/graph/versions, /api/graph/vars,
  *           /api/graph/trace, POST /api/graph/visual, /api/graph/simulate, /api/graph/reset,
  *           /api/graph/versions/<id>/restore, GET /web/vendor/tabler/<name>.svg (icons) and WS /ws (live state,
  *           heartbeat, last_transition). graph.yaml stays the only executed artifact; the server compiles and
@@ -19,6 +19,14 @@
  *           context menu (installButtonGuards / openContextFor), link meta {reason, description} on hops into a state node.
  *           L8: safe navigation (installSafeNav): Space+drag and hand tool (H) pan only, wheel pans / Ctrl+wheel zooms,
  *           persisted read-only lock (L, editBlocked()), canvas view keys, "?" help popover.
+ *           Vars L2 (2026-10-31, contract "Variables et triggers sans entrée"): the state is the system variable `etat`;
+ *           no State hub / go-to node is drawn any more (a legacy hub only survives as an inert card), a trigger has NO
+ *           input port (Drawflow node with 0 inputs + a drop guard that toasts), "etat = X" conditions / set_var(etat)
+ *           actions / var_changed(etat) triggers place the chains (computeChains mirrors that), the auto frames
+ *           `auto-<state>` are the columns (jump bar, minimap, semantic cards, live / simulated state glow).
+ *           Variables panel (tab "vars": Noms / Listes) edits doc.variables; GET /api/graph/vars feeds its live column
+ *           (polled <= 1 Hz only while the tab is open). Inspector args of type var / list / value / enum are typed
+ *           controls; the Tester shows the simulated variables of each trace entry (changed ones highlighted).
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -77,28 +85,29 @@
 
   const KINDS = {
     start:     { label: 'Début',            cls: 'start',     ins: 0, outs: 1, color: 'var(--start)',   icon: 'flag' },
-    // Trigger input: optional, accepts links from state nodes only ("valid in this state"); none = global rule.
-    trigger:   { label: 'Déclencheur',      cls: 'trigger',   ins: 1, outs: 1, color: 'var(--trigger)', icon: 'bolt' },
+    // Vars L2: a trigger starts a chain, it has NO input port (contract: inputs = 0; the server refuses any wire into it).
+    trigger:   { label: 'Déclencheur',      cls: 'trigger',   ins: 0, outs: 1, color: 'var(--trigger)', icon: 'bolt' },
     condition: { label: 'Condition',        cls: 'condition', ins: 1, outs: 2, color: 'var(--cond)',    icon: 'git-branch' },
     action:    { label: 'Action',           cls: 'action',    ins: 1, outs: 1, color: 'var(--action)',  icon: 'player-play' },
     // Legacy terminal (only drawn when a document still carries one; the palette never offers it).
     goto:      { label: "Aller à l'état",   cls: 'goto',      ins: 1, outs: 0, color: 'var(--goto)',    icon: 'arrow-right' },
     end:       { label: 'Fin',              cls: 'end',       ins: 1, outs: 0, color: 'var(--end)',     icon: 'square' },
-    // One hub per state: output = chains valid in that state, input = chains that end by going there.
-    state:     { label: 'État',             cls: 'state',     ins: 1, outs: 1, color: 'var(--state)',   icon: 'circle-dot' },
+    // Legacy L6 hub (import tolerance only: the server never produces it now). Drawn as an inert card, no ports.
+    state:     { label: 'État (ancien)',    cls: 'state',     ins: 0, outs: 0, color: 'var(--state)',   icon: 'circle-dot' },
   };
   const NOT_IN_PALETTE = new Set(['goto', 'state']);
   const NODE_KINDS = ['start', 'trigger', 'condition', 'action', 'end'];   // "Blocs" section of the palette
   // Post-it palette (pastel), first = default.
   const NOTE_COLORS = [['Jaune', '#fff59d'], ['Rose', '#f8bbd0'], ['Vert', '#c8e6c9'], ['Bleu', '#bbdefb'], ['Orange', '#ffe0b2'], ['Violet', '#e1bee7']];
-  // Link rules (mirror of graph_visual.from_visual; the server stays the judge): Start -> state, state -> trigger,
-  // a trigger only receives from a state, everything else may feed any node that has an input.
+  // Link rules (mirror of graph_visual.from_visual; the server stays the judge): Start is display only (no link),
+  // NOTHING enters a trigger (it starts a chain), everything else may feed any node that has an input.
+  const NO_TRIGGER_INPUT = "Un déclencheur n'a pas d'entrée : il démarre une chaîne. Reliez sa sortie à une condition ou à une action.";
   function linkProblem(from, to) {
     const a = from.kind, b = to.kind;
     if (b === 'start') return 'Le nœud Début ne reçoit aucun lien.';
-    if (a === 'start' && b !== 'state') return 'Début se relie seulement à un nœud État.';
-    if (a === 'state' && b !== 'trigger') return "La sortie d'un état se relie seulement à un déclencheur.";
-    if (b === 'trigger' && a !== 'state') return "Un déclencheur n'accepte de lien que depuis un nœud État.";
+    if (b === 'trigger') return NO_TRIGGER_INPUT;
+    if (a === 'start') return "Le nœud Début ne se relie à rien : l'état de départ est fixé par le robot.";
+    if (a === 'state' || b === 'state') return "Les anciens nœuds État ne se relient plus : utilisez « Changer d'état » (action) et la condition « etat = … ».";
     return null;
   }
 
@@ -150,6 +159,7 @@
   function iconOf(m) {
     const p = m.params || {}, k = KINDS[m.kind];
     if (m.kind === 'trigger') {
+      if (p.type === 'event' && p.event === 'var_changed' && p.name === 'etat' && p.value) return stateIcon(p.value);
       if (p.type === 'event') { const e = byId(evs(), p.event); return (e && e.icon) || k.icon; }
       if (p.type === 'after') { const s = byId(V.since, p.since || 'state'); return (s && s.icon) || 'clock'; }
       if (p.type === 'enter') return stateIcon(p.state);
@@ -163,6 +173,90 @@
     const s = (meta.states || []).find((x) => x.id === id);
     return s && s.color ? s.color : '#566';
   };
+
+  // ---------- variables (Vars L2) ----------
+  // Two sources: system variables come from the vocabulary (V.variables, `system`/`readonly`, never in the document);
+  // user variables and lists are the document's own `variables` block ({names: {id: {type, value, choices?, description}},
+  // lists: {id: {type, items? | from? | intent?, description}}}), edited by the Variables panel and saved with the doc.
+  // A list bound to a source (`from` = config key, `intent` = intent words) is read-only here; its items are shown
+  // from the vocabulary snapshot. The server stays the validator (types, names, deleting a used variable = 400).
+  const VAR_NAME = /^[a-z][a-z0-9_]{0,31}$/;
+  const docVars = () => {
+    meta.variables = meta.variables && typeof meta.variables === 'object' ? meta.variables : {};
+    if (!meta.variables.names || typeof meta.variables.names !== 'object') meta.variables.names = {};
+    if (!meta.variables.lists || typeof meta.variables.lists !== 'object') meta.variables.lists = {};
+    return meta.variables;
+  };
+  const sysVars = () => (((V.variables || {}).names) || []).filter((v) => v.system);
+  // Every name variable: [{id, type, label?, description, choices?, value?, system, readonly}], system ones first.
+  function varDefs() {
+    const out = sysVars().map((v) => Object.assign({}, v, { system: true, readonly: true }));
+    const seen = new Set(out.map((v) => v.id));
+    const names = docVars().names;
+    Object.keys(names).forEach((id) => { if (!seen.has(id)) out.push(Object.assign({ id, system: false, readonly: false }, names[id])); });
+    return out;
+  }
+  // Every list: [{id, type, items, description, readonly, source}] (source = {cfg} | {intent} for a bound list).
+  function listDefs() {
+    const snap = {}; (((V.variables || {}).lists) || []).forEach((l) => { snap[l.id] = l; });
+    const lists = docVars().lists;
+    return Object.keys(lists).map((id) => {
+      const l = lists[id] || {}, bound = !!(l.from || l.intent);
+      return { id, type: l.type || 'string', description: l.description || '', readonly: bound,
+        source: l.from ? { cfg: l.from } : l.intent ? { intent: l.intent } : null,
+        items: bound ? (((snap[id] || {}).items) || []) : (Array.isArray(l.items) ? l.items : []) };
+    });
+  }
+  const varDef = (id) => varDefs().find((v) => v.id === id) || null;
+  const listDef = (id) => listDefs().find((l) => l.id === id) || null;
+  const typeLabel = (t, lists) => ((byId(lists ? V.list_types : V.var_types, t) || {}).label || t);
+  const opLabel = (o) => ({ '=': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥', in: 'parmi', not_in: 'hors de' }[o] || o);
+  // A value as shown on a card: the etat value by its state label, `$x` as "x", lists joined.
+  const valText = (name, v) => {
+    if (Array.isArray(v)) return v.map((x) => valText(name, x)).join(', ');
+    if (name === 'etat') return stateLabel(v);
+    if (typeof v === 'string' && v.startsWith('$')) return v === '$utterance' ? 'la phrase entendue' : v.slice(1);
+    if (v === true) return 'vrai';
+    if (v === false) return 'faux';
+    return v == null || v === '' ? '?' : String(v);
+  };
+  // Nodes that use a variable or list (model ids): args name/list/value "$x", var_changed trigger name.
+  function varUses(id, doc) {
+    const out = [];
+    ((doc || serialize()).nodes || []).forEach((n) => {
+      const p = n.params || {}, a = p.args || {};
+      const hit = (n.kind === 'trigger' && p.name === id) || a.name === id || a.list === id
+        || [a.value, p.value].some((v) => v === '$' + id || (Array.isArray(v) && v.includes('$' + id)));
+      if (hit) out.push(n.id);
+    });
+    return out;
+  }
+  // Display form of a guard that reads counters (vocabulary `as_vars`, e.g. "tours < max_tours").
+  const asVars = (gid) => (byId(V.guards, gid) || {}).as_vars || '';
+  // A state-entry trigger: legacy `enter`, or var_changed on etat (never disabled, never ordered).
+  const isEnterTrig = (m) => { const p = m.params || {}; return p.type === 'enter' || (p.type === 'event' && p.event === 'var_changed' && p.name === 'etat'); };
+  // Structural problems of a node's typed arguments (vocabulary `args`): unknown / wrongly typed / read-only variable
+  // or list, missing value. Hints only: the server compiler gives the final word.
+  function argIssues(spec, args) {
+    const out = [];
+    ((spec && spec.args) || []).forEach((a) => {
+      const v = args[a.name], lab = a.label || a.name;
+      if (a.type === 'var') {
+        if (v == null || v === '') { out.push('À choisir : ' + lab + '.'); return; }
+        const d = varDef(v);
+        if (!d) out.push(`Variable inconnue : « ${v} ».`);
+        else if ((a.var_types || []).length && !a.var_types.includes(d.type)) out.push(`« ${v} » (${typeLabel(d.type)}) ne convient pas ici.`);
+        else if (a.writable && d.readonly && !(v === 'etat' && spec.id === 'set_var')) out.push(`La variable système « ${v} » est en lecture seule.`);
+      } else if (a.type === 'list') {
+        if (v == null || v === '') { out.push('À choisir : ' + lab + '.'); return; }
+        const d = listDef(v);
+        if (!d) out.push(`Liste inconnue : « ${v} ».`);
+        else if ((a.list_types || []).length && !a.list_types.includes(d.type)) out.push(`La liste « ${v} » (${typeLabel(d.type, true)}) ne convient pas ici.`);
+        else if (a.writable && d.readonly) out.push(`La liste « ${v} » est liée à une source : lecture seule.`);
+      } else if (a.type === 'value' && !a.optional && (v == null || v === '' || (Array.isArray(v) && !v.length))) out.push('À remplir : ' + lab + '.');
+    });
+    return out;
+  }
 
   // ---------- network ----------
   async function api(path, opts) {
@@ -198,6 +292,10 @@
     switch (m.kind) {
       case 'start': return 'État de départ : ' + stateLabel(p.state);
       case 'trigger':
+        if (p.type === 'event' && p.event === 'var_changed') {
+          if (p.name === 'etat') return 'Quand etat devient ' + valText('etat', p.value) + " (entrée dans l'état)";
+          return 'Quand ' + (p.name || '?') + ' change' + (p.value != null && p.value !== '' ? ' (devient ' + valText(p.name, p.value) + ')' : '');
+        }
         if (p.type === 'event') { const e = byId(evs(), p.event); return e ? e.label : '? ' + (p.event || ''); }
         if (p.type === 'after') {
           const s = byId(V.since, p.since || 'state');
@@ -207,8 +305,16 @@
         return '?';
       case 'condition':
         if (p.type === 'state') return (p.negate ? 'Pas dans : ' : 'Dans : ') + (p.states || []).map(stateLabel).join(', ');
-        { const g = byId(V.guards, p.guard); return (p.negate ? 'Non : ' : '') + (g ? g.label : '? ' + (p.guard || '')); }
+        {
+          const g = byId(V.guards, p.guard), a = p.args || {}, no = p.negate ? 'Non : ' : '';
+          if (p.guard === 'var_compare') return no + (a.name || '?') + ' ' + opLabel(a.op || '=') + ' ' + valText(a.name, a.value);
+          if (p.guard === 'var_true') return no + (a.name || '?') + ' est vrai';
+          if (p.guard === 'list_contains') return no + (a.list || '?') + ' contient ' + valText(a.list, a.value);
+          if (p.guard === 'list_empty') return no + (a.list || '?') + ' est vide';
+          return no + (g ? g.label : '? ' + (p.guard || '')) + (asVars(p.guard) ? ' (' + asVars(p.guard) + ')' : '');
+        }
       case 'action': {
+        if (p.action === 'set_var' && (p.args || {}).name === 'etat') return "Changer d'état → " + valText('etat', p.args.value) + (p.reason ? ' (' + p.reason + ')' : '');
         const a = byId(V.actions, p.action);
         const args = Object.entries(p.args || {}).map(([k, v]) => `${k}=${v}`).join(', ');
         return (a ? a.label : '? ' + (p.action || '')) + (args ? ' (' + args + ')' : '') + (p.phase === 'then' ? ' [après]' : '');
@@ -275,7 +381,7 @@
     const present = new Set(nodes.filter((n) => n.kind === 'trigger').map((n) => n.id));
     const order = (meta.order || []).filter((id) => present.has(id));
     const inOrder = new Set(order);
-    nodes.filter((n) => n.kind === 'trigger' && !inOrder.has(n.id) && (n.params || {}).type !== 'enter')
+    nodes.filter((n) => n.kind === 'trigger' && !inOrder.has(n.id) && !isEnterTrig(n))
       .sort((a, b) => a.y - b.y || a.x - b.x).forEach((n) => order.push(n.id));
     const doc = {};
     for (const k in meta) if (!['nodes', 'links', 'order', 'error', 'pending'].includes(k)) doc[k] = clone(meta[k]);
@@ -306,8 +412,13 @@
     (doc.links || []).forEach((l) => {
       const a = nidToDf.get(l.from), b = nidToDf.get(l.to);
       if (a == null || b == null) return;
+      // Vars L2: a port the kind no longer has (wire into a trigger, legacy hub / Start wires) is not drawn
+      // (Drawflow would throw on a missing input); the server refuses such wires anyway.
+      const ka = KINDS[model(a).kind], kb = KINDS[model(b).kind];
+      if (!kb || !kb.ins || !ka || !ka.outs || (l.port === 'false' && ka.outs < 2)) { dbg('wire skipped ' + l.from + '>' + l.to); return; }
       editor.addConnection(a, b, l.port === 'false' ? 'output_2' : 'output_1', 'input_1');
     });
+    docVars();               // the variables block always exists from here on (stable dirty snapshot)
     loading = false;
     if (!keepView) initialView();
     if (selFrame && !frameById(selFrame)) selFrame = null;
@@ -320,6 +431,7 @@
     renderPalette();
     renderInspector();
     renderIntents();
+    if (curTab === 'vars') renderVars();
     if (curTab === 'tester') renderTester();
   }
 
@@ -360,8 +472,8 @@
     (doc.nodes || []).forEach((n) => { if (n.kind === 'state' && n.params && n.params.state && !hubOf[n.params.state]) hubOf[n.params.state] = n.id; });
     (doc.links || []).forEach((l) => {
       const a = nodes[l.from], b = nodes[l.to]; if (!a || !b) return;
-      if (a.kind === 'start') return;                                          // Start -> state is display only
-      if (a.kind === 'state') {                                                // state -> trigger: "valid in this state"
+      if (a.kind === 'start') return;                                          // Start is display only
+      if (a.kind === 'state') {                                                // legacy hub -> trigger: "valid in this state"
         if (b.kind === 'trigger') { if (!stateIn.has(l.to)) stateIn.set(l.to, []); if (!stateIn.get(l.to).includes(l.from)) stateIn.get(l.to).push(l.from); }
         return;
       }
@@ -376,45 +488,71 @@
       const rec = (nid, chain) => {
         if (chain.some((c) => c[0] === nid)) return;
         const n = nodes[nid]; if (!n) return;
-        // terminals: a state node (hub form) or a legacy go-to / End; a state node's own output starts OTHER chains
+        // terminals: a legacy hub / go-to, or End; an action whose output is unlinked ends the chain (implicit end)
         if (n.kind === 'goto' || n.kind === 'end' || n.kind === 'state') { out.push(chain.concat([[nid, false]])); return; }
         if (n.kind === 'condition') {
           [['true', false], ['false', true]].forEach(([port, inv]) => (adj.get(nid + '|' + port) || []).forEach((t) => rec(t, chain.concat([[nid, inv]]))));
           return;
         }
-        (adj.get(nid + '|out') || []).forEach((t) => rec(t, chain.concat([[nid, false]])));
+        const next = adj.get(nid + '|out') || [];
+        if (!next.length && n.kind === 'action') { out.push(chain.concat([[nid, false], [null, false]])); return; }
+        next.forEach((t) => rec(t, chain.concat([[nid, false]])));
       };
       rec(tid, []);
       return out;
     };
     const keys = new Map(), byTrigger = new Map(), counts = {};
     let gcount = 0;
+    const next = (st) => { counts[st] = counts[st] || 0; return st + '/t' + counts[st]++; };
     ordered.forEach((tid) => {
-      const p = nodes[tid].params || {}, mine = [];
+      let p = nodes[tid].params || {};
+      const mine = [];
       byTrigger.set(tid, mine);
-      // states the trigger is linked from (+ the legacy `params.state`): the chain's scope
+      // Vars L2: "etat becomes X" (var_changed on etat) is the on_enter of X
+      if (p.type === 'event' && p.event === 'var_changed' && p.name === 'etat') {
+        if (p.value == null || p.value === '') return;
+        p = Object.assign({}, p, { type: 'enter', state: p.value });
+      }
+      // states the trigger is linked from (legacy hubs) + the legacy `params.state`: the chain's scope
       const linked = (stateIn.get(tid) || []).map((s) => nodes[s].params && nodes[s].params.state).filter(Boolean);
       const scope = [...new Set(linked.concat((p.type === 'event' || p.type === 'after') && p.state ? [p.state] : []))];
       paths(tid).forEach((path) => {
-        const ids = path.map((x) => x[0]);
-        const hubs = (sts) => sts.map((s) => hubOf[s]).filter(Boolean);        // source hubs light up with the chain
-        if (p.type === 'enter') { const k = p.state + '/enter'; if (!keys.has(k)) { keys.set(k, ids.concat(hubs([p.state]))); mine.push(k); } return; }
-        const pos = [], neg = []; let force = false;
-        if ((p.type === 'event' || p.type === 'after') && scope.length) { pos.push(scope.slice()); force = !!p.global || scope.length > 1; }
-        path.slice(1, -1).forEach(([nid, inv]) => {
-          const n = nodes[nid]; if (n.kind !== 'condition') return;
-          const q = n.params || {}, isNeg = !!q.negate !== inv;
-          if (q.type === 'state') { (isNeg ? neg : pos).push(q.states || []); force = force || (!isNeg && !!q.global); }
+        const ids = path.map((x) => x[0]).filter((x) => x != null);
+        const hubs = (sts) => sts.map((s) => hubOf[s]).filter(Boolean);        // legacy source hubs light up with the chain
+        const mid = path.slice(1, -1);
+        if (p.type === 'enter') {
+          if (mid.some(([nid]) => nid && nodes[nid].kind === 'condition')) return;   // refused by the compiler
+          const k = p.state + '/enter'; if (!keys.has(k)) { keys.set(k, ids.concat(hubs([p.state]))); mine.push(k); } return;
+        }
+        const pos = [], neg = []; let force = false, dupOk = true;
+        if ((p.type === 'event' || p.type === 'after') && scope.length) { pos.push(scope.slice()); force = !!p.global || scope.length > 1; dupOk = false; }
+        mid.forEach(([nid, inv]) => {
+          const n = nid && nodes[nid]; if (!n || n.kind !== 'condition') return;
+          const q = n.params || {}, a = q.args || {};
+          let isNeg = !!q.negate !== inv;
+          if (q.type === 'state') { dupOk = false; (isNeg ? neg : pos).push(q.states || []); force = force || (!isNeg && !!q.global); return; }
+          if (q.type === 'guard' && q.guard === 'var_compare' && a.name === 'etat') {
+            const sts = ['in', 'not_in'].includes(a.op) ? [...new Set(Array.isArray(a.value) ? a.value : [a.value])] : [a.value];
+            isNeg = isNeg !== ['!=', 'not_in'].includes(a.op);
+            (isNeg ? neg : pos).push(sts); force = force || (!isNeg && !!q.global);
+          }
         });
-        let key, src;
-        if (pos.length === 1 && pos[0].length === 1 && !neg.length && !force) {
-          const st = pos[0][0]; counts[st] = counts[st] || 0; key = st + '/t' + counts[st]++; src = [st];
-        } else {
+        let single = pos.length === 1 && pos[0].length === 1 && !neg.length && !force, places = null;
+        let src = pos.length ? pos[0] : [];
+        if (!single && dupOk && pos.length && !neg.length && !force) {
+          places = pos[0].filter((s) => pos.slice(1).every((o) => o.includes(s)));
+          if (!places.length) return;
+          if (places.length === 1) { single = true; src = places; places = null; }
+        }
+        let ks;
+        if (single) ks = [next(src[0])];
+        else if (places) ks = places.map(next);          // one transition per state (duplicated chain, same fan)
+        else {
           if (p.type === 'after') return;
           if (pos.length && !pos[0].filter((s) => pos.slice(1).every((o) => o.includes(s))).length) return;
-          key = 'global/t' + gcount++; src = pos.length ? pos[0] : [];
+          ks = ['global/t' + gcount++];
         }
-        keys.set(key, ids.concat(hubs(src.filter((s) => linked.includes(s))))); mine.push(key);
+        ks.forEach((key) => { keys.set(key, ids.concat(hubs(src.filter((s) => linked.includes(s))))); mine.push(key); });
       });
     });
     return { keys, byTrigger };
@@ -493,23 +631,24 @@
       if (freshIds.has(nid)) { if (level === 'warn') return; level = 'todo'; }   // structural warnings wait until validate
       if (!out.has(nid)) out.set(nid, []); out.get(nid).push({ level, message });
     };
-    const incoming = {}, outgoing = {}, chainIn = {};
+    const incoming = {}, outgoing = {};
     for (const dfid in data) { incoming[dfid] = 0; outgoing[dfid] = 0; }
     for (const dfid in data) {
       for (const key in data[dfid].outputs) for (const c of data[dfid].outputs[key].connections) {
         outgoing[dfid]++; incoming[c.node] = (incoming[c.node] || 0) + 1;
-        if (data[dfid].data.model.kind !== 'start') chainIn[c.node] = (chainIn[c.node] || 0) + 1;   // Start -> state is display only
       }
     }
     const stateIds = new Set(V.states.map((s) => s.id));
-    const hubSeen = new Map();       // state id -> node id of its hub (first seen)
-    const hubNoIn = [];              // hubs nothing leads to
-    let startState = null;
     for (const dfid in data) {
       const m = data[dfid].data.model, p = m.params || {}, id = m.id;
-      if (m.kind === 'start') startState = p.state;
       if (m.kind === 'trigger') {
         if (p.type === 'event' && !byId(evs(), p.event)) add(id, 'err', 'Événement inconnu ou manquant.');
+        if (p.type === 'event' && p.event === 'var_changed') {
+          if (!p.name) add(id, 'err', '« Une variable change » : choisir la variable.');
+          else if (!varDef(p.name)) add(id, 'err', `Variable inconnue : « ${p.name} ».`);
+          else if (p.name === 'etat' && (p.value == null || p.value === '')) add(id, 'err', "« Quand etat change » : choisir l'état (la valeur) qui déclenche la chaîne.");
+        }
+        if (data[dfid].inputs && (data[dfid].inputs.input_1 || { connections: [] }).connections.length) add(id, 'err', NO_TRIGGER_INPUT);
         if (p.type === 'after' && (p.delay === '' || p.delay == null)) add(id, 'err', 'Délai manquant.');
         if (p.type === 'enter' && !stateIds.has(p.state)) add(id, 'err', 'État inconnu.');
         if (!['event', 'after', 'enter'].includes(p.type)) add(id, 'err', 'Type de déclencheur inconnu.');
@@ -517,25 +656,26 @@
       } else if (m.kind === 'condition') {
         if (p.type === 'state' && !(p.states || []).length) add(id, 'err', 'Aucun état choisi.');
         if (p.type === 'guard' && !byId(V.guards, p.guard)) add(id, 'err', 'Garde inconnue ou manquante.');
+        else if (p.type === 'guard') argIssues(byId(V.guards, p.guard), p.args || {}).forEach((msg) => add(id, 'err', msg));
       } else if (m.kind === 'action') {
         if (!byId(V.actions, p.action)) add(id, 'err', 'Action inconnue ou manquante.');
         else {
-          const need = { say_text: ['text'], set_expression: ['name', 'seconds'], wait: ['seconds'], gaze: ['mode'] }[p.action] || [];
+          argIssues(byId(V.actions, p.action), p.args || {}).forEach((msg) => add(id, 'err', msg));
+          const need = REQUIRED_ARGS[p.action] || [];
           need.forEach((k) => { const v = (p.args || {})[k]; if (v == null || v === '') add(id, 'err', 'À remplir : ' + ((((byId(V.actions, p.action) || {}).args || []).find((x) => x.name === k)) || {}).label + '.'); });
         }
       } else if (m.kind === 'goto') {
         if (!stateIds.has(p.state)) add(id, 'err', "État d'arrivée inconnu.");
       } else if (m.kind === 'state') {
-        if (!stateIds.has(p.state)) add(id, 'err', 'État inconnu.');
-        else if (hubSeen.has(p.state)) add(id, 'err', `Il y a déjà un nœud pour l'état « ${stateLabel(p.state)} » : un seul nœud par état.`);
-        else { hubSeen.set(p.state, id); if (!chainIn[dfid]) hubNoIn.push({ id, state: p.state }); }
+        add(id, 'warn', "Ancien nœud État : il n'est plus utilisé (supprimez-le ; l'état se teste avec « etat = … » et se change avec l'action « Changer d'état »).");
       }
       if (!['start', 'trigger', 'state'].includes(m.kind) && !incoming[dfid]) add(id, 'warn', "Nœud non relié : il serait perdu à l'enregistrement.");
-      if (['condition', 'action'].includes(m.kind)) {
-        // dead end: a chain must finish on Aller à / Fin (the false branch of a condition may stay empty)
-        const o1 = data[dfid].outputs.output_1;
-        if (!o1 || !o1.connections.length) add(id, 'warn', "La chaîne ne se termine pas : relier au nœud de l'état suivant ou à « Fin ».");
+      if (m.kind === 'condition') {
+        // Vars L2: an action with an unlinked output ends its chain; a condition needs at least one linked output
+        const o1 = data[dfid].outputs.output_1, o2 = data[dfid].outputs.output_2;
+        if (!(o1 && o1.connections.length) && !(o2 && o2.connections.length)) add(id, 'warn', 'La condition n’a aucune suite : relier au moins une de ses sorties.');
       }
+      if (m.kind === 'action' && p.action === 'set_var' && (p.args || {}).name === 'etat' && p.args.value && !stateIds.has(p.args.value)) add(id, 'err', 'État de destination inconnu.');
       if (m.kind === 'condition') {
         for (const c of (data[dfid].inputs.input_1 || { connections: [] }).connections) {
           const src = data[c.node];
@@ -544,10 +684,6 @@
       }
     }
     globalIssues = [];
-    hubNoIn.forEach((x) => { if (x.state !== startState) add(x.id, 'warn', `Aucune chaîne n'arrive dans l'état « ${stateLabel(x.state)} » : il ne sera jamais atteint.`); });
-    if (Object.keys(data).length && hubSeen.size) {
-      V.states.forEach((s) => { if (!hubSeen.has(s.id)) globalIssues.push({ level: 'warn', message: `L'état « ${s.label} » n'a pas de nœud : ajoutez-le depuis la palette pour y relier des déclencheurs.` }); });
-    }
     Object.keys(meta.intents || {}).forEach((n) => {
       const it = meta.intents[n] || {};
       if (!INTENT_NAME.test(n)) globalIssues.push({ level: 'err', message: `Intention « ${n} » : nom invalide.` });
@@ -556,6 +692,7 @@
     intentErrs = {};
     serverErrors.concat(simErrors).forEach((e) => {
       if (e.intent) { intentErrs[e.intent] = e.message; globalIssues.push({ level: 'err', message: `Intention « ${e.intent} » : ${e.message}` }); }
+      else if (e.variable && !(e.node && nidToDf.has(e.node))) globalIssues.push({ level: 'err', message: `Variable « ${e.variable} » : ${e.message}` });
       else if (e.node && nidToDf.has(e.node)) add(e.node, 'err', e.message);
       else globalIssues.push({ level: 'err', message: e.message });
     });
@@ -645,9 +782,9 @@
   }
 
   // ---------- view ----------
-  // State nodes are the hubs of the drawing (one per state, no automatic bands any more). The helpers below keep
-  // the old "band" vocabulary for navigation: bandRects() = bounding box of every node whose `group` is a state
-  // (its hub and its chains), used to jump to a state and to size the first view.
+  // Vars L2: a state is a column (automatic frame `auto-<state>`, no hub node). The helpers below keep the old "band"
+  // vocabulary for navigation: bandRects() = the column frame when present, else the bounding box of every node whose
+  // `group` is that state; used to jump to a state, the minimap and the first view.
   function nodeBox(dfid) {
     const d = dfNode(dfid), el = nodeEl(dfid);
     return { x0: d.pos_x, y0: d.pos_y, x1: d.pos_x + (el ? el.offsetWidth : 214), y1: d.pos_y + (el ? el.offsetHeight : 80) };
@@ -660,11 +797,19 @@
       r.x0 = Math.min(r.x0, b.x0); r.y0 = Math.min(r.y0, b.y0); r.x1 = Math.max(r.x1, b.x1); r.y1 = Math.max(r.y1, b.y1);
     }
     for (const k in g) { g[k].x0 -= 24; g[k].x1 += 24; g[k].y0 -= 48; g[k].y1 += 24; }
+    // Vars L2: the automatic column frame of a state (auto-<state>) is the column when the user kept it
+    frames().forEach((f) => { if (f.id.startsWith('auto-')) g[f.id.slice(5)] = { x0: f.x, y0: f.y, x1: f.x + f.w, y1: f.y + f.h }; });
     return g;
   }
-  // Live robot state / simulated state: the matching state node glows (class live / sim).
+  // Live robot state / simulated state: the matching automatic column frame `auto-<state>` glows (class live / sim);
+  // a legacy state node too.
   function drawBands() {
     if (!editor) return;
+    frameEls.forEach((el, fid) => {
+      const g = fid.startsWith('auto-') ? fid.slice(5) : null;
+      el.classList.toggle('live', !!g && g === liveState);
+      el.classList.toggle('sim', !!g && g === simState);
+    });
     const data = dfData();
     for (const dfid in data) {
       const m = data[dfid].data.model; if (m.kind !== 'state') continue;
@@ -725,9 +870,9 @@
   }
 
   // ---------- returning wires: faded by default, "→ État" proxy badges, focus on hover / selection (L7) ----------
-  // A wire that ends in a state hub crosses the whole canvas (the hubs sit on the top row). It is drawn at ~12 %
-  // opacity (CSS `svg.connection.ret`, unless the toolbar toggle says "visibles"); each chain end gets a small
-  // badge "→ <État>" right of its last node instead (click = pan to the hub). Hovering or selecting a node, hub,
+  // LEGACY (L6/L7 hub drawing; Vars L2 draws no hub, so nothing below fires on a current document): a wire that ends
+  // in a state hub was drawn at ~12 % opacity (CSS `svg.connection.ret`); each chain end got a small badge "→ <État>"
+  // right of its last node instead (click = pan to the hub). Hovering or selecting a node, hub,
   // wire or badge lights the related returning wires (class `rel`, full gradient) and fades the others
   // (container class `retfocus`). Pure drawing: nothing here is saved.
   let badgesEl = null, badgeRaf = 0, retHover = null;
@@ -868,13 +1013,16 @@
     const g = f.id.startsWith('auto-') ? f.id.slice(5) : null; if (!g) return null;
     let chains = 0, inn = 0, out = 0;
     const data = dfData();
-    for (const id in data) { const m = data[id].data.model; if (m.group === g && m.kind === 'trigger') chains++; }
-    editor.container.querySelectorAll('svg.connection.ret').forEach((svg) => {
-      const a = nidToDf.get(svg.dataset.src), b = nidToDf.get(svg.dataset.dst), ma = a != null && model(a), mb = b != null && model(b);
-      if (!ma || !mb) return;
-      if (mb.kind === 'state' && mb.group === g && ma.group !== g) inn++;
-      if (ma.group === g && ma.kind !== 'state' && mb.kind === 'state' && mb.group !== g) out++;
-    });
+    // Vars L2: in = state changes to this state made by other columns, out = state changes made here to another state
+    for (const id in data) {
+      const m = data[id].data.model, p = m.params || {};
+      if (m.group === g && m.kind === 'trigger') chains++;
+      if (m.kind === 'action' && p.action === 'set_var' && (p.args || {}).name === 'etat') {
+        const to = p.args.value;
+        if (to === g && m.group !== g) inn++;
+        if (m.group === g && to !== g) out++;
+      }
+    }
     return h('div', { class: 'fcard' }, h('div', { class: 'fcname' }, f.title || g), h('div', { class: 'fcstat' }, chains + ' chaîne' + (chains > 1 ? 's' : '') + ' · ↘ ' + inn + ' entrant' + (inn > 1 ? 's' : '') + ' · ↗ ' + out + ' sortant' + (out > 1 ? 's' : '')));
   }
   // Pan / zoom to a chain: its non-hub nodes at ~0.75, or the whole chain when larger (zoom >= 0.3).
@@ -931,6 +1079,7 @@
       frameEls.set(f.id, el);
       root.append(el);
     });
+    drawBands();             // live / simulated state glow on the auto column frames
   }
   function clearNodeSelection() {
     if (editor.node_selected) { editor.node_selected.classList.remove('selected'); editor.node_selected = null; }
@@ -1105,8 +1254,8 @@
   function initialView() {
     if (fitZoom() >= 0.5) { fit(); return; }
     const st = Object.values(dfData()).find((d) => d.data.model.kind === 'start');
-    // L7: the hubs sit on the top row (columns left to right): open on the top-left corner of the start state's
-    // column (Start + hub + first chains) at a readable zoom, so the hub row runs along the top of the screen
+    // L7 / Vars L2: open on the top-left corner of the start state's column (Start + its first chains) at a readable
+    // zoom, so the column titles run along the top of the screen
     const r = bandRects()[(st && st.data.model.params.state) || 'veille'];
     if (!r) { fit(); return; }
     const x0 = st ? Math.min(r.x0, st.pos_x - 24) : r.x0, z = 0.75;
@@ -1319,7 +1468,7 @@
   // inspector inputs) checks editBlocked(); save() checks navLocked only (saving is not an edit of the canvas).
   const LOCK_KEY = 'nanterino.editor.locked';
   const NAV_SKIP = '#jumpbar, #minimap, .ctx, .rbadge';          // overlays that handle their own presses (navigation)
-  const RO_PANELS = '#inspector, #intents, #versions';           // Tester and Journal stay usable (viewing, simulating)
+  const RO_PANELS = '#inspector, #intents, #versions, #vars';    // Tester and Journal stay usable (viewing, simulating)
   let navLocked = false, navHand = false, navSpace = false, navPan = null, helpEl = null;
   function editBlocked(quiet) {
     if (!navLocked && !navHand) return false;
@@ -1444,6 +1593,7 @@
   function applyReadOnly() {
     const on = navLocked || navHand;
     document.querySelectorAll(RO_PANELS).forEach((p) => p.querySelectorAll('input, textarea, select, button').forEach((el) => {
+      if (el.classList.contains('navok')) return;          // navigation inside a panel (sub-tabs, list picker) stays usable
       if (on && !el.disabled) { el.disabled = true; el.dataset.navro = '1'; }
       else if (!on && el.dataset.navro) { el.disabled = false; delete el.dataset.navro; }
     }));
@@ -1623,12 +1773,12 @@
     return true;
   }
 
-  // What can follow a node (kinds valid after it, from the server's rules): start -> state; state -> trigger; trigger and
-  // condition (true / false) -> condition, action, end (+ going to a state); action -> action, end (+ state; never a condition).
+  // What can follow a node (kinds valid after it, from the server's rules): start -> nothing (display only); trigger and
+  // condition (true / false) -> condition, action, end (+ changing the state); action -> action, end (+ changing the state;
+  // never a condition). Nothing ever leads INTO a trigger.
   function kindsAfter(kind) {
     switch (kind) {
       case 'start': return [];
-      case 'state': return ['trigger'];
       case 'trigger': return ['condition', 'action', 'end'];
       case 'condition': return ['condition', 'action', 'end'];
       case 'action': return ['action', 'end'];
@@ -1638,27 +1788,28 @@
   const canGoToState = (kind) => ['trigger', 'condition', 'action'].includes(kind);
   const KIND_ICON = (k) => KINDS[k].icon;
   // Node to create from a menu entry: {kind, preset} ; vocabulary entries pre-fill the node.
-  function nodeChoices(kinds, withStates) {
-    const out = kinds.map((k) => ({ label: KINDS[k].label, icon: KINDS[k].icon, color: KINDS[k].color, kind: k }));
-    return withStates ? out.concat(V.states.map((s) => ({ label: 'État : ' + s.label, icon: stateIcon(s.id), kind: 'state', preset: { state: s.id } }))) : out;
+  function nodeChoices(kinds) {
+    return kinds.map((k) => ({ label: KINDS[k].label, icon: KINDS[k].icon, color: KINDS[k].color, kind: k }));
   }
+  // Vars L2 shortcut rows: "Changer d'état → X" = an action set_var(etat, X) (replaces the old "État : X" / "Aller à : X").
+  const moveChoices = () => V.states.map((s) => ({ label: "Changer d'état → " + s.label, icon: stateIcon(s.id), kind: 'action',
+    preset: { action: 'set_var', args: { name: 'etat', value: s.id } }, hay: "changer d'état " + s.label + ' ' + s.id }));
   // Submenu content "insert a node" with a search field; `make(choice)` performs the insertion.
   function insertSub(kinds, make, opts) {
     return (subEl, depth) => {
-      const base = nodeChoices(kinds.filter((k) => k !== 'state'), false);
+      const base = nodeChoices(kinds);
       const vocab = [];
       if (kinds.includes('trigger')) evs().forEach((e) => vocab.push({ label: e.label, icon: e.icon, kind: 'trigger', preset: { event: e.id }, hay: e.label + e.id }));
       if (kinds.includes('condition')) V.guards.forEach((g) => vocab.push({ label: g.label, icon: g.icon, kind: 'condition', preset: { guard: g.id }, hay: g.label + g.id }));
       if (kinds.includes('action')) V.actions.forEach((a) => vocab.push({ label: a.label, icon: a.icon, kind: 'action', preset: { action: a.id }, hay: a.label + a.id }));
-      const stateRows = (opts && opts.states) ? V.states.map((s) => ({ label: 'Aller à : ' + s.label, icon: stateIcon(s.id), kind: 'state', preset: { state: s.id }, hay: s.label + s.id })) : [];
-      const stateKind = kinds.includes('state') ? V.states.map((s) => ({ label: 'État : ' + s.label, icon: stateIcon(s.id), kind: 'state', preset: { state: s.id }, hay: s.label + s.id })) : [];
+      const stateRows = (opts && opts.moves) ? moveChoices() : [];
       const toItem = (c) => ({ label: c.label, icon: c.icon, color: c.color, fn: () => make(c) });
       const render = (q) => {
-        const rows = q ? vocab.concat(stateRows, stateKind).filter((c) => c.hay.toLowerCase().includes(q)).slice(0, 14).concat(base.filter((c) => c.label.toLowerCase().includes(q))) : base.concat(stateKind);
+        const rows = q ? vocab.concat(stateRows).filter((c) => c.hay.toLowerCase().includes(q)).slice(0, 14).concat(base.filter((c) => c.label.toLowerCase().includes(q))) : base;
         fillMenu(subEl, [{ search: { placeholder: 'Rechercher un nœud…', onInput: render } }].concat(rows.map(toItem), stateRows.length && !q ? [{ sep: true }].concat(stateRows.map(toItem)) : []), depth);
         const s = subEl.querySelector('.csearch'); if (s && q) { s.value = q; s.focus(); }
       };
-      return [{ search: { placeholder: 'Rechercher un nœud…', onInput: render } }].concat(base.map(toItem), stateKind.map(toItem), stateRows.length ? [{ sep: true }].concat(stateRows.map(toItem)) : []);
+      return [{ search: { placeholder: 'Rechercher un nœud…', onInput: render } }].concat(base.map(toItem), stateRows.length ? [{ sep: true }].concat(stateRows.map(toItem)) : []);
     };
   }
   let clipboard = null;           // in-editor clipboard: a node model {kind, description, params}
@@ -1684,7 +1835,7 @@
     pasteNode({ x: d.pos_x + 40, y: d.pos_y + 40 });
   }
   function toggleChain(dfid) {
-    const m = model(dfid); if (!m || m.kind !== 'trigger' || (m.params || {}).type === 'enter') return;
+    const m = model(dfid); if (!m || m.kind !== 'trigger' || isEnterTrig(m)) return;
     m.params.enabled = m.params.enabled === false;           // false -> true, true/undefined -> false
     if (m.params.enabled === true) delete m.params.enabled;
     refreshNode(dfid); if (selDf === dfid) renderInspector();
@@ -1697,15 +1848,9 @@
     editor.addConnection(fromDf, toDf, outCls, 'input_1');
     return true;
   }
-  // Insert a new node after `dfid` (port = output class) and link it; for a state choice, link to the state's hub.
+  // Insert a new node after `dfid` (port = output class) and link it.
   function insertAfter(dfid, outCls, choice) {
     const d = dfNode(dfid);
-    if (choice.kind === 'state') {
-      let hub = [...nidToDf.values()].find((k) => model(k) && model(k).kind === 'state' && model(k).params.state === choice.preset.state);
-      if (hub == null) { hub = addAt('state', choice.preset, { x: d.pos_x + 260, y: d.pos_y }, { select: false }); }
-      if (hub != null) linkNodes(dfid, outCls, hub);
-      return;
-    }
     const nd = addAt(choice.kind, choice.preset, { x: d.pos_x + 260, y: d.pos_y }, { select: true });
     if (nd != null) linkNodes(dfid, outCls, nd);
   }
@@ -1757,14 +1902,13 @@
       const kinds = kindsAfter(m.kind);
       const ports = m.kind === 'condition' ? [['output_1', ' (Vrai)'], ['output_2', ' (Faux)']] : [['output_1', '']];
       ports.forEach(([cls, suffix]) => {
-        const ks = kinds.concat(m.kind === 'state' ? [] : []);
-        after.push({ label: 'Insérer après' + suffix, icon: 'plus', disabled: !ks.length && !canGoToState(m.kind),
-          sub: insertSub(ks.concat(canGoToState(m.kind) ? [] : []), (c) => insertAfter(dfid, cls, c), { states: canGoToState(m.kind) }) });
+        after.push({ label: 'Insérer après' + suffix, icon: 'plus', disabled: !kinds.length && !canGoToState(m.kind),
+          sub: insertSub(kinds, (c) => insertAfter(dfid, cls, c), { moves: canGoToState(m.kind) }) });
       });
       items = after.concat([{ sep: true },
         { label: 'Dupliquer', icon: 'plus', disabled: m.kind === 'state' || m.kind === 'start', fn: () => duplicateNode(dfid) },
         { label: 'Copier', icon: 'text-caption', disabled: m.kind === 'state' || m.kind === 'start', fn: () => copyNode(dfid) }]);
-      if (m.kind === 'trigger' && (m.params || {}).type !== 'enter') items.push({ label: (m.params || {}).enabled === false ? 'Activer la chaîne' : 'Désactiver la chaîne', icon: 'power', fn: () => toggleChain(dfid) });
+      if (m.kind === 'trigger' && !isEnterTrig(m)) items.push({ label: (m.params || {}).enabled === false ? 'Activer la chaîne' : 'Désactiver la chaîne', icon: 'power', fn: () => toggleChain(dfid) });
       items.push({ label: 'Grouper', icon: 'square', fn: () => { selectDf(dfid); addFrame(); } },
         { label: 'Ajouter un post-it ici', icon: 'message', fn: () => { const d = dfNode(dfid); addNote({ x: d.pos_x, y: d.pos_y + nodeBox(dfid).y1 - nodeBox(dfid).y0 + 24 }); } },
         { sep: true }, { label: 'Supprimer', icon: 'x', fn: () => editor.removeNodeId('node-' + dfid) });
@@ -1779,7 +1923,7 @@
         { label: 'Supprimer le fil', icon: 'x', fn: () => { editor.removeSingleConnection(w.out, w.in, w.outCls, 'input_1'); selConn = null; renderInspector(); } }];
     } else {
       items = [
-        { label: 'Insérer un nœud', icon: 'plus', sub: insertSub(NODE_KINDS.concat(['state']), (c) => addAt(c.kind, c.preset, pt, { exact: true })) },
+        { label: 'Insérer un nœud', icon: 'plus', sub: insertSub(NODE_KINDS, (c) => addAt(c.kind, c.preset, pt, { exact: true }), { moves: true }) },
         { label: 'Insérer un post-it', icon: 'message', fn: () => addNote(pt) },
         { label: 'Insérer un groupe', icon: 'square', fn: () => addFrame(pt) },
         { label: 'Coller', icon: 'text-caption', disabled: !clipboard, fn: () => pasteNode(pt) },
@@ -1802,23 +1946,17 @@
     if (preset) {
       if (preset.event) { p.type = 'event'; p.event = preset.event; }
       if (preset.guard) p.guard = preset.guard;
-      if (preset.action) { p.action = preset.action; p.args = {}; }
+      if (preset.action) { p.action = preset.action; p.args = preset.args ? clone(preset.args) : {}; }
       if (preset.state) p.state = preset.state;
     }
     return m;
   }
   // Add a node of `kind`. Options: exact (place it exactly at `pt`, no nudging away from other nodes), select (default true).
-  // A `state` node is unique per state: asking for an existing one just selects it. A trigger added while a state node is
-  // selected is linked from it (state -> trigger). Returns the Drawflow id (or the existing hub's id), null if refused.
+  // Returns the Drawflow id, null if refused. (Vars L2: no State hubs any more; a trigger is never linked on creation.)
   function addAt(kind, preset, pt, opts) {
     opts = opts || {};
     if (kind === 'start' && Object.values(dfData()).some((d) => d.data.model.kind === 'start')) { toast('Il y a déjà un nœud Début.', 'err'); return null; }
-    if (kind === 'state') {
-      const sid = (preset && preset.state) || (V.states[0] || {}).id;
-      const have = Object.keys(dfData()).find((k) => model(k).kind === 'state' && model(k).params.state === sid);
-      if (have != null) { focusNode(model(have).id); return have; }   // navigation: allowed even when locked
-      preset = { state: sid };
-    }
+    if (kind === 'state' || kind === 'goto') { toast("Les nœuds État / Aller à n'existent plus : utilisez l'action « Changer d'état ».", 'err'); return null; }
     if (editBlocked()) return null;
     const sel = selDf != null && dfNode(selDf) ? selDf : null;
     if (!pt) {
@@ -1828,10 +1966,8 @@
     }
     if (!opts.exact) pt = freeSpot(pt.x, pt.y);
     const m = defaultModel(kind, preset);
-    if (kind === 'state') m.group = m.params.state;
     freshIds.add(m.id);
     const dfid = addNodeFromModel(m, Math.round(pt.x), Math.round(pt.y));
-    if (kind === 'trigger' && sel != null && model(sel).kind === 'state' && m.params.type !== 'enter') editor.addConnection(sel, dfid, 'output_1', 'input_1');
     commitSoon();
     if (opts.select !== false) selectDf(dfid);
     if (!isVisible(m.id)) panTo(m.id, 0.6);
@@ -1859,9 +1995,9 @@
     const box = $('#palette'); box.innerHTML = '';
     const items = [];
     const rects = bandRects();
-    // one hub per state: clicking an existing one goes to it (addAt selects it), a missing one is created
-    V.states.forEach((st) => items.push({ sec: 'États (un nœud par état)', kind: 'state', preset: { state: st.id }, label: st.label, sub: st.id, icon: stateIcon(st.id), hay: st.label + st.id }));
-    if (rects.global) items.push({ sec: 'États (un nœud par état)', kind: 'band', band: true, id: 'global', label: 'Règles globales', sub: 'global', icon: 'git-branch', hay: 'global règles globales' });
+    // Vars L2: the columns (one automatic frame per state) are navigation targets; changing the state is an action
+    V.states.forEach((st) => { if (rects[st.id]) items.push({ sec: 'Colonnes (cliquer pour y aller)', kind: 'band', band: true, id: st.id, label: st.label, sub: 'etat = ' + st.id, icon: stateIcon(st.id), hay: 'colonne état ' + st.label + st.id }); });
+    if (rects.global) items.push({ sec: 'Colonnes (cliquer pour y aller)', kind: 'band', band: true, id: 'global', label: 'Règles globales', sub: 'global', icon: 'git-branch', hay: 'global règles globales' });
     items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: () => addFrame(), label: 'Groupe', sub: 'nouveau (G)', icon: 'plus', color: '#e3b341', hay: 'groupe nouveau cadre commentaire' });
     frames().forEach((f) => items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: () => focusFrame(f.id), label: f.title || '(sans nom)', sub: '', icon: 'square', color: f.color, hay: 'groupe ' + f.title + ' ' + (f.note || '') }));
     items.push({ sec: 'Notes', kind: 'note', fn: () => addNote(), label: 'Post-it', sub: 'nouveau (N)', icon: 'plus', color: NOTE_COLORS[0][1], hay: 'note post-it postit nouveau' });
@@ -1870,6 +2006,7 @@
     evs().forEach((e) => items.push({ sec: 'Événements', kind: 'trigger', preset: { event: e.id }, label: e.label, sub: e.id, icon: e.icon, hay: e.label + e.id + (e.help || '') }));
     V.guards.forEach((g) => items.push({ sec: 'Conditions', kind: 'condition', preset: { guard: g.id }, label: g.label, sub: g.id, icon: g.icon, hay: g.label + g.id + (g.help || '') }));
     V.actions.forEach((a) => items.push({ sec: 'Actions', kind: 'action', preset: { action: a.id }, label: a.label, sub: a.id, icon: a.icon, hay: a.label + a.id + (a.help || '') }));
+    moveChoices().forEach((c) => items.push({ sec: "Changer d'état", kind: 'action', preset: c.preset, label: c.label.replace("Changer d'état → ", '→ '), sub: 'set_var etat', icon: c.icon, hay: c.hay }));
     let sec = '';
     items.filter((i) => !q || i.hay.toLowerCase().includes(q)).forEach((i) => {
       if (i.sec !== sec) { sec = i.sec; box.append(h('div', { class: 'psec' }, sec)); }
@@ -1938,11 +2075,6 @@
   }
   const numOrKey = (v) => { v = String(v).trim(); return isNum(v) ? Number(v) : v; };
 
-  // States wired into the input of a trigger (Drawflow id), in link order.
-  function linkedStates(dfid) {
-    const n = dfNode(dfid); if (!n) return [];
-    return [...new Set(((n.inputs.input_1 || {}).connections || []).map((c) => model(c.node)).filter((m) => m && m.kind === 'state').map((m) => m.params.state))];
-  }
   // Inspector of the selected wire: the hop into a state node carries the journal reason (and a description when the
   // chain has no node of its own to hold it).
   function renderWireInspector(box) {
@@ -1959,6 +2091,109 @@
     } else box.append(h('p', { class: 'hint' }, 'Ce fil relie deux nœuds de la même chaîne.'));
     box.append(h('button', { type: 'button', class: 'danger', onclick: () => { editor.removeSingleConnection(w.out, w.in, w.outCls, 'input_1'); selConn = null; renderInspector(); } }, 'Supprimer le fil'));
     return true;
+  }
+
+  // ---------- typed argument controls (Vars L2) ----------
+  // Required plain args per action (var / list / value args are described by the vocabulary itself).
+  const REQUIRED_ARGS = { say_text: ['text'], set_expression: ['name', 'seconds'], wait: ['seconds'], gaze: ['mode'] };
+  const ORDER_OPS = ['<', '<=', '>', '>='];
+  // Default value written when a variable / list is picked for a required `value` (so a checkbox or a select never
+  // shows a value the document does not hold). Text has no default.
+  function defaultValueFor(type, choices) {
+    if (type === 'bool') return false;
+    if (type === 'number' || type === 'duration') return 0;
+    if (type === 'choice') return (choices || [])[0];
+    return undefined;
+  }
+  // Controls for a vocabulary argument list. `cur` = current values, `set(name, value)` writes one ('' / null = remove).
+  //   var   -> variables filtered by var_types; `writable` hides read-only ones (etat stays offered to set_var: it is
+  //            the state change)
+  //   list  -> lists filtered by list_types; `writable` hides source-bound lists
+  //   value -> control by the type of the variable / list items named by `of`: checkbox (bool), number (number,
+  //            duration), select (choice; etat = the states, a set of states with in / not_in), text (string, with a
+  //            "$utterance" switch when the vocabulary offers it)
+  //   enum  -> select with the vocabulary labels (op: = != in not_in on etat; order operators only for numbers)
+  function argFields(box, specArgs, cur, set, ctx) {
+    ctx = ctx || {};
+    const stateOpts = V.states.map((s) => ({ v: s.id, l: s.label }));
+    const kindOf = (name) => ((specArgs || []).find((x) => x.name === name) || {}).type;
+    const refDef = (arg) => {
+      const ref = cur[arg.of];
+      if (ref == null || ref === '') return null;
+      return kindOf(arg.of) === 'list' ? listDef(ref) : varDef(ref);
+    };
+    (specArgs || []).forEach((arg, i) => {
+      const v = cur[arg.name], lab = arg.label || arg.name;
+      const dependent = (specArgs || []).find((x) => x.type === 'value' && x.of === arg.name && !x.optional);
+      const pick = (x, def) => {
+        set(arg.name, x);
+        if (dependent && def) { const dv = def.id === 'etat' ? (V.states[0] || {}).id : defaultValueFor(def.type, def.choices); if (dv !== undefined) set(dependent.name, dv); }
+      };
+      if (arg.type === 'var') {
+        const opts = varDefs().filter((d) => (!(arg.var_types || []).length || arg.var_types.includes(d.type))
+          && (!arg.writable || !d.readonly || (d.id === 'etat' && ctx.id === 'set_var')));
+        const sel = selectCtl([{ v: '', l: '(choisir une variable)' }].concat(opts.map((d) => ({ v: d.id, l: d.id + ' — ' + typeLabel(d.type) + (d.system ? ' (système)' : '') }))),
+          v == null ? '' : v, (x) => pick(x, varDef(x)));
+        sel.classList.add('varsel');
+        const d = v ? varDef(v) : null;
+        box.append(field(lab, sel, d ? (d.description || d.label || '') : (opts.length ? '' : 'Aucune variable de ce type : créez-en une dans le panneau Variables.')));
+      } else if (arg.type === 'list') {
+        const opts = listDefs().filter((l) => (!(arg.list_types || []).length || arg.list_types.includes(l.type)) && (!arg.writable || !l.readonly));
+        const sel = selectCtl([{ v: '', l: '(choisir une liste)' }].concat(opts.map((l) => ({ v: l.id, l: l.id + ' — ' + typeLabel(l.type, true) + ' (' + l.items.length + ')' }))),
+          v == null ? '' : v, (x) => pick(x, null));
+        sel.classList.add('varsel');
+        box.append(field(lab, sel, opts.length ? '' : 'Aucune liste de ce type : créez-en une dans le panneau Variables.'));
+      } else if (arg.type === 'value') {
+        const d = refDef(arg), isList = kindOf(arg.of) === 'list';
+        if (!d) { box.append(field(lab, h('div', { class: 'hint' }, isList ? "Choisir d'abord la liste." : "Choisir d'abord la variable."))); return; }
+        const opt = !!arg.optional, none = opt ? '(toute valeur)' : '(choisir)';
+        let ctl;
+        if (!isList && d.id === 'etat') {
+          if (['in', 'not_in'].includes(cur.op)) {
+            const chosen = Array.isArray(v) ? v : (v ? [v] : []);
+            ctl = h('div', { class: 'statechk' });
+            V.states.forEach((s) => ctl.append(checkCtl(s.label, chosen.includes(s.id), (c) => {
+              const st = new Set(chosen); c ? st.add(s.id) : st.delete(s.id);
+              set(arg.name, V.states.map((x) => x.id).filter((x) => st.has(x)));
+            }, stateIcon(s.id))));
+          } else ctl = selectCtl([{ v: '', l: none }].concat(stateOpts), v == null ? '' : v, (x) => set(arg.name, x));
+        } else if (d.type === 'choice') {
+          ctl = selectCtl([{ v: '', l: none }].concat((d.choices || []).map((c) => ({ v: c, l: c }))), v == null ? '' : v, (x) => set(arg.name, x));
+        } else if (d.type === 'bool') {
+          if (opt) ctl = selectCtl([{ v: '', l: none }, { v: 'true', l: 'vrai' }, { v: 'false', l: 'faux' }], v == null ? '' : String(v), (x) => set(arg.name, x === '' ? '' : x === 'true'));
+          else ctl = checkCtl('vrai', v === true || v === 'true', (c) => set(arg.name, c));
+        } else if (d.type === 'number' || d.type === 'duration') {
+          ctl = h('input', { type: 'number', step: 'any', min: d.type === 'duration' ? 0 : null });
+          ctl.value = v == null ? '' : v;
+          ctl.addEventListener('change', () => set(arg.name, ctl.value === '' ? '' : Number(ctl.value)));
+        } else {
+          const utt = arg.utterance && v === '$utterance';
+          ctl = h('div', {});
+          if (!utt) ctl.append(textCtl(v, (x) => set(arg.name, x)));
+          if (arg.utterance) ctl.append(checkCtl('la phrase entendue ($utterance)', utt, (c) => set(arg.name, c ? '$utterance' : '')));
+        }
+        box.append(field(lab + (isList ? ' (' + typeLabel(d.type, true) + ')' : ' (' + typeLabel(d.type) + ')'), ctl, opt ? 'Facultatif.' : ''));
+      } else if (arg.type === 'enum') {
+        let options = (arg.options || []).slice();
+        const labels = Object.assign({ in: 'parmi', not_in: 'hors de' }, arg.labels || {});
+        if (arg.name === 'op' && cur.name) {
+          const d = varDef(cur.name);
+          if (cur.name === 'etat') options = ['=', '!=', 'in', 'not_in'];
+          else if (d && !['number', 'duration'].includes(d.type)) options = options.filter((o) => !ORDER_OPS.includes(o));
+        }
+        const optLabel = (o) => (arg.name === 'op' ? opLabel(o) + '  ' : '') + (labels[o] || (byId(evs(), o) || {}).label || String(o));
+        const required = (ctx.required || []).includes(arg.name) || arg.name === 'op';
+        box.append(field(lab, selectCtl((arg.name === 'op' ? [] : [{ v: '', l: required ? '(à choisir)' : '(aucun)' }]).concat(options.map((o) => ({ v: o, l: optLabel(o) }))), v == null ? (arg.name === 'op' ? '=' : '') : v, (x) => set(arg.name, x)),
+          arg.name === 'op' ? '' : required ? 'Obligatoire : choisir une valeur.' : 'Facultatif.'));
+      } else if (arg.type === 'number') {
+        const lid = 'dl-arg' + i;
+        const dl = (arg.options || []).length ? h('datalist', { id: lid }, (arg.options || []).map((o) => h('option', { value: o }))) : null;
+        box.append(field(lab + ((arg.options || []).length && !/clé/.test(lab) ? ' (nombre, ou clé de réglage)' : ''), textCtl(v, (x) => set(arg.name, x === '' ? '' : numOrKey(x)), 'text', dl ? lid : null)));
+        if (dl) box.append(dl);
+      } else if (arg.max_len > 100) {
+        box.append(field(lab, areaCtl(v, (x) => set(arg.name, x), arg.max_len), `${arg.max_len} caractères au plus.`));
+      } else box.append(field(lab, textCtl(v, (x) => set(arg.name, x))));
+    });
   }
 
   function renderInspector() {
@@ -1980,33 +2215,31 @@
       box.append(field('État de départ (fixé par le code)', h('input', { type: 'text', disabled: true, value: stateLabel(p.state) })));
     }
     if (m.kind === 'trigger') {
-      box.append(field('Type', selectCtl([{ v: 'event', l: 'Un événement arrive' }, { v: 'after', l: 'Après un délai' }, { v: 'enter', l: "À l'entrée dans un état" }], p.type, (v) => edit((mm) => {
-        const wasOff = mm.params.enabled === false, glob = mm.params.global;
+      const types = [{ v: 'event', l: 'Un événement arrive' }, { v: 'after', l: 'Après un délai' }].concat(p.type === 'enter' ? [{ v: 'enter', l: "À l'entrée dans un état (ancien)" }] : []);
+      box.append(field('Type', selectCtl(types, p.type, (v) => edit((mm) => {
+        const wasOff = mm.params.enabled === false;
         mm.params = { type: v };
-        if (glob && v !== 'enter') mm.params.global = glob;
         if (v === 'event') mm.params.event = (V.events[0] || {}).id;
         if (v === 'after') { mm.params.delay = (V.delays[0] || {}).key || 5; mm.params.since = 'state'; }
-        if (v === 'enter') mm.params.state = (V.states[0] || {}).id;
-        else if (wasOff) mm.params.enabled = false;
+        if (wasOff) mm.params.enabled = false;
       }, true))));
-      if (p.type === 'event' || p.type === 'after') {
-        // Scope = the state nodes wired into the trigger's input (none = global rule)
-        const from = linkedStates(selDf);
-        box.append(h('div', { class: 'fld' }, h('span', {}, "Valable dans l'état"),
-          from.length ? h('div', {}, from.map((s) => h('span', { class: 'chip' }, ico(stateIcon(s), stateColor(s)), stateLabel(s)))) : h('div', { class: 'hint' }, 'Aucun état relié : règle globale (valable dans tous les états).'),
-          h('div', { class: 'help' }, "Reliez la sortie d'un ou plusieurs nœuds État à l'entrée de ce déclencheur. Plusieurs états = la règle est valable dans chacun d'eux.")));
-        if (from.length === 1 && p.type === 'event') box.append(checkCtl('Règle globale (évaluée avec les règles globales, limitée à cet état)', p.global, (c) => edit((mm) => { if (c) mm.params.global = true; else delete mm.params.global; }, true)));
-        if (from.length > 1) box.append(h('p', { class: 'hint' }, 'Plusieurs états reliés : la règle est globale, limitée à ces états.'));
-        if (from.length > 1 && p.type === 'after') box.append(h('div', { class: 'iss err' }, 'Un délai doit être rattaché à un seul état.'));
+      const isEnter = p.type === 'enter' || (p.type === 'event' && p.event === 'var_changed' && p.name === 'etat');
+      if (p.type === 'event') box.append(field('Événement', iconSelect(evs().map((e) => ({ v: e.id, l: e.label, icon: e.icon })), p.event, (v) => edit((mm) => {
+        mm.params.event = v; delete mm.params.name; delete mm.params.value;
+      }, true)), helpOf(evs(), p.event)));
+      if (p.type === 'event' && p.event === 'var_changed') {
+        // the trigger's own params carry name / value (not `args`): same typed controls
+        argFields(box, (byId(V.events, 'var_changed') || {}).args || [], p, (k, v) => edit((mm) => {
+          if (v === '' || v == null) delete mm.params[k]; else mm.params[k] = v;
+          if (k === 'name') delete mm.params.value;
+        }, true), { id: 'var_changed' });
+        if (p.name === 'etat') box.append(h('p', { class: 'hint' }, "« Quand etat devient X » = entrée dans l'état X : seulement des actions, ni condition ni changement d'état ; jamais désactivée."));
       }
-      if (p.type === 'event') box.append(field('Événement', iconSelect(evs().map((e) => ({ v: e.id, l: e.label, icon: e.icon })), p.event, (v) => edit((mm) => { mm.params.event = v; }, true)), helpOf(evs(), p.event)));
-      if (p.type !== 'enter') {
+      if (!isEnter) {
+        box.append(h('p', { class: 'hint' }, "Un déclencheur n'a pas d'entrée. Pour le limiter à un état, ajoutez juste après lui une condition « etat = … » (clic droit → Insérer après → Comparer une variable)."));
         box.append(h('p', { class: 'hint fannote' }, "Plusieurs branches : toutes celles qui ne changent pas d'état s'exécutent (dans l'ordre des numéros), puis une seule branche change d'état : la première qui correspond."));
         const fb = (fanInfo.fans || {})[m.id];
         if (fb && fb.length > 1) box.append(h('p', { class: 'hint' }, 'Ordre actuel : ' + fb.slice().sort((a, b) => a.rank - b.rank).map((b) => b.rank + ' → ' + b.target + (b.moves ? ' (change l\'état)' : '') + (b.ignored ? ' [ignorée]' : '')).join(' ; ')));
-      }
-      if (p.type === 'enter') box.append(h('p', { class: 'hint' }, "Un déclencheur « entrée dans l'état » ne peut pas être désactivé."));
-      else {
         box.append(checkCtl('Chaîne activée', p.enabled !== false, (c) => edit((mm) => { mm.params.enabled = c; }, true), 'power'));
         if (p.enabled === false) box.append(h('p', { class: 'hint' }, "Désactivée : la chaîne reste dans le fichier mais le robot l'ignore (grisée sur le canvas)."));
       }
@@ -2015,15 +2248,36 @@
           'Clés : ' + V.delays.map((d) => `${d.key} = ${d.value} s`).join(' ; ')));
         box.append(h('datalist', { id: 'dl-delays' }, V.delays.map((d) => h('option', { value: d.key }))));
         box.append(field('Compté', selectCtl(V.since.map((s) => ({ v: s.id, l: s.label })), p.since || 'state', (v) => edit((mm) => { mm.params.since = v; }))));
+        box.append(h('p', { class: 'hint' }, 'Un délai doit être rattaché à un état : condition « etat = … » (ou « etat parmi … ») juste après.'));
       }
-      if (p.type === 'enter') box.append(field('État', iconSelect(stateOpts, p.state, (v) => edit((mm) => { mm.params.state = v; }, true)), 'La chaîne doit finir par « Fin » et ne contenir que des actions.'));
+      if (p.type === 'enter') box.append(field('État', iconSelect(stateOpts, p.state, (v) => edit((mm) => { mm.params.state = v; }, true)), 'Ancienne forme : préférez « Une variable change » sur etat.'));
     }
     if (m.kind === 'condition') {
-      box.append(field('Type', selectCtl([{ v: 'guard', l: 'Une garde (réglage du robot)' }, { v: 'state', l: "L'état courant" }], p.type, (v) => edit((mm) => {
+      const types = [{ v: 'guard', l: 'Une condition (garde ou variable)' }].concat(p.type === 'state' ? [{ v: 'state', l: "L'état courant (ancien)" }] : []);
+      box.append(field('Type', selectCtl(types, p.type, (v) => edit((mm) => {
         mm.params = { type: v, negate: !!mm.params.negate };
         if (v === 'guard') mm.params.guard = (V.guards[0] || {}).id; else mm.params.states = [];
       }, true))));
-      if (p.type === 'guard') box.append(field('Garde', iconSelect(V.guards.map((g) => ({ v: g.id, l: g.label, icon: g.icon })), p.guard, (v) => edit((mm) => { mm.params.guard = v; }, true)), helpOf(V.guards, p.guard)));
+      if (p.type === 'guard') {
+        box.append(field('Condition', iconSelect(V.guards.map((g) => ({ v: g.id, l: g.label + (g.as_vars ? ' (' + g.as_vars + ')' : ''), icon: g.icon })), p.guard, (v) => edit((mm) => {
+          mm.params.guard = v; delete mm.params.global;
+          const g = byId(V.guards, v);
+          if (g && (g.args || []).length) { mm.params.args = {}; if (v === 'var_compare') mm.params.args.op = '='; } else delete mm.params.args;
+        }, true)), helpOf(V.guards, p.guard)));
+        if (asVars(p.guard)) box.append(h('p', { class: 'hint' }, ico('text-caption'), ' En variables : ', h('code', {}, asVars(p.guard))));
+        const g = byId(V.guards, p.guard);
+        if (g && (g.args || []).length) argFields(box, g.args, p.args || {}, (k, v) => edit((mm) => {
+          mm.params.args = mm.params.args || {};
+          if (v === '' || v == null) delete mm.params.args[k]; else mm.params.args[k] = v;
+          if (k === 'name' || k === 'list') { delete mm.params.args.value; if (k === 'name' && mm.params.guard === 'var_compare') mm.params.args.op = '='; delete mm.params.global; }
+          if (k === 'op' && (['in', 'not_in'].includes(v) !== Array.isArray(mm.params.args.value))) delete mm.params.args.value;
+        }, true), { id: p.guard });
+        const a = p.args || {};
+        if (p.guard === 'var_compare' && a.name === 'etat' && ['=', 'in'].includes(a.op || '=')) {
+          box.append(checkCtl('Règle globale (évaluée avec les règles globales, limitée à ces états)', p.global, (c) => edit((mm) => { if (c) mm.params.global = true; else delete mm.params.global; })));
+        }
+        if (p.guard === 'var_compare' && a.name === 'etat') box.append(h('p', { class: 'hint' }, "La condition sur etat range la chaîne dans la colonne de l'état (plusieurs états : une copie par état). Sans condition sur etat, la règle est globale."));
+      }
       if (p.type === 'state') {
         const wrap = h('div', { class: 'fld' }, h('span', {}, 'États'));
         V.states.forEach((s) => wrap.append(checkCtl(s.label, (p.states || []).includes(s.id), (c) => edit((mm) => {
@@ -2036,32 +2290,23 @@
       box.append(h('p', { class: 'hint' }, 'Sorties : « Vrai » continue la chaîne ; « Faux » démarre la branche suivante.'));
     }
     if (m.kind === 'action') {
-      box.append(field('Action', iconSelect(V.actions.map((a) => ({ v: a.id, l: a.label, icon: a.icon })), p.action, (v) => edit((mm) => { mm.params.action = v; mm.params.args = {}; }, true)), helpOf(V.actions, p.action)));
+      box.append(field('Action', iconSelect(V.actions.map((a) => ({ v: a.id, l: a.label, icon: a.icon })), p.action, (v) => edit((mm) => { mm.params.action = v; mm.params.args = {}; delete mm.params.reason; }, true)), helpOf(V.actions, p.action)));
       const a = byId(V.actions, p.action);
-      ((a && a.args) || []).forEach((arg, i) => {
-        const cur = (p.args || {})[arg.name];
-        const set = (v) => edit((mm) => {
-          mm.params.args = mm.params.args || {};
-          if (v === '' || v == null) delete mm.params.args[arg.name]; else mm.params.args[arg.name] = v;
-        });
-        const lab = arg.label || arg.name;
-        if (arg.type === 'enum') {
-          // `labels` (French text per option) comes from the vocabulary; event options reuse the event labels.
-          const optLabel = (o) => (arg.labels && arg.labels[o]) || (byId(evs(), o) || {}).label || String(o);
-          const required = ({ say_text: ['text'], set_expression: ['name', 'seconds'], wait: ['seconds'], gaze: ['mode'] }[p.action] || []).includes(arg.name);
-          box.append(field(lab, selectCtl([{ v: '', l: required ? '(à choisir)' : '(aucun)' }].concat((arg.options || []).map((o) => ({ v: o, l: optLabel(o) }))), cur == null ? '' : cur, set),
-            required ? 'Obligatoire : choisir une valeur.' : 'Facultatif.'));
-        } else if (arg.type === 'number') {
-          const lid = 'dl-arg' + i;
-          const dl = (arg.options || []).length ? h('datalist', { id: lid }, (arg.options || []).map((o) => h('option', { value: o }))) : null;
-          box.append(field(lab + ((arg.options || []).length && !/clé/.test(lab) ? ' (nombre, ou clé de réglage)' : ''), textCtl(cur, (v) => set(v === '' ? '' : numOrKey(v)), 'text', dl ? lid : null)));
-          if (dl) box.append(dl);
-        } else if (arg.max_len > 100) {
-          box.append(field(lab, areaCtl(cur, set, arg.max_len), `${arg.max_len} caractères au plus.`));
-        } else box.append(field(lab, textCtl(cur, set)));
-      });
-      box.append(field('Quand', selectCtl([{ v: 'do', l: "Avant le changement d'état" }, { v: 'then', l: "Après le changement d'état" }], p.phase || 'do', (v) => edit((mm) => { mm.params.phase = v; })),
-        "« Avant » : exécutée avant le changement d'état de la chaîne ; « Après » : juste après (ex. phrase dite dans le nouvel état)."));
+      argFields(box, (a && a.args) || [], p.args || {}, (k, v) => edit((mm) => {
+        mm.params.args = mm.params.args || {};
+        if (v === '' || v == null) delete mm.params.args[k]; else mm.params.args[k] = v;
+        if (k === 'name' || k === 'list') delete mm.params.args.value;
+        if (!(mm.params.action === 'set_var' && mm.params.args.name === 'etat')) delete mm.params.reason;
+      }, true), { id: p.action, required: REQUIRED_ARGS[p.action] || [] });
+      const move = p.action === 'set_var' && (p.args || {}).name === 'etat';
+      if (move) {
+        box.append(field('Raison (journal)', textCtl(p.reason || '', (v) => edit((mm) => { v = v.trim().slice(0, 100); if (v) mm.params.reason = v; else delete mm.params.reason; }, true)),
+          'Texte libre affiché dans le journal quand cette chaîne change l’état ; par défaut, l’événement déclencheur.'));
+        box.append(h('p', { class: 'hint' }, "Changer d'état : les actions avant ce nœud s'exécutent avant le changement, celles après lui juste après (dans le nouvel état). Un seul changement d'état par chaîne."));
+      } else {
+        box.append(field('Quand', selectCtl([{ v: 'do', l: "Avant le changement d'état" }, { v: 'then', l: "Après le changement d'état" }], p.phase || 'do', (v) => edit((mm) => { mm.params.phase = v; })),
+          "Utile seulement sans action « Changer d'état » dans la chaîne (sinon la position décide : avant / après elle)."));
+      }
     }
     if (m.kind === 'state') {
       const nIn = ((dfNode(selDf).inputs.input_1 || {}).connections || []).length, nOut = ((dfNode(selDf).outputs.output_1 || {}).connections || []).length;
@@ -2097,6 +2342,9 @@
     const card = h('div', { class: 'intent' });
     card.append(h('div', { class: 'ihead' }, ico(it.icon || sv.icon || 'message', 'var(--cond)'), h('code', {}, 'intent.' + name)));
     if (intentErrs[name]) card.append(h('div', { class: 'ierr' }, intentErrs[name]));
+    // Vars L2: lists bound to this intent's words (or to its shared config key) are visible in the Variables panel
+    listDefs().filter((l) => l.source && (l.source.intent === name || (it.words_from && l.source.cfg === it.words_from))).forEach((l) => card.append(
+      h('div', { class: 'note' }, 'Aussi visible comme liste ', h('a', { href: '#', class: 'navok', onclick: (e) => { e.preventDefault(); varsUi.tab = 'lists'; varsUi.list = l.id; activateTab('vars'); } }, '« ' + l.id + ' »'), ' dans le panneau Variables.')));
     if (it.words_from) {
       card.append(h('div', { class: 'note' }, `Liste partagée avec la config (clé « ${it.words_from} ») : à modifier dans la configuration du robot.`));
     } else {
@@ -2157,6 +2405,252 @@
     };
     nm.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
     box.append(h('div', { class: 'sect' }, 'Nouvelle intention'), h('div', { class: 'addrow rowbtns' }, nm, h('button', { type: 'button', class: 'primary', onclick: create }, 'Créer')));
+  }
+
+  // ---------- Variables panel (Vars L2: Game Creator 2 style Local Variables, tabs Noms / Listes) ----------
+  // Edits the document's `variables` block (meta.variables) like the intents panel edits meta.intents: every change goes
+  // through commitSoon() (undo / dirty / save), the server validates at save time (a deleted variable that a node still
+  // uses = 400, located on that node). System variables (etat, tours, ...) and source-bound lists are read-only and
+  // marked with a lock. The live column reads GET /api/graph/vars once a second, only while this tab is open.
+  const varsUi = { tab: 'names', sel: null, list: null, live: null, timer: null, uses: null };
+  function varsChanged(rerender) {
+    commitSoon();
+    analyze();
+    if (rerender) renderVars();
+    if (selDf != null && curTab === 'node') renderInspector();
+  }
+  const takenName = (id) => varDefs().some((v) => v.id === id) || listDefs().some((l) => l.id === id);
+  function checkNewName(id, old) {
+    if (!VAR_NAME.test(id)) return 'Nom invalide : minuscules, chiffres et _, commence par une lettre, 32 caractères au plus.';
+    if (id !== old && takenName(id)) return 'Ce nom est déjà pris (les variables et les listes partagent les noms).';
+    return null;
+  }
+  // Rename a variable or list everywhere in the canvas (args name / list, trigger name, "$name" values).
+  function renameUses(old, nu) {
+    const swap = (v) => (v === '$' + old ? '$' + nu : Array.isArray(v) ? v.map(swap) : v);
+    for (const dfid in dfData()) {
+      const m = model(dfid), p = m.params || {}, a = p.args || {};
+      let hit = false;
+      if (m.kind === 'trigger' && p.name === old) { p.name = nu; hit = true; }
+      if (a.name === old) { a.name = nu; hit = true; }
+      if (a.list === old) { a.list = nu; hit = true; }
+      ['value'].forEach((k) => { if (a[k] !== undefined && swap(a[k]) !== a[k]) { a[k] = swap(a[k]); hit = true; } if (p[k] !== undefined && m.kind === 'trigger' && swap(p[k]) !== p[k]) { p[k] = swap(p[k]); hit = true; } });
+      if (hit) refreshNode(dfid);
+    }
+  }
+  // Delete only when nothing uses it; otherwise list the users (clickable) and refuse.
+  function deleteVarOrList(id, isList) {
+    const uses = varUses(id);
+    if (uses.length) {
+      varsUi.uses = { id, nodes: uses };
+      toast(`« ${id} » est utilisée par ${uses.length} nœud(s) : ${uses.join(', ')}. Retirez-la de ces nœuds d'abord.`, 'err');
+      renderVars(); return false;
+    }
+    delete docVars()[isList ? 'lists' : 'names'][id];
+    if (isList) varsUi.list = null; else varsUi.sel = null;
+    varsUi.uses = null;
+    toast(`« ${id} » supprimée.`, 'ok');
+    varsChanged(true); return true;
+  }
+  function liveText(v) {
+    if (v === undefined) return '—';
+    if (Array.isArray(v)) return '[' + v.length + ']';
+    if (v === true) return 'vrai';
+    if (v === false) return 'faux';
+    return String(v);
+  }
+  async function pollVars() {
+    if (curTab !== 'vars') return;
+    const r = await api('/api/graph/vars');
+    if (!r.ok || !r.json) return;
+    varsUi.live = r.json;
+    document.querySelectorAll('#vars [data-live]').forEach((el) => {
+      const [kind, id] = el.dataset.live.split(':');
+      el.textContent = liveText(((r.json[kind] || {})[id]));
+    });
+  }
+  function startVarsPoll() {
+    if (varsUi.timer) return;
+    pollVars();
+    varsUi.timer = setInterval(pollVars, 1000);       // <= 1 Hz, only while the tab is open
+  }
+  function stopVarsPoll() { clearInterval(varsUi.timer); varsUi.timer = null; }
+  // Typed input of a variable's initial value (or a list item): checkbox / number / select / text.
+  function valueInput(type, choices, value, onchange) {
+    if (type === 'bool') { const c = h('input', { type: 'checkbox' }); c.checked = value === true; c.addEventListener('change', () => onchange(c.checked)); return c; }
+    if (type === 'number' || type === 'duration') {
+      const i = h('input', { type: 'number', step: 'any', min: type === 'duration' ? 0 : null }); i.value = value == null ? '' : value;
+      i.addEventListener('change', () => onchange(i.value === '' ? 0 : Number(i.value))); return i;
+    }
+    if (type === 'choice') return selectCtl((choices || []).map((c) => ({ v: c, l: c })), value, onchange);
+    const i = h('input', { type: 'text' }); i.value = value == null ? '' : value;
+    i.addEventListener('change', () => onchange(i.value)); return i;
+  }
+  function usesBox(id) {
+    if (!varsUi.uses || varsUi.uses.id !== id) return null;
+    return h('div', { class: 'iss err vuses' }, `Suppression refusée : « ${id} » est utilisée par `,
+      varsUi.uses.nodes.map((nid, k) => [k ? ', ' : '', h('a', { href: '#', class: 'navok', onclick: (e) => { e.preventDefault(); focusNode(nid); } }, nid)]).flat(), '.');
+  }
+  function renderVarNames(box) {
+    const defs = varDefs(), names = docVars().names;
+    const tbl = h('table', { class: 'vtable' }, h('thead', {}, h('tr', {}, h('th', {}, 'Nom'), h('th', {}, 'Type'), h('th', {}, 'Initiale'), h('th', { title: 'Valeur actuelle sur le robot' }, 'Live'))));
+    const tb = h('tbody', {});
+    defs.forEach((d) => {
+      const init = d.system ? (d.id === 'etat' ? 'départ' : '—') : liveText(d.value);
+      const tr = h('tr', { class: 'vrow' + (varsUi.sel === d.id ? ' on' : '') + (d.readonly ? ' ro' : ''), 'data-var': d.id, title: d.description || '',
+        onclick: () => { varsUi.sel = varsUi.sel === d.id ? null : d.id; varsUi.uses = null; renderVars(); } },
+        h('td', {}, d.readonly ? h('span', { class: 'lock', title: 'Variable système : lecture seule' }, ico('lock')) : null, h('code', {}, d.id)),
+        h('td', {}, typeLabel(d.type)), h('td', {}, init), h('td', { class: 'vlive', 'data-live': 'names:' + d.id }, liveText(((varsUi.live || {}).names || {})[d.id])));
+      tb.append(tr);
+      if (d.description) tb.append(h('tr', { class: 'vdesc' }, h('td', { colspan: 4 }, d.description)));
+    });
+    tbl.append(tb);
+    box.append(tbl);
+    const d = varsUi.sel ? defs.find((x) => x.id === varsUi.sel) : null;
+    if (d && d.readonly) {
+      box.append(h('div', { class: 'vedit' }, h('div', { class: 'insttitle' }, ico('lock'), h('code', {}, d.id), h('small', { class: 'hint' }, 'système')),
+        h('p', { class: 'hint' }, (d.description || '') + (d.id === 'etat' ? ' Changer : action « Changer d’état » ; tester : condition « etat = … ».' : ' Lecture seule : tenue par le robot.')),
+        d.choices ? h('p', { class: 'hint' }, 'Valeurs : ' + d.choices.join(', ')) : null));
+    } else if (d) {
+      const v = names[d.id];
+      const ed = h('div', { class: 'vedit' }, h('div', { class: 'insttitle' }, ico('text-caption'), h('code', {}, d.id)));
+      const nm = h('input', { type: 'text', maxlength: 32, value: d.id });
+      ed.append(field('Nom', h('div', { class: 'addrow' }, nm, h('button', { type: 'button', onclick: () => {
+        const nu = nm.value.trim(); if (nu === d.id) return;
+        const why = checkNewName(nu, d.id); if (why) { toast(why, 'err'); return; }
+        const n2 = {}; Object.keys(names).forEach((k) => { n2[k === d.id ? nu : k] = names[k]; }); docVars().names = n2;
+        renameUses(d.id, nu); varsUi.sel = nu; toast(`Renommée en « ${nu} » (et dans les nœuds qui l'utilisent).`, 'ok'); varsChanged(true);
+      } }, 'Renommer'))));
+      ed.append(field('Type', selectCtl((V.var_types || []).map((t) => ({ v: t.id, l: t.label })), v.type, (t) => {
+        v.type = t; if (t === 'choice') v.choices = v.choices && v.choices.length ? v.choices : ['a', 'b']; else delete v.choices;
+        v.value = t === 'string' ? '' : defaultValueFor(t, v.choices); varsChanged(true);
+      }), 'Changer le type remet la valeur initiale à zéro.'));
+      if (v.type === 'choice') {
+        const ci = h('input', { type: 'text', value: (v.choices || []).join(', ') });
+        ci.addEventListener('change', () => {
+          const cs = [...new Set(ci.value.split(',').map((x) => x.trim()).filter(Boolean))];
+          if (!cs.length) { toast('Un choix demande au moins une valeur.', 'err'); return; }
+          v.choices = cs; if (!cs.includes(v.value)) v.value = cs[0]; varsChanged(true);
+        });
+        ed.append(field('Valeurs possibles (séparées par des virgules)', ci));
+      }
+      ed.append(field('Valeur initiale', valueInput(v.type, v.choices, v.value, (x) => { v.value = x; varsChanged(true); }), 'Valeur au chargement du graphe (les valeurs repartent de là à chaque chargement).'));
+      const ta = h('textarea', { rows: 2 }); ta.value = v.description || '';
+      ta.addEventListener('change', () => { if (ta.value.trim()) v.description = ta.value.trim(); else delete v.description; varsChanged(false); });
+      ed.append(field('Description', ta));
+      const ub = usesBox(d.id); if (ub) ed.append(ub);
+      const used = varUses(d.id);
+      ed.append(h('p', { class: 'hint' }, used.length ? `Utilisée par ${used.length} nœud(s) : ${used.join(', ')}.` : "Utilisée par aucun nœud."));
+      ed.append(h('button', { type: 'button', class: 'danger', onclick: () => deleteVarOrList(d.id, false) }, 'Supprimer la variable'));
+      box.append(ed);
+    }
+    // new variable
+    const nn = h('input', { type: 'text', placeholder: 'nom_de_variable', maxlength: 32, style: 'flex:1;width:auto;min-width:0', 'data-new': 'var' });
+    const nt = selectCtl((V.var_types || []).map((t) => ({ v: t.id, l: t.label })), 'number', () => {});
+    nt.setAttribute('data-new', 'vartype');
+    const create = () => {
+      const id = nn.value.trim(), why = checkNewName(id, null);
+      if (why) { toast(why, 'err'); return; }
+      const t = nt.value, v = { type: t };
+      if (t === 'choice') v.choices = ['a', 'b'];
+      v.value = t === 'string' ? '' : defaultValueFor(t, v.choices);
+      docVars().names[id] = v; varsUi.sel = id;
+      toast(`Variable « ${id} » créée.`, 'ok'); varsChanged(true);
+    };
+    nn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
+    box.append(h('div', { class: 'sect' }, 'Nouvelle variable'), h('div', { class: 'addrow rowbtns' }, nn, nt, h('button', { type: 'button', class: 'primary', 'data-new': 'varadd', onclick: create }, 'Ajouter')));
+  }
+  function renderVarLists(box) {
+    const lists = listDefs(), raw = docVars().lists;
+    const wrap = h('div', { class: 'vlists' });
+    const left = h('div', { class: 'vlleft' });
+    lists.forEach((l) => left.append(h('button', { type: 'button', class: 'vlitem navok' + (varsUi.list === l.id ? ' on' : ''), 'data-list': l.id, title: l.description || '',
+      onclick: () => { varsUi.list = l.id; varsUi.uses = null; renderVars(); } },
+      l.readonly ? h('span', { class: 'lock' }, ico('lock')) : null, h('code', {}, l.id), h('small', {}, ' ' + l.items.length))));
+    if (!lists.length) left.append(h('p', { class: 'hint' }, 'Aucune liste.'));
+    const right = h('div', { class: 'vlright' });
+    const l = lists.find((x) => x.id === varsUi.list) || null;
+    if (!l) right.append(h('p', { class: 'hint' }, 'Choisir une liste à gauche.'));
+    else {
+      right.append(h('div', { class: 'insttitle' }, l.readonly ? ico('lock') : ico('text-caption'), h('code', {}, l.id), h('small', { class: 'hint' }, typeLabel(l.type, true))));
+      if (l.description) right.append(h('p', { class: 'hint' }, l.description));
+      if (l.readonly) {
+        right.append(h('div', { class: 'note' }, l.source && l.source.cfg ? `Liée à la configuration du robot (clé « ${l.source.cfg} ») : à modifier dans la configuration. Lecture seule ici.`
+          : `Mots de l’intention « ${(l.source || {}).intent} » : à modifier dans le panneau Intentions. Lecture seule ici.`));
+      } else {
+        const r = raw[l.id];
+        right.append(field('Type des éléments', selectCtl((V.list_types || []).map((t) => ({ v: t.id, l: t.label })), r.type || 'string', (t) => {
+          const conv = (x) => (t === 'number' ? (isNum(x) ? Number(x) : 0) : t === 'bool' ? (x === true || x === 'true' || x === 'vrai') : String(x));
+          r.type = t; r.items = (r.items || []).map(conv); varsChanged(true);
+        })));
+      }
+      const ul = h('ol', { class: 'vitems' });
+      l.items.forEach((it, k) => {
+        const li = h('li', {}, h('span', { class: 'vit' }, liveText(it)));
+        if (!l.readonly) {
+          const items = raw[l.id].items;
+          const mv = (d) => { const j = k + d; if (j < 0 || j >= items.length) return; [items[k], items[j]] = [items[j], items[k]]; varsChanged(true); };
+          li.append(h('span', { class: 'vbtns' },
+            h('button', { type: 'button', title: 'Monter', disabled: k === 0, onclick: () => mv(-1) }, '↑'),
+            h('button', { type: 'button', title: 'Descendre', disabled: k === items.length - 1, onclick: () => mv(1) }, '↓'),
+            h('button', { type: 'button', title: 'Retirer', onclick: () => { items.splice(k, 1); varsChanged(true); } }, '×')));
+        }
+        ul.append(li);
+      });
+      if (!l.items.length) right.append(h('p', { class: 'hint' }, 'Liste vide.'));
+      right.append(ul);
+      right.append(h('p', { class: 'hint' }, 'Valeur live : ', h('span', { 'data-live': 'lists:' + l.id }, liveText(((varsUi.live || {}).lists || {})[l.id])), ' élément(s) sur le robot.'));
+      if (!l.readonly) {
+        const r = raw[l.id];
+        let val = r.type === 'bool' ? false : r.type === 'number' ? 0 : '';
+        const inp = valueInput(r.type || 'string', null, val, (x) => { val = x; });
+        inp.setAttribute('data-new', 'item');
+        const add = () => {
+          if (r.type !== 'bool' && r.type !== 'number') val = inp.value.trim();
+          if (val === '' || val == null) { toast('Élément vide.', 'err'); return; }
+          r.items = (r.items || []).concat([val]); varsChanged(true);
+        };
+        if (inp.tagName === 'INPUT' && inp.type === 'text') inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+        right.append(h('div', { class: 'addrow' }, inp, h('button', { type: 'button', 'data-new': 'itemadd', onclick: add }, 'Ajouter')));
+        const nm = h('input', { type: 'text', maxlength: 32, value: l.id });
+        right.append(field('Nom', h('div', { class: 'addrow' }, nm, h('button', { type: 'button', onclick: () => {
+          const nu = nm.value.trim(); if (nu === l.id) return;
+          const why = checkNewName(nu, l.id); if (why) { toast(why, 'err'); return; }
+          const n2 = {}; Object.keys(raw).forEach((k) => { n2[k === l.id ? nu : k] = raw[k]; }); docVars().lists = n2;
+          renameUses(l.id, nu); varsUi.list = nu; varsChanged(true);
+        } }, 'Renommer'))));
+        const ta = h('textarea', { rows: 2 }); ta.value = r.description || '';
+        ta.addEventListener('change', () => { if (ta.value.trim()) r.description = ta.value.trim(); else delete r.description; varsChanged(false); });
+        right.append(field('Description', ta));
+        const ub = usesBox(l.id); if (ub) right.append(ub);
+        right.append(h('button', { type: 'button', class: 'danger', onclick: () => deleteVarOrList(l.id, true) }, 'Supprimer la liste'));
+      } else { const ub = usesBox(l.id); if (ub) right.append(ub); }
+    }
+    wrap.append(left, right);
+    box.append(wrap);
+    const nn = h('input', { type: 'text', placeholder: 'nom_de_liste', maxlength: 32, style: 'flex:1;width:auto;min-width:0', 'data-new': 'list' });
+    const nt = selectCtl((V.list_types || []).map((t) => ({ v: t.id, l: t.label })), 'string', () => {});
+    nt.setAttribute('data-new', 'listtype');
+    const create = () => {
+      const id = nn.value.trim(), why = checkNewName(id, null);
+      if (why) { toast(why, 'err'); return; }
+      docVars().lists[id] = { type: nt.value, items: [] }; varsUi.list = id;
+      toast(`Liste « ${id} » créée.`, 'ok'); varsChanged(true);
+    };
+    nn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
+    box.append(h('div', { class: 'sect' }, 'Nouvelle liste'), h('div', { class: 'addrow rowbtns' }, nn, nt, h('button', { type: 'button', class: 'primary', 'data-new': 'listadd', onclick: create }, 'Ajouter')));
+  }
+  function renderVars() {
+    const box = $('#vars'); if (!box) return;
+    const keep = box.scrollTop;
+    box.innerHTML = '';
+    box.append(h('p', { class: 'hint' }, 'Variables du graphe (comme les variables locales de Game Creator 2) : les déclencheurs « Une variable change » les écoutent, les actions les changent, les conditions les testent. Enregistrées avec le graphe ; leurs valeurs repartent de la valeur initiale à chaque chargement.'));
+    const nV = varDefs().length, nL = listDefs().length;
+    box.append(h('div', { class: 'vtabs' },
+      h('button', { type: 'button', class: 'navok' + (varsUi.tab === 'names' ? ' on' : ''), 'data-vtab': 'names', onclick: () => { varsUi.tab = 'names'; renderVars(); } }, `Noms (${nV})`),
+      h('button', { type: 'button', class: 'navok' + (varsUi.tab === 'lists' ? ' on' : ''), 'data-vtab': 'lists', onclick: () => { varsUi.tab = 'lists'; renderVars(); } }, `Listes (${nL})`)));
+    if (varsUi.tab === 'lists') renderVarLists(box); else renderVarNames(box);
+    box.scrollTop = keep;
   }
 
   // ---------- toast / modal ----------
@@ -2295,6 +2789,7 @@
     if (leaving === 'tester' && name !== 'tester') clearSimLights();   // simulator lights never linger over the live view
     if (name === 'node') renderInspector();
     if (name === 'intents') renderIntents();
+    if (name === 'vars') { renderVars(); startVarsPoll(); } else stopVarsPoll();
     if (name === 'tester') { renderTester(); if (sim.trace.length) selectTrace(sim.sel < 0 ? sim.trace.length - 1 : sim.sel, false); else simRun(false); }
     if (name === 'versions') loadVersions();
     if (name === 'journal') loadJournal();
@@ -2405,6 +2900,24 @@
       const ex = f.expression ? (typeof f.expression === 'string' ? f.expression : f.expression.name) : 'aucune';
       $('#simStatus').append(h('div', { class: 'simstate' }, ico(stateIcon(f.state)), 'État simulé : ', h('b', {}, stateLabel(f.state)),
         h('span', { class: 'hint' }, `· tours ${f.turns} · expression ${ex} · regard ${f.gaze_mode}`)));
+    }
+    // Vars L2: simulated variables after the selected trace entry (else the final ones); changed ones highlighted
+    // against the entry before it.
+    const cur = sim.trace[sim.sel] ? sim.trace[sim.sel].vars : (f && f.vars);
+    if (cur) {
+      const prev = sim.sel > 0 && sim.trace[sim.sel - 1] ? sim.trace[sim.sel - 1].vars : null;
+      const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+      const grid = h('div', { class: 'simvars', title: 'Variables simulées après ce pas (en couleur : changées par ce pas)' },
+        h('span', { class: 'svlab' }, sim.trace[sim.sel] ? 'Variables après la ligne choisie :' : 'Variables à la fin :'));
+      Object.keys(cur.names || {}).forEach((k) => {
+        const v = cur.names[k], chg = !!prev && !same(v, (prev.names || {})[k]);
+        grid.append(h('span', { class: 'sv' + (chg ? ' chg' : ''), 'data-svar': k }, h('code', {}, k), ' = ', k === 'etat' ? stateLabel(v) : liveText(v)));
+      });
+      Object.keys(cur.lists || {}).forEach((k) => {
+        const v = cur.lists[k], chg = !!prev && !same(v, (prev.lists || {})[k]);
+        grid.append(h('span', { class: 'sv list' + (chg ? ' chg' : ''), 'data-svar': k, title: (v || []).join(' · ') }, h('code', {}, k), ' ', liveText(v)));
+      });
+      $('#simStatus').append(grid);
     }
     for (let st = -1; st < sim.steps.length; st++) {
       const rows = sim.trace.map((e, i) => ({ e, i })).filter((x) => x.e.step === st);
@@ -2522,6 +3035,30 @@
     blinkChain(lt.chain);
   }
 
+  // ---------- no wire into a trigger (Vars L2) ----------
+  // A trigger has no input port, so Drawflow silently drops a wire released on it. Tell the user why: when a wire drag
+  // (editor.connection) ends over a trigger card, toast the rule. Hit-test by card rectangles (the dragged path may be
+  // the topmost element under the pointer). Nothing is linked either way.
+  function installTriggerDropGuard() {
+    const onUp = (e) => {
+      if (!editor || !editor.connection) return;
+      const pt = e.changedTouches ? e.changedTouches[0] : e;
+      if (!pt) return;
+      const data = dfData();
+      for (const dfid in data) {
+        if (data[dfid].data.model.kind !== 'trigger') continue;
+        const el = nodeEl(dfid); if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (pt.clientX >= r.left && pt.clientX <= r.right && pt.clientY >= r.top && pt.clientY <= r.bottom) {
+          noInputRefusals++; toast(NO_TRIGGER_INPUT, 'err'); return;
+        }
+      }
+    };
+    editor.container.addEventListener('mouseup', onUp, true);
+    editor.container.addEventListener('touchend', onUp, true);
+  }
+  let noInputRefusals = 0;   // test hook: wires refused because they ended on a trigger
+
   // ---------- boot ----------
   async function boot() {
     // Test hook: `#hold=<port>` keeps the page "loading" until a slow local image answers, so a headless
@@ -2554,9 +3091,6 @@
         editor.removeSingleConnection(c.output_id, c.input_id, c.output_class, c.input_class);
         toast(why, 'err'); return;
       }
-      if (a && b && a.kind === 'state' && b.kind === 'trigger' && (b.params || {}).type === 'enter' && b.params.state !== a.params.state) {
-        b.params.state = a.params.state; refreshNode(c.input_id);   // an "enter" trigger belongs to the state it is wired from
-      }
       commitSoon();
     });
     editor.on('connectionRemoved', (c) => {
@@ -2571,8 +3105,11 @@
     installRetHover();
     editor.on('zoom', zoomVars); editor.on('translate', scheduleMinimap);
     setRetVisible(retVisible());
-    $('#btnRet').onclick = () => setRetVisible(!document.body.classList.contains('ret-visible'));
+    // Vars L2: no returning wires any more (no hubs); the toggle stays wired only if a page still has the button
+    if ($('#btnRet')) $('#btnRet').onclick = () => setRetVisible(!document.body.classList.contains('ret-visible'));
+    $('#btnVars').onclick = () => activateTab('vars');
     installButtonGuards();
+    installTriggerDropGuard();
     installSafeNav();      // L8: registered before the keydown below so its capture handlers run first
 
     // Keys typed in inspector fields must never reach Drawflow (its Delete handler would remove the selected node).
@@ -2653,7 +3190,7 @@
     dfMap: () => Object.fromEntries(nidToDf), fanInfo: () => fanInfo,   // test hooks (headless checks)
     notes, addNote, selectNote, deleteNote, editNote, selNote: () => selNote, paintWires, openContextFor, closeCtx, addAt, linkNodes, copyNode, pasteNode,
     linkMeta: () => Object.fromEntries(linkMeta), clipboard: () => clipboard, ctxOpen: () => !!ctx,
-    meta: () => meta, journal: () => journal, loadJournal, loadVersions, selectTrace, toast,
+    meta: () => meta, journal: () => journal, renderVars, varsUi, varDefs, listDefs, varUses, noInputRefusals: () => noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
     nav: () => ({ locked: navLocked, hand: navHand, space: navSpace, zoom: editor.zoom, x: editor.canvas_x, y: editor.canvas_y }),
     setHand, setLock, toggleHelp, save };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -2690,8 +3227,8 @@
       dbg('select done; errors=' + errLog.length);
     } else if (mode === 'error') {
       const doc = serialize();
-      const g = doc.nodes.find((n) => n.kind === 'state');
-      g.params.state = 'etat_inexistant';
+      const g = doc.nodes.find((n) => n.kind === 'action' && n.params.action === 'set_var' && (n.params.args || {}).name === 'etat');
+      g.params.args.value = 'etat_inexistant';
       const r = await postDoc(doc);       // 400 expected: nothing written
       focusNode(g.id);
       dbg('POST status=' + r.status + ' errors=' + JSON.stringify(r.json));

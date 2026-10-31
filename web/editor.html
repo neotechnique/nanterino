@@ -24,7 +24,7 @@
   <button id="btnHand" class="navbtn" title="Outil main : glisser déplace la vue, rien n'est modifiable (H)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/hand-stop.svg')"></span></button>
   <button id="btnLock" class="navbtn" title="Verrouiller : lecture seule (L)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/lock-open.svg')"></span></button>
   <button id="btnHelp" class="navbtn" title="Commandes de navigation (?)"><span class="ico" style="--ic:url('/web/vendor/tabler/question-mark.svg')"></span></button>
-  <button id="btnRet" title="Fils qui reviennent vers un état : discrets (fins, presque transparents) ou visibles">Fils de retour : discrets</button>
+  <button id="btnVars" title="Variables et listes du graphe (comme les Local / Global Variables de Game Creator 2)"><span class="ico" style="--ic:url('/web/vendor/tabler/text-caption.svg')"></span> Variables</button>
   <button id="btnValidate">✔ Valider</button>
   <button id="btnSave" class="primary">Enregistrer et appliquer</button>
   <button id="btnYaml">Voir le YAML</button>
@@ -48,12 +48,14 @@
     <nav class="tabs" id="tabs">
       <button data-tab="node" class="on">Nœud</button>
       <button data-tab="intents">Intentions</button>
+      <button data-tab="vars">Variables</button>
       <button data-tab="tester">Tester</button>
       <button data-tab="versions">Versions</button>
       <button data-tab="journal">Journal</button>
     </nav>
     <div id="inspector" class="panel" data-panel="node"></div>
     <div id="intents" class="panel" data-panel="intents" hidden></div>
+    <div id="vars" class="panel" data-panel="vars" hidden></div>
     <div id="tester" class="panel" data-panel="tester" hidden></div>
     <div id="versions" class="panel" data-panel="versions" hidden></div>
     <div id="journal" class="panel" data-panel="journal" hidden></div>
