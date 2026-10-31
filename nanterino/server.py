@@ -197,11 +197,12 @@ async def graph_visual_post(request: Request):
     except ValueError:
         return JSONResponse({"ok": False, "errors": [{"node": None, "message": "JSON invalide."}]}, status_code=400)
     gp, lp = _graph_paths()
-    ok, errors = await run_in_threadpool(graph_visual.save, doc, brain.cfg, gp, lp)
+    report: dict = {}
+    ok, errors = await run_in_threadpool(graph_visual.save, doc, brain.cfg, gp, lp, report)
     if not ok:
-        return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+        return JSONResponse({"ok": False, "errors": errors, "warnings": report.get("warnings", [])}, status_code=400)
     applied = await run_in_threadpool(brain.request_graph_reload)
-    return {"ok": True, "applied": applied, "message": (
+    return {"ok": True, "applied": applied, "warnings": report.get("warnings", []), "fans": report.get("fans", {}), "message": (
         "Graphe enregistré et appliqué." if applied else "Graphe enregistré : il sera appliqué à la prochaine veille.")}
 
 
@@ -225,7 +226,8 @@ async def graph_simulate(request: Request):
         body = None
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "errors": [{"node": None, "message": "JSON invalide."}]}, status_code=400)
-    raw, _layout, errors = graph_visual.from_visual(body.get("doc"), brain.cfg)
+    report: dict = {}
+    raw, _layout, errors = graph_visual.from_visual(body.get("doc"), brain.cfg, report)
     if errors:
         return JSONResponse({"ok": False, "errors": errors}, status_code=400)
     ov = body.get("cfg") or {}
@@ -238,7 +240,21 @@ async def graph_simulate(request: Request):
         return JSONResponse({"ok": False, "errors": e.errors}, status_code=400)
     except graph_mod.GraphError as e:
         return JSONResponse({"ok": False, "errors": [{"node": None, "message": str(e)}]}, status_code=400)
-    return {"ok": True, **result}
+    return {"ok": True, **result, "warnings": report.get("warnings", [])}
+
+
+@app.post("/api/graph/check")
+async def graph_check(request: Request):
+    """Dry-run compile of an editor document (nothing written, nothing applied): errors, warnings (e.g. several
+    branches of one trigger that change the state) and, per trigger with several outgoing branches, the
+    execution order the engine will use. The editor calls it while the user edits."""
+    try:
+        doc = await request.json()
+    except ValueError:
+        return JSONResponse({"ok": False, "errors": [{"node": None, "message": "JSON invalide."}]}, status_code=400)
+    report: dict = {}
+    _raw, _layout, errors = await run_in_threadpool(graph_visual.from_visual, doc, brain.cfg, report)
+    return {"ok": not errors, "errors": errors, "warnings": report.get("warnings", []), "fans": report.get("fans", {})}
 
 
 @app.get("/api/graph/versions")

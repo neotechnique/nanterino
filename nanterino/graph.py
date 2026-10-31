@@ -35,9 +35,14 @@ Wave 2 (2026-10-31)
       `brain.defer(delay, fn)`; every fired chain is reported to `brain.note_fire` (journal, simulator).
 
 Invariants
-    - dispatch(): global transitions first, then the current state's, first applicable one wins
-      (event match + only_in/not_in + all guards); its `do` actions run, then the move, then `then`.
-    - tick(): evaluates `after:` transitions of the CURRENT state only (driven by the heartbeat).
+    - dispatch() (GC2-like branches, 2026-10-31): every applicable transition (event match + only_in/not_in + all
+      guards, judged against the state at event arrival; global ones first, then the current state's, file order)
+      that has NO `to` runs its actions; then the FIRST applicable one with a `to` runs (do -> move -> then). A
+      second applicable moving transition is a conflict: ignored, logged once, journaled with `conflict: true`.
+      Transitions of one editor trigger share a `fan:` id; their common leading actions run once per event.
+      The packaged graph therefore makes its "otherwise" transitions explicit with `{not: guard}`.
+    - tick(): same rule for the `after:` transitions of the CURRENT state only (driven by the heartbeat); a
+      non-moving `after:` chain fires once per time base instead of on every heartbeat.
     - An invalid override file never stops the robot: `load_active` logs the error (errors.log) and
       falls back to the default graph shipped with the code.
 
@@ -208,7 +213,7 @@ def all_icons() -> list:
 
 _TOP_KEYS = {"version", "description", "states", "global", "intents"}
 _STATE_KEYS = {"description", "on_enter", "transitions"}
-_TR_KEYS = {"on", "after", "since", "when", "only_in", "not_in", "do", "to", "reason", "then", "description", "enabled"}
+_TR_KEYS = {"on", "after", "since", "when", "only_in", "not_in", "do", "to", "reason", "then", "description", "enabled", "fan"}
 _INTENT_KEYS = {"description", "words", "words_from", "regex", "only_in", "icon"}
 _INTENT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -259,6 +264,7 @@ class Transition:
     then: tuple
     description: str
     enabled: bool = True   # False = kept in the file / editor but ignored by the engine
+    fan: str | None = None  # branches of ONE editor trigger share a fan id: shared leading actions run once
 
 
 @dataclass(frozen=True)
@@ -295,7 +301,7 @@ class Graph:
             d = {"description": t.description}
             if not t.enabled:
                 d["enabled"] = False
-            for k in ("on", "after", "since", "to", "reason"):
+            for k in ("on", "after", "since", "to", "reason", "fan"):
                 if getattr(t, k) is not None:
                     d[k] = getattr(t, k)
             for k in ("when", "only_in", "not_in"):
@@ -447,9 +453,13 @@ class _Parser:
         if not isinstance(enabled, bool):
             self.err(where, "`enabled:` must be true or false")
             enabled = True
+        fan = t.get("fan")
+        if fan is not None and not (isinstance(fan, str) and fan.strip()):
+            self.err(where, "`fan:` must be a non-empty text (written by the visual editor)")
+            fan = None
         return Transition(on, after, since, when, lists["only_in"], lists["not_in"],
                           self.calls(where + " do", t.get("do")), to, reason,
-                          self.calls(where + " then", t.get("then")), desc, enabled)
+                          self.calls(where + " then", t.get("then")), desc, enabled, fan)
 
     def build(self) -> Graph:
         d = self.data
@@ -633,6 +643,8 @@ class GraphEngine:
         # Structural chain key of every transition (same keys as graph.layout.json / the visual editor):
         # `<state>/t<n>` for the n-th transition of a state, `global/t<n>`. Looked up by identity.
         self._keys = {}
+        self._conflicts = set()      # (loser chain key, winner chain key) already logged
+        self._after_once = set()     # (id(non-moving `after` chain), time base) already fired
         for sname, st in graph.states.items():
             for i, tr in enumerate(st.transitions):
                 self._keys[id(tr)] = "%s/t%d" % (sname, i)
@@ -676,10 +688,59 @@ class GraphEngine:
             return False
         return all(bool(self.guards[g.name](kw)) != g.negate for g in tr.when)
 
-    def _fire(self, tr: Transition, kw: dict, event: str | None):
+    def _fire(self, tr: Transition, kw: dict, event: str | None, done: dict | None = None):
+        """Run one chain: its `do` actions, the move, its `then` actions.
+
+        `done` (fan id -> list of already executed tagged call sequences) lets branches of ONE editor trigger
+        share their leading actions: a call the same fan already executed as a common prefix is skipped, so
+        a node shared by two outgoing paths acts once per event, not once per path.
+        """
         note = getattr(self.brain, "note_fire", None)   # live journal (Brain); absent on bare test doubles
         entry = note(self._keys.get(id(tr)), tr, event) if note else None
-        self._exec([("call", c) for c in tr.do] + [("move", (tr, entry))] + [("call", c) for c in tr.then], kw)
+        tagged = [("do", c) for c in tr.do] + [("then", c) for c in tr.then]
+        skip = 0
+        if done is not None and tr.fan:
+            for prev in done.get(tr.fan, ()):
+                k = 0
+                while k < min(len(prev), len(tagged)) and prev[k] == tagged[k]:
+                    k += 1
+                skip = max(skip, k)
+            done.setdefault(tr.fan, []).append(tuple(tagged))
+        do = [c for i, c in enumerate(tr.do) if i >= skip]
+        then = [c for i, c in enumerate(tr.then) if len(tr.do) + i >= skip]
+        self._exec([("call", c) for c in do] + [("move", (tr, entry))] + [("call", c) for c in then], kw)
+
+    def _conflict(self, tr: Transition, winner: Transition, kw: dict, event: str | None):
+        """A second matching chain that changes state: ignored, journaled (`conflict: true`) and logged once."""
+        key = (self._keys.get(id(tr)), self._keys.get(id(winner)))
+        if key not in self._conflicts:
+            self._conflicts.add(key)
+            log.warning("graph conflict: %s ignored for event %r, %s already changes the state", key[0], event, key[1])
+        note = getattr(self.brain, "note_fire", None)
+        if note:
+            entry = note(key[0], tr, event)
+            entry.update(conflict=True, actions=[], moved=False, winner=key[1])
+
+    def _run_matches(self, cands: list, kw: dict, event: str | None, state: str) -> bool:
+        """Run every matching chain that stays in the state, then the FIRST one that changes it.
+
+        All candidates were matched against the state at event arrival. Non-moving chains (no `to`: actions only
+        or End) run first in evaluation order (global transitions, then the state's, file order); then the single
+        moving chain (do -> go -> then); further moving chains are conflicts and ignored.
+        """
+        done: dict = {}
+        movers = [t for t in cands if t.to]
+        for tr in cands:
+            if not tr.to:
+                self._fire(tr, kw, event, done)
+        if movers:
+            if self.brain.state != state:
+                log.warning("graph: %s skipped, a side chain already moved %s -> %s", self._keys.get(id(movers[0])), state, self.brain.state)
+            else:
+                self._fire(movers[0], kw, event, done)
+            for extra in movers[1:]:
+                self._conflict(extra, movers[0], kw, event)
+        return bool(cands)
 
     # -- public API
     def enter(self, state: str):
@@ -705,23 +766,28 @@ class GraphEngine:
         state = self.brain.state
         if event == "utterance":
             event = self.classify(kw.get("text", ""), state)
-        for tr in self.graph.globals + self.graph.states[state].transitions:
-            if tr.enabled and tr.on == event and self._applies(tr, state, kw):
-                self._fire(tr, kw, event)
-                return True
-        return False
+        cands = [tr for tr in self.graph.globals + self.graph.states[state].transitions
+                 if tr.enabled and tr.on == event and self._applies(tr, state, kw)]
+        return self._run_matches(cands, kw, event, state) if cands else False
 
     def _delay(self, after) -> float:
         return float(after if _num(after) else self.cfg[after])
 
     def tick(self, now: float) -> bool:
-        """Heartbeat step: fire the first elapsed `after:` transition of the current state."""
+        """Heartbeat step: fire every elapsed `after:` chain of the current state that stays in it (once each
+        per time base, otherwise a 10 Hz heartbeat would repeat it), then the first elapsed one that moves."""
         state = self.brain.state
+        cands = []
         for tr in self.graph.states[state].transitions:
             if tr.after is None or not tr.enabled or not self._applies(tr, state, {}):
                 continue
             base = self.brain.last_speech if tr.since == "last_speech" else self.brain.since
             if now - base > self._delay(tr.after):  # strict, like the old hard-coded timers
-                self._fire(tr, {}, "after")
-                return True
-        return False
+                if not tr.to:
+                    if (id(tr), base) in self._after_once:
+                        continue
+                    if len(self._after_once) > 256:
+                        self._after_once.clear()
+                    self._after_once.add((id(tr), base))
+                cands.append(tr)
+        return self._run_matches(cands, {}, "after", state) if cands else False

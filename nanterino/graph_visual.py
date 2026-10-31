@@ -33,6 +33,11 @@ Invariants
     - A condition's `false` port compiles to the SAME upstream chain with that condition negated, placed
       right after the `true` branch; this is how "otherwise" branches keep the first-match semantics.
     - Nothing is written when any error is found.
+    - Several outgoing links (fan-out) / incoming links (fan-in) are legal: each trigger -> ... -> goto|end path
+      is one transition; a trigger with several paths tags them with `fan: <id>` (kept in the trigger's
+      `params.fan` by to_visual) so the engine runs shared leading actions once. `from_visual(..., report)` fills
+      `report["warnings"]` (two state-changing branches that can match together) and `report["fans"]` (execution
+      order per trigger); see Notes/graph-visual-format.md, "Branches multiples".
 
 How to test
     python -m tests.test_graph_visual      (round trip, 68-scenario parity on the compiled graph, errors)
@@ -163,6 +168,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         else:
             trig = {"type": "event", "event": t.get("on")}
         trig["enabled"] = t.get("enabled", True) is not False   # False: kept in the file, ignored by the engine
+        if t.get("fan"):
+            trig["fan"] = t["fan"]   # keeps the branches of one trigger grouped across save/reload
         order.append(chain(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
                            _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason")))
 
@@ -270,11 +277,16 @@ def clean_frames(frames):
 
 
 # ---------------------------------------------------------------- visual document -> raw dict
-def from_visual(doc: dict, cfg: dict):
+def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     """Compile an editor document. Returns (raw_dict | None, layout dict, errors).
 
     errors = [{"node": id | None, "message": str}] (French); when non-empty nothing may be written.
+    `report` (optional dict, filled in place): "warnings" = non-blocking remarks [{"node", "nodes", "kind",
+    "message"}] and "fans" = {trigger id: [{"target", "nodes", "moves", "rank", "ignored"}]} for triggers with
+    several outgoing paths (rank = execution order, see _fan_report).
     """
+    if report is not None:
+        report["warnings"], report["fans"] = [], {}
     errors, seen = [], set()
 
     def err(node, msg, **extra):
@@ -322,6 +334,7 @@ def from_visual(doc: dict, cfg: dict):
     states_raw = {s["id"]: {"description": str(s.get("description") or "")} for s in states_doc if isinstance(s, dict)}
     on_enter, transitions, globals_, where_map, node_pos = {}, {}, [], {}, {}
     recorded = set()
+    fan_groups = {}
 
     def paths(tid):
         """All trigger -> terminal paths as [(node id, negated by false port)], true branch first."""
@@ -375,7 +388,14 @@ def from_visual(doc: dict, cfg: dict):
         if len(errors) > n_err:
             paths(tid)  # still walk it so its nodes count as reached
             continue
-        for path in paths(tid):
+        plist = paths(tid)
+        fan_id = (p.get("fan") if isinstance(p.get("fan"), str) and p.get("fan").strip() else None) or ("fan-" + tid if len(plist) > 1 else None)
+        # branches of triggers sharing a fan id (one editor trigger, or its copies after a reload) are analysed together
+        grp = fan_groups.setdefault(fan_id or tid, {"tids": [], "emitted": []})
+        if tid not in grp["tids"]:
+            grp["tids"].append(tid)
+        emitted = grp["emitted"] if p.get("enabled") is not False else []
+        for path in plist:
             ids = [x[0] for x in path]
             mid, term = path[1:-1], nodes[path[-1][0]]
             pos_sets, neg_sets, when, do, then = [], [], [], [], []
@@ -450,6 +470,8 @@ def from_visual(doc: dict, cfg: dict):
                     t["on"] = p["event"]
                 if p.get("enabled") is False:
                     t["enabled"] = False
+                if fan_id and kind != "enter":
+                    t["fan"] = fan_id   # branches of one trigger: the engine runs their shared leading actions once
                 single = len(pos_sets) == 1 and len(pos_sets[0]) == 1 and not neg_sets and not force_global
                 if single:
                     container, label = transitions.setdefault(pos_sets[0][0], []), "state %s transition" % pos_sets[0][0]
@@ -480,11 +502,24 @@ def from_visual(doc: dict, cfg: dict):
                 t["description"] = desc
                 container.append(t)
                 where_map["%s #%d" % (label, len(container))] = tid
+                if report is not None:
+                    allowed = set(state_ids)
+                    if pos_sets:
+                        allowed = set.intersection(*[set(x) for x in pos_sets])
+                    for x in neg_sets:
+                        allowed -= set(x)
+                    emitted.append({"target": term["id"], "nodes": ids, "moves": bool(to), "global": container is globals_,
+                                    "states": allowed, "guards": {(g["not"], True) if isinstance(g, dict) else (g, False) for g in when}})
             # layout: record a path only when none of its nodes was recorded by an earlier branch
             if not recorded & set(ids):
                 recorded |= set(ids)
                 for j, nid in enumerate(ids):
                     node_pos["%s/%d" % (key, j)] = {"x": nodes[nid].get("x", 0), "y": nodes[nid].get("y", 0)}
+
+    if report is not None:
+        for grp in fan_groups.values():
+            if len(grp["emitted"]) > 1:
+                _fan_report(grp["tids"], grp["emitted"], report)
 
     for nid, n in nodes.items():
         if nid not in reached:
@@ -535,6 +570,34 @@ def from_visual(doc: dict, cfg: dict):
     if frames:   # purely cosmetic: lives in the layout file only, never compiled into graph.yaml
         layout["frames"] = frames
     return (None if errors else raw), layout, errors
+
+
+def _fan_report(tids: list, emitted: list, report: dict):
+    """Execution order + conflict warning of a trigger with several outgoing branches.
+
+    Engine rule (graph.GraphEngine._run_matches): every matching branch that does not change the state runs,
+    in evaluation order (global transitions first, then the current state's, in file order); then the FIRST
+    matching branch that changes the state (goto). rank = that order, movers after the non-movers. Two moving
+    branches are only a conflict when they can match together: their state sets overlap and no guard is
+    required true by one and false by the other.
+    """
+    ordered = sorted(enumerate(emitted), key=lambda ie: (0 if ie[1]["global"] else 1, ie[0]))
+    seq = [e for _i, e in ordered if not e["moves"]] + [e for _i, e in ordered if e["moves"]]
+    movers = [e for e in seq if e["moves"]]
+    overlap = [m for k, m in enumerate(movers) if k > 0 and any(
+        (m["states"] & w["states"]) and not any((g, not n) in w["guards"] for g, n in m["guards"]) for w in movers[:k])]
+    for rank, e in enumerate(seq, 1):
+        e["rank"], e["ignored"] = rank, any(e is m for m in overlap)
+    branches = [{"target": e["target"], "nodes": e["nodes"], "moves": e["moves"], "rank": e["rank"],
+                 "ignored": e["ignored"]} for e in emitted]
+    for tid in tids:
+        report["fans"][tid] = branches
+    if overlap:
+        ids = [m["target"] for m in movers]
+        report["warnings"].append({
+            "node": tids[0], "nodes": ids, "triggers": list(tids), "kind": "fan_conflict",
+            "message": "Plusieurs branches de ce déclencheur changent d'état : seule la première (ordre : %s) s'appliquera."
+                       % " puis ".join(ids)})
 
 
 # ---------------------------------------------------------------- YAML text
@@ -592,7 +655,7 @@ def dump_yaml(raw: dict) -> str:
 
 
 def _tr(t: dict) -> dict:
-    order = ("on", "after", "since", "enabled", "when", "only_in", "not_in", "do", "to", "reason", "then", "description")
+    order = ("on", "after", "since", "enabled", "fan", "when", "only_in", "not_in", "do", "to", "reason", "then", "description")
     return {k: (_flow(t[k]) if isinstance(t[k], list) else t[k]) for k in order if k in t}
 
 
@@ -727,9 +790,9 @@ def _atomic_write(path: str, text: str):
     os.replace(tmp, path)
 
 
-def save(doc: dict, cfg: dict, graph_path: str, layout_path: str):
+def save(doc: dict, cfg: dict, graph_path: str, layout_path: str, report: dict | None = None):
     """Compile + validate + back up + write graph and layout. Returns (True, None) or (False, errors)."""
-    raw, layout, errors = from_visual(doc, cfg)
+    raw, layout, errors = from_visual(doc, cfg, report)
     if errors:
         log.info("graph save refused: %d error(s)", len(errors))
         return False, errors

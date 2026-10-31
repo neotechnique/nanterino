@@ -291,7 +291,9 @@ def test_false_port_and_order():
     ], [L("t", "s"), L("s", "e", "true"), L("s", "a", "false"), L("a", "go")], ["t"])
     raw4, _ = compile_ok(doc4)
     assert raw4["states"]["veille"]["transitions"][0]["on"] == "stop"
-    assert raw4["global"] == [{"on": "stop", "not_in": ["veille"], "do": ["cancel_all"], "to": "veille", "description": ""}], raw4["global"]
+    # (a trigger with two outgoing paths now tags every branch with its fan id, see Notes "Branches multiples")
+    assert raw4["global"] == [{"on": "stop", "fan": "fan-t", "not_in": ["veille"], "do": ["cancel_all"], "to": "veille", "description": ""}], raw4["global"]
+    assert raw4["states"]["veille"]["transitions"][0]["fan"] == "fan-t"
 
 
 def test_save_backups_and_reset():

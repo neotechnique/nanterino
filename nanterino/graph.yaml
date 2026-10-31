@@ -76,6 +76,7 @@ states:
         then: [mic_off_no_barge_in, start_answer]
         description: "Une question : répondre (micro coupé sauf si l'interruption est activée)."
       - on: intent.question
+        when: {not: turns_left}
         do: [reset_repairs, count_turn]
         to: cloture
         reason: max_turns
@@ -87,7 +88,7 @@ states:
         reason: pas_compris
         description: "Bruit ou parole inexploitable : demander de répéter (2 fois au plus de suite)."
       - on: not_understood
-        when: not_speaking
+        when: [not_speaking, {not: repairs_left}]
         do: [count_repair]
         description: "Déjà deux demandes de répétition : ne plus insister, les délais prennent le relais."
       - on: visage_perdu
@@ -135,6 +136,7 @@ states:
         then: [mic_off_no_barge_in, start_answer]
         description: "Une question : répondre."
       - on: intent.question
+        when: {not: turns_left}
         do: [reset_repairs, count_turn]
         to: cloture
         reason: max_turns
@@ -146,7 +148,7 @@ states:
         reason: pas_compris
         description: "Parole inexploitable : demander de répéter (2 fois au plus de suite)."
       - on: not_understood
-        when: not_speaking
+        when: [not_speaking, {not: repairs_left}]
         do: [count_repair]
         description: "Déjà deux demandes de répétition : ne plus insister."
       - on: visage_perdu

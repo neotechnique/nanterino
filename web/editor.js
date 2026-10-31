@@ -93,6 +93,10 @@
   let simState = null;             // state the simulator ended in (band highlight)
   const freshIds = new Set();      // ids of nodes dropped from the palette and not yet validated / saved
   let issues = new Map();          // nid -> [{level,message}] (client analysis + server errors)
+  // Branch analysis from POST /api/graph/check: warnings (several branches of a trigger that change the state)
+  // and, per trigger with several outgoing branches, the engine's execution order (rank).
+  let fanInfo = { warnings: [], fans: {} };
+  let checkTimer = null, lastCheckKey = '';
   let globalIssues = [];           // issues without a node
   let liveState = null;
   let lastWs = 0, lastAge = null;
@@ -465,11 +469,59 @@
       else if (e.node && nidToDf.has(e.node)) add(e.node, 'err', e.message);
       else globalIssues.push({ level: 'err', message: e.message });
     });
+    (fanInfo.warnings || []).forEach((w) => {
+      (new Set([w.node].concat(w.nodes || []))).forEach((id) => {
+        if (nidToDf.has(id)) add(id, 'warn', id === w.node ? w.message : "Cette destination est en concurrence avec une autre branche du même déclencheur : une seule changera l'état.");
+      });
+    });
     issues = out;
     for (const dfid in data) markNode(dfid);
+    paintOrderBadges();
+    scheduleCheck();
     paintChains();
     drawBands();
     renderMsgs();
+  }
+  // ---------- branch order (GC2-like: every branch without state change runs, one branch changes the state) ----------
+  function scheduleCheck() {
+    clearTimeout(checkTimer);
+    checkTimer = setTimeout(runCheck, 500);
+  }
+  async function runCheck() {
+    if (!editor || loading) return;
+    let doc;
+    try { doc = serialize(); } catch (e) { return; }
+    const key = JSON.stringify(doc);
+    if (key === lastCheckKey) return;              // nothing changed since the last dry run: no loop through analyze()
+    lastCheckKey = key;
+    const r = await postJson('/api/graph/check', doc);
+    if (!r.json || r.status >= 500) return;
+    fanInfo = { warnings: r.json.warnings || [], fans: r.json.fans || {} };
+    analyze();
+  }
+  // A small numbered badge on each target of a node with several outgoing links = execution order.
+  function paintOrderBadges() {
+    document.querySelectorAll('.ordbadge').forEach((e) => e.remove());
+    const fans = fanInfo.fans || {};
+    for (const tid in fans) {
+      const groups = new Map();                    // path prefix -> Map(next node id -> {rank, ignored})
+      fans[tid].forEach((b) => {
+        for (let i = 0; i < b.nodes.length - 1; i++) {
+          const key = b.nodes.slice(0, i + 1).join('>');
+          if (!groups.has(key)) groups.set(key, new Map());
+          const g = groups.get(key), nx = b.nodes[i + 1], cur = g.get(nx);
+          g.set(nx, { rank: cur ? Math.min(cur.rank, b.rank) : b.rank, ignored: cur ? cur.ignored && b.ignored : b.ignored, moves: (cur && cur.moves) || b.moves });
+        }
+      });
+      groups.forEach((g) => {
+        if (g.size < 2) return;
+        g.forEach((v, nid) => {
+          const df = nidToDf.get(nid), el = df != null ? nodeEl(df) : null;
+          if (!el) return;
+          el.append(h('span', { class: 'ordbadge' + (v.ignored ? ' ign' : ''), title: v.ignored ? "Ordre " + v.rank + " : ignorée, une autre branche change déjà l'état." : 'Ordre d\'exécution ' + v.rank + (v.moves ? ' (change l\'état)' : '') }, String(v.rank)));
+        });
+      });
+    }
   }
   function markNode(dfid) {
     const el = nodeEl(dfid), m = model(dfid);
@@ -928,6 +980,11 @@
         else if (wasOff) mm.params.enabled = false;
       }, true))));
       if (p.type === 'event') box.append(field('Événement', iconSelect(evs().map((e) => ({ v: e.id, l: e.label, icon: e.icon })), p.event, (v) => edit((mm) => { mm.params.event = v; }, true)), helpOf(evs(), p.event)));
+      if (p.type !== 'enter') {
+        box.append(h('p', { class: 'hint fannote' }, "Plusieurs branches : toutes celles qui ne changent pas d'état s'exécutent (dans l'ordre des numéros), puis une seule branche change d'état : la première qui correspond."));
+        const fb = (fanInfo.fans || {})[m.id];
+        if (fb && fb.length > 1) box.append(h('p', { class: 'hint' }, 'Ordre actuel : ' + fb.slice().sort((a, b) => a.rank - b.rank).map((b) => b.rank + ' → ' + b.target + (b.moves ? ' (change l\'état)' : '') + (b.ignored ? ' [ignorée]' : '')).join(' ; ')));
+      }
       if (p.type === 'enter') box.append(h('p', { class: 'hint' }, "Un déclencheur « entrée dans l'état » ne peut pas être désactivé."));
       else {
         box.append(checkCtl('Chaîne activée', p.enabled !== false, (c) => edit((mm) => { mm.params.enabled = c; }, true), 'power'));
@@ -1522,6 +1579,7 @@
     activateTab, sim, addStep, simRun, computeChains, liveChains: () => liveChains, focusBand, focusNode, fit, intentCard, renderIntents,
     panDf: (dfid) => { const d = dfNode(dfid), st = $('#drawflow'), z = 0.9; setView(z, st.clientWidth / 2 - (d.pos_x + 400) * z, st.clientHeight / 2 - (d.pos_y + 40) * z); },
     frames, addFrame, selectFrame, focusFrame, editFrame, deleteFrame, editFrameTitle, selFrame: () => selFrame,
+    dfMap: () => Object.fromEntries(nidToDf), fanInfo: () => fanInfo,   // test hooks (headless checks)
     meta: () => meta, journal: () => journal, loadJournal, loadVersions, selectTrace, toast };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

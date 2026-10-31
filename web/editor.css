@@ -232,3 +232,8 @@ body.nobands #bands{display:none}
 .sw.on{border-color:#fff}
 .swc{width:34px;height:28px;padding:0;border-radius:6px}
 @media (pointer:coarse){.sw,.swc{width:44px;height:44px}.ftitle{height:40px}}
+
+/* execution-order badge on the targets of a node with several outgoing links */
+.drawflow .drawflow-node .ordbadge{position:absolute;top:-9px;left:-9px;min-width:18px;height:18px;padding:0 4px;box-sizing:border-box;border-radius:9px;background:var(--warn);color:#111;font:700 11px/18px system-ui,sans-serif;text-align:center;pointer-events:none;z-index:5}
+.drawflow .drawflow-node .ordbadge.ign{background:#888;text-decoration:line-through}
+.hint.fannote{font-size:12px}

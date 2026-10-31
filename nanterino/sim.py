@@ -269,7 +269,7 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
         end = marks[n + 1][1] if n + 1 < len(marks) else len(rec.events)
         trace.append({"step": step, "t": round(e["mono"] - t0, 2), "event": e["event"], "from": e["from"],
                       "to": e["to"], "moved": e["moved"], "reason": e["reason"], "chain": e["chain"],
-                      "actions": list(e["actions"]),
+                      "actions": list(e["actions"]), **({"conflict": True} if e.get("conflict") else {}),
                       "effects": [x for x in map(_effect, rec.events[at:end]) if x]})
     snap = brain.snapshot()
     return {"trace": trace, "final": {"state": brain.state, "turns": brain.turns,

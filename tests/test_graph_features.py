@@ -468,12 +468,134 @@ def test_journal_keeps_50_and_feeds_last_transition():
         h.close()
 
 
+# ---------------------------------------------------------------- branches multiples (GC2-like fan-out / fan-in)
+def vdoc(nodes, links, order=None):
+    """Editor document from {id: (kind, params)} and [(from, port, to)] on the mini() states."""
+    return {"nodes": [{"id": i, "kind": k, "x": 0, "y": n * 10, "description": "", "params": dict(p)} for n, (i, (k, p)) in enumerate(nodes.items())],
+            "links": [{"from": a, "port": pt, "to": b} for a, pt, b in links],
+            "states": [{"id": x} for x in ("veille", "eteint", "a", "b")], **({"order": order} if order else {})}
+
+
+def vcompile(doc):
+    rep = {}
+    raw, _lay, errs = V.from_visual(doc, CFG, rep)
+    assert not errs, errs
+    return raw, rep
+
+
+EXPR = {"action": "set_expression", "args": {"name": "content", "seconds": 3}, "phase": "do"}
+ON_START = {"type": "event", "event": "start"}
+IN_VEILLE = {"type": "state", "states": ["veille"], "negate": False}
+
+
+def test_fan_out_side_chain_and_goto_both_run():
+    # the user's case: the trigger also feeds an "expression -> End" side chain (compiled into `global`)
+    raw, rep = vcompile(vdoc({"t": ("trigger", ON_START), "c": ("condition", IN_VEILLE), "g": ("goto", {"state": "a"}),
+                              "x": ("action", EXPR), "e": ("end", {})},
+                             [("t", "out", "c"), ("c", "true", "g"), ("t", "out", "x"), ("x", "out", "e")]))
+    assert not rep["warnings"], "one moving branch only: no conflict"
+    assert [t.get("fan") for t in raw["global"] + raw["states"]["veille"]["transitions"]] == ["fan-t", "fan-t"]
+    r = run(raw, [{"event": "start"}])
+    assert r["final"]["state"] == "a" and r["final"]["expression"]["name"] == "content", r["final"]
+    chains = [e["chain"] for e in r["trace"] if e["event"] == "start"]
+    assert chains == ["global/t0", "veille/t0"], "non-moving side chain first, then the single moving chain"
+    # execution order exposed to the editor: side chain 1, goto branch 2
+    assert sorted((b["target"], b["rank"]) for b in rep["fans"]["t"]) == [("e", 1), ("g", 2)]
+    # the same trigger with the old "first match wins" engine would have lost the move: raw without fan behaves alike
+    raw2 = mini(veille=[{"on": "start", "to": "a"}], glob=[{"on": "start", "do": [{"set_expression": {"name": "content", "seconds": 3}}]}])
+    r2 = run(raw2, [{"event": "start"}])
+    assert r2["final"]["state"] == "a" and r2["final"]["expression"]["name"] == "content"
+
+
+def test_fan_in_two_triggers_share_one_chain():
+    raw, rep = vcompile(vdoc({"t1": ("trigger", ON_START), "t2": ("trigger", {"type": "event", "event": "ask"}),
+                              "c": ("condition", IN_VEILLE), "x": ("action", EXPR), "g": ("goto", {"state": "a"})},
+                             [("t1", "out", "c"), ("t2", "out", "c"), ("c", "true", "x"), ("x", "out", "g")]))
+    assert not rep["warnings"] and len(raw["states"]["veille"]["transitions"]) == 2
+    for ev in ("start", "ask"):
+        r = run(raw, [{"event": ev}])
+        assert r["final"]["state"] == "a" and r["final"]["expression"]["name"] == "content", ev
+
+
+def test_two_moving_branches_first_wins_conflict_warned_and_journaled():
+    doc = vdoc({"t": ("trigger", ON_START), "c": ("condition", IN_VEILLE), "ga": ("goto", {"state": "a"}), "gb": ("goto", {"state": "b"})},
+               [("t", "out", "c"), ("c", "true", "ga"), ("t", "out", "gb")])
+    raw, rep = vcompile(doc)
+    (w,) = rep["warnings"]
+    assert w["kind"] == "fan_conflict" and w["node"] == "t" and w["nodes"] == ["gb", "ga"], w   # global branch evaluates first
+    assert "Plusieurs branches" in w["message"] and "gb puis ga" in w["message"]
+    assert sorted((b["target"], b["rank"], b["ignored"]) for b in rep["fans"]["t"]) == [("ga", 2, True), ("gb", 1, False)]
+    r = run(raw, [{"event": "start"}])
+    assert r["final"]["state"] == "b", "first moving branch in evaluation order applies"
+    rep2 = {}
+    _r2, _l2, errs2 = V.from_visual(json.loads(json.dumps(V.to_visual(raw))), CFG, rep2)
+    assert not errs2 and [w["kind"] for w in rep2["warnings"]] == ["fan_conflict"], "the warning survives a save / reload (shared fan id)"
+    conf = [e for e in r["trace"] if e.get("conflict")]
+    assert len(conf) == 1 and conf[0]["chain"] == "veille/t0" and not conf[0]["moved"], r["trace"]
+    # exclusive moving branches are NOT a conflict: different states, or a guard and its negation
+    raw_ok, rep_ok = vcompile(vdoc({"t": ("trigger", ON_START), "c1": ("condition", IN_VEILLE), "c2": ("condition", {"type": "state", "states": ["a"], "negate": False}),
+                                    "ga": ("goto", {"state": "a"}), "gb": ("goto", {"state": "b"})},
+                                   [("t", "out", "c1"), ("c1", "true", "ga"), ("t", "out", "c2"), ("c2", "true", "gb")]))
+    assert not rep_ok["warnings"]
+    guard = sorted(G.GUARDS)[0]
+    _raw, rep_g = vcompile(vdoc({"t": ("trigger", ON_START), "c": ("condition", IN_VEILLE), "cg": ("condition", {"type": "guard", "guard": guard, "negate": False}),
+                                 "ga": ("goto", {"state": "a"}), "gb": ("goto", {"state": "b"})},
+                                [("t", "out", "c"), ("c", "true", "cg"), ("cg", "true", "ga"), ("cg", "false", "gb")]))
+    assert not rep_g["warnings"], "guard / not guard never match together"
+
+
+def test_shared_action_node_runs_once_across_branches():
+    doc = vdoc({"t": ("trigger", ON_START), "c": ("condition", IN_VEILLE), "x": ("action", {"action": "count_turn", "args": {}, "phase": "do"}),
+                "g": ("goto", {"state": "a"}), "e": ("end", {})},
+               [("t", "out", "c"), ("c", "true", "x"), ("x", "out", "g"), ("x", "out", "e")])
+    raw, rep = vcompile(doc)
+    assert not rep["warnings"]
+    r = run(raw, [{"event": "start"}])
+    assert r["final"]["state"] == "a" and r["final"]["turns"] == 1, "shared node acts once, not once per path"
+    unfanned = copy.deepcopy(raw)
+    for t in unfanned["states"]["veille"]["transitions"]:
+        t.pop("fan")
+    assert run(unfanned, [{"event": "start"}])["final"]["turns"] == 2, "without the fan id the chains are independent"
+
+
+def test_fan_survives_save_and_reload():
+    os.makedirs(TMP, exist_ok=True)
+    gp, lp = os.path.join(TMP, "fan.yaml"), os.path.join(TMP, "fan.layout.json")
+    for f in (gp, lp):
+        if os.path.exists(f):
+            os.remove(f)
+    doc = vdoc({"t": ("trigger", ON_START), "c": ("condition", IN_VEILLE), "g": ("goto", {"state": "a"}), "x": ("action", EXPR), "e": ("end", {})},
+               [("t", "out", "c"), ("c", "true", "g"), ("t", "out", "x"), ("x", "out", "e")])
+    rep = {}
+    ok, errs = V.save(doc, CFG, gp, lp, rep)
+    assert ok and not errs and not rep["warnings"]
+    raw = V.load_raw(gp)
+    assert "fan: fan-t" in open(gp, encoding="utf-8").read()
+    doc2 = json.loads(json.dumps(V.to_visual(raw)))
+    raw2, _lay, errs = V.from_visual(doc2, CFG)
+    assert not errs and G.parse_graph(copy.deepcopy(raw2), CFG, "<t>").to_dict() == G.parse_graph(copy.deepcopy(raw), CFG, "<t>").to_dict()
+    assert run(raw2, [{"event": "start"}])["final"]["state"] == "a"
+    for f in [gp, lp] + [os.path.join(TMP, x) for x in os.listdir(TMP) if x.startswith("fan.")]:
+        if os.path.exists(f):
+            os.remove(f)
+
+
+def test_non_moving_after_fires_once_per_state_entry():
+    raw = mini(veille=[{"after": 1, "do": [{"set_expression": {"name": "content", "seconds": 1}}]}, {"after": 2, "to": "a", "reason": "late"}])
+    r = run(raw, [{"wait_s": 3}])
+    assert r["final"]["state"] == "a"
+    assert [e["chain"] for e in r["trace"] if e["event"] == "after"] == ["veille/t0", "veille/t1"], r["trace"]
+
+
 TESTS = [test_icons_and_vocabulary, test_hours_parser, test_enabled_false_is_ignored_and_roundtrips,
          test_sim_matches_real_brain_and_parity, test_sim_isolation_from_live_brain, test_sim_errors,
          test_set_expression_and_gaze_in_sim, test_wait_does_not_block_and_is_cancelled_by_stop,
          test_say_text_is_cached_at_load_and_stays_muted, test_personnes_multiples, test_opening_hours_events_and_guard,
          test_inactivite_longue, test_editable_intents, test_versions_list_and_restore,
-         test_journal_keeps_50_and_feeds_last_transition]
+         test_journal_keeps_50_and_feeds_last_transition,
+         test_fan_out_side_chain_and_goto_both_run, test_fan_in_two_triggers_share_one_chain,
+         test_two_moving_branches_first_wins_conflict_warned_and_journaled, test_shared_action_node_runs_once_across_branches,
+         test_fan_survives_save_and_reload, test_non_moving_after_fires_once_per_state_entry]
 
 
 def main(argv):
