@@ -89,6 +89,7 @@
   let simErrors = [];              // same shape, from the last POST /api/graph/simulate (400)
   let intentErrs = {};             // intent name -> server message
   let simState = null;             // state the simulator ended in (band highlight)
+  const freshIds = new Set();      // ids of nodes dropped from the palette and not yet validated / saved
   let issues = new Map();          // nid -> [{level,message}] (client analysis + server errors)
   let globalIssues = [];           // issues without a node
   let liveState = null;
@@ -394,7 +395,12 @@
   function analyze() {
     const data = dfData();
     const out = new Map();
-    const add = (nid, level, message) => { if (!out.has(nid)) out.set(nid, []); out.get(nid).push({ level, message }); };
+    // A node the user just dropped from the palette gets mild "todo" hints (no coloured outline) until the
+    // first validate / save, instead of errors for the fields it has not had time to receive yet.
+    const add = (nid, level, message) => {
+      if (freshIds.has(nid)) { if (level === 'warn') return; level = 'todo'; }   // structural warnings wait until validate
+      if (!out.has(nid)) out.set(nid, []); out.get(nid).push({ level, message });
+    };
     const incoming = {}, outgoing = {};
     for (const dfid in data) { incoming[dfid] = 0; outgoing[dfid] = 0; }
     for (const dfid in data) {
@@ -421,7 +427,7 @@
         if (!byId(V.actions, p.action)) add(id, 'err', 'Action inconnue ou manquante.');
         else {
           const need = { say_text: ['text'], set_expression: ['name', 'seconds'], wait: ['seconds'], gaze: ['mode'] }[p.action] || [];
-          need.forEach((k) => { const v = (p.args || {})[k]; if (v == null || v === '') add(id, 'err', 'Argument manquant : ' + k + '.'); });
+          need.forEach((k) => { const v = (p.args || {})[k]; if (v == null || v === '') add(id, 'err', 'À remplir : ' + ((((byId(V.actions, p.action) || {}).args || []).find((x) => x.name === k)) || {}).label + '.'); });
         }
       } else if (m.kind === 'goto') {
         if (!stateIds.has(p.state)) add(id, 'err', "État d'arrivée inconnu.");
@@ -466,10 +472,10 @@
     const list = issues.get(m.id) || [];
     const hasErr = list.some((i) => i.level === 'err');
     el.classList.toggle('err', hasErr);
-    el.classList.toggle('warn', !hasErr && list.length > 0);
+    el.classList.toggle('warn', !hasErr && list.some((i) => i.level === 'warn'));
     const msg = el.querySelector('.nmsg');
     if (msg) msg.textContent = list.map((i) => i.message).join(' ');
-    el.title = list.map((i) => (i.level === 'err' ? 'Erreur : ' : 'Attention : ') + i.message).join('\n');
+    el.title = list.map((i) => (i.level === 'err' ? 'Erreur : ' : i.level === 'todo' ? 'À faire : ' : 'Attention : ') + i.message).join('\n');
   }
   function markLive() { drawBands(); }
 
@@ -557,7 +563,7 @@
   function initialView() {
     if (fitZoom() >= 0.5) { fit(); return; }
     const st = Object.values(dfData()).find((d) => d.data.model.kind === 'start');
-    if (!focusBand((st && st.data.model.params.state) || 'veille', 0.55)) fit();
+    if (!focusBand((st && st.data.model.params.state) || 'veille', 0.9)) fit();   // 0.9: node text ~12 px on first load
   }
   function setView(z, cx, cy) {
     // Drawflow scales around the centre of its canvas (no transform-origin), so convert the wanted
@@ -600,13 +606,28 @@
   function addAt(kind, preset, pt) {
     if (kind === 'start' && Object.values(dfData()).some((d) => d.data.model.kind === 'start')) { toast('Il y a déjà un nœud Début.', 'err'); return; }
     if (!pt) {
-      const st = $('#stage').getBoundingClientRect();
-      pt = canvasPoint(st.x + st.width / 2 - 100, st.y + st.height / 2 - 40);
-      addJitter = (addJitter + 1) % 6; pt.x += addJitter * 24; pt.y += addJitter * 24;
+      // Preferred spot: right of the selected node, else the middle of the visible canvas.
+      if (selDf != null && dfNode(selDf)) pt = { x: dfNode(selDf).pos_x + 260, y: dfNode(selDf).pos_y };
+      else { const st = $('#stage').getBoundingClientRect(); pt = canvasPoint(st.x + st.width / 2 - 100, st.y + st.height / 2 - 40); }
     }
-    const dfid = addNodeFromModel(defaultModel(kind, preset), pt.x, pt.y);
+    pt = freeSpot(pt.x, pt.y);
+    const m = defaultModel(kind, preset);
+    freshIds.add(m.id);
+    const dfid = addNodeFromModel(m, pt.x, pt.y);
     commitSoon();
     selectDf(dfid);
+    if (!isVisible(m.id)) panTo(m.id, 0.6);
+    analyze();
+  }
+  // Nearest position (on a 250 x 130 grid around the wanted one) where a new 214 x 120 node touches no other node.
+  function freeSpot(x, y) {
+    const boxes = Object.keys(dfData()).map((id) => nodeBox(id));
+    const free = (px, py) => boxes.every((b) => px + 230 < b.x0 || px > b.x1 + 16 || py + 130 < b.y0 || py > b.y1 + 16);
+    const cand = [];
+    for (let i = -8; i <= 8; i++) for (let j = -8; j <= 8; j++) cand.push([i * 250 * 0.5, j * 130 * 0.5, Math.hypot(i * 1.2, j)]);
+    cand.sort((a, b) => a[2] - b[2]);
+    for (const [dx, dy] of cand) if (free(x + dx, y + dy)) return { x: Math.round(x + dx), y: Math.round(y + dy) };
+    return { x, y };
   }
   function selectDf(dfid) {
     // Drawflow has no public "select"; emulate the click it listens to.
@@ -760,7 +781,9 @@
         if (arg.type === 'enum') {
           // `labels` (French text per option) comes from the vocabulary; event options reuse the event labels.
           const optLabel = (o) => (arg.labels && arg.labels[o]) || (byId(evs(), o) || {}).label || String(o);
-          box.append(field(lab, selectCtl([{ v: '', l: '(aucun)' }].concat((arg.options || []).map((o) => ({ v: o, l: optLabel(o) }))), cur == null ? '' : cur, set)));
+          const required = ({ say_text: ['text'], set_expression: ['name', 'seconds'], wait: ['seconds'], gaze: ['mode'] }[p.action] || []).includes(arg.name);
+          box.append(field(lab, selectCtl([{ v: '', l: required ? '(à choisir)' : '(aucun)' }].concat((arg.options || []).map((o) => ({ v: o, l: optLabel(o) }))), cur == null ? '' : cur, set),
+            required ? 'Obligatoire : choisir une valeur.' : 'Facultatif.'));
         } else if (arg.type === 'number') {
           const lid = 'dl-arg' + i;
           const dl = (arg.options || []).length ? h('datalist', { id: lid }, (arg.options || []).map((o) => h('option', { value: o }))) : null;
@@ -770,7 +793,8 @@
           box.append(field(lab, areaCtl(cur, set, arg.max_len), `${arg.max_len} caractères au plus.`));
         } else box.append(field(lab, textCtl(cur, set)));
       });
-      box.append(field('Quand', selectCtl([{ v: 'do', l: "Avant le changement d'état" }, { v: 'then', l: "Après le changement d'état" }], p.phase || 'do', (v) => edit((mm) => { mm.params.phase = v; }))));
+      box.append(field('Quand', selectCtl([{ v: 'do', l: "Avant le changement d'état" }, { v: 'then', l: "Après le changement d'état" }], p.phase || 'do', (v) => edit((mm) => { mm.params.phase = v; })),
+        "« Avant » : exécutée avant le changement d'état de la chaîne ; « Après » : juste après (ex. phrase dite dans le nouvel état)."));
     }
     if (m.kind === 'goto') {
       box.append(field("État d'arrivée", iconSelect(stateOpts, p.state, (v) => edit((mm) => { mm.params.state = v; }, true)), (byId(V.states, p.state) || {}).description || ''));
@@ -848,7 +872,7 @@
     V.intents.filter((i) => i.fixed).forEach((i) => box.append(h('div', { class: 'intent' },
       h('div', { class: 'ihead' }, ico(i.icon || 'question-mark', 'var(--cond)'), h('code', {}, 'intent.' + i.id)),
       h('div', { class: 'note' }, 'Intention implicite : toute phrase qui ne correspond à aucune autre. Non modifiable.'))));
-    const nm = h('input', { type: 'text', placeholder: 'nom_de_lintention', maxlength: 32, style: 'flex:1;width:auto;min-width:0' });
+    const nm = h('input', { type: 'text', placeholder: 'nom_de_l_intention', maxlength: 32, style: 'flex:1;width:auto;min-width:0' });
     const create = () => {
       const n = nm.value.trim();
       if (!INTENT_NAME.test(n)) { toast('Nom invalide : minuscules, chiffres et _, commence par une lettre, 32 caractères au plus.', 'err'); return; }
@@ -899,6 +923,7 @@
 
   // ---------- toolbar actions ----------
   function validate(showToast) {
+    freshIds.clear();          // from here on, empty required fields count as real errors
     analyze();
     let ne = 0, nw = 0;
     issues.forEach((l) => l.forEach((i) => (i.level === 'err' ? ne++ : nw++)));
@@ -1001,6 +1026,12 @@
     if (name === 'journal') loadJournal();
     if (innerWidth <= 900) document.body.classList.remove('hide-right');
   }
+  // Transition reasons are free text set by the graph (goto "reason"), else the triggering event id.
+  const REASONS = { appel: 'Nom du robot entendu', ask: 'Question tapée', chanson: 'Demande de chanson', max_turns: "Trop d'échanges",
+    pas_compris: 'Parole non comprise', phrase: 'Phrase dite', refus: 'Le visiteur veut partir', silence: 'Silence prolongé',
+    visage_perdu: 'Le visage disparaît', source: 'Bouton Démarrer', start: 'Démarrage', hush: '« Tais-toi »', stop: 'Bouton Stop',
+    off: 'Bouton Éteindre', on: 'Bouton Allumer' };
+  const reasonLabel = (r) => REASONS[r] || (byId(evs(), r) || {}).label || String(r);
   const fmtTime = (t) => new Date(t * 1000).toLocaleTimeString('fr-FR');
   const isVisible = (nid) => {
     const el = nodeEl(nidToDf.get(nid)); if (!el) return false;
@@ -1054,9 +1085,9 @@
     const fresh = sim.trace.map((e, i) => (e.step === last ? i : -1)).filter((i) => i >= 0);
     sim.timers.forEach(clearTimeout); sim.timers = [];
     if (animate && fresh.length > 1) {
-      fresh.forEach((i, k) => sim.timers.push(setTimeout(() => selectTrace(i, true), k * 400)));
+      fresh.forEach((i, k) => sim.timers.push(setTimeout(() => selectTrace(i, k === fresh.length - 1 ? 'fit' : true), k * 400)));
       selectTrace(fresh[0], true);
-    } else selectTrace(sim.trace.length - 1, true);
+    } else selectTrace(sim.trace.length - 1, 'fit');
     renderTester();
     if (sim.again) { sim.again = false; return simRun(false); }
     return r;
@@ -1071,18 +1102,34 @@
     simState = sim.trace[i] ? sim.trace[i].to : null;
     paintChains(); drawBands(); renderSimTrace();
     const first = i >= 0 && sim.trace[i] ? idsOf(sim.trace[i])[0] : null;
-    if (pan && first && !isVisible(first)) panTo(first, 0.45);
+    if (pan === 'fit') fitLit();
+    else if (pan && first && !isVisible(first)) panTo(first, 0.45);
+  }
+  // Frame every lit node (fired chains in blue, current one in yellow) when they fit at zoom >= 0.3;
+  // otherwise keep that zoom and centre on the current chain.
+  function fitLit() {
+    const box = (set) => {
+      let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+      set.forEach((nid) => { const d = nidToDf.get(nid); if (d == null) return; const b = nodeBox(d); x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1); y1 = Math.max(y1, b.y1); });
+      return x0 > x1 ? null : { x0, y0, x1, y1 };
+    };
+    const all = box(new Set([...lit.now, ...lit.past])), now = box(lit.now), c = $('#drawflow');
+    if (!all || !now) return;
+    const w = all.x1 - all.x0, hh = all.y1 - all.y0;
+    const z = Math.max(0.3, Math.min(1, c.clientWidth / (w * 1.1), c.clientHeight / (hh * 1.1)));
+    const b = w * z <= c.clientWidth && hh * z <= c.clientHeight ? all : now;
+    setView(z, c.clientWidth / 2 - ((b.x0 + b.x1) / 2) * z, c.clientHeight / 2 - ((b.y0 + b.y1) / 2) * z);
   }
   function renderSimTrace() {
     const box = $('#simTrace'); if (!box) return;
-    box.innerHTML = '';
+    box.innerHTML = ''; $('#simStatus').innerHTML = '';   // status card sits outside the scrolling trace so it never gets clipped
     if (sim.note) box.append(h('div', { class: 'simerr' }, sim.note));
     sim.docErrors.forEach((e) => box.append(h('div', { class: 'simerr', onclick: () => e.node && focusNode(e.node) }, (e.node ? e.node + ' : ' : '') + e.message)));
     if (sim.docErrors.length) box.append(h('p', { class: 'hint' }, 'Le robot refuse ce document : corrigez les nœuds en rouge, puis relancez.'));
     const f = sim.final;
     if (f) {
       const ex = f.expression ? (typeof f.expression === 'string' ? f.expression : f.expression.name) : 'aucune';
-      box.append(h('div', { class: 'simstate' }, ico(stateIcon(f.state)), 'État simulé : ', h('b', {}, stateLabel(f.state)),
+      $('#simStatus').append(h('div', { class: 'simstate' }, ico(stateIcon(f.state)), 'État simulé : ', h('b', {}, stateLabel(f.state)),
         h('span', { class: 'hint' }, `· tours ${f.turns} · expression ${ex} · regard ${f.gaze_mode}`)));
     }
     for (let st = -1; st < sim.steps.length; st++) {
@@ -1092,7 +1139,7 @@
       if (!rows.length) box.append(h('div', { class: 'note' }, 'Rien ne se déclenche.'));
       rows.forEach(({ e, i }) => box.append(h('div', { class: 'trow' + (i === sim.sel ? ' sel' : ''), onclick: () => selectTrace(i, true) },
         h('div', {}, ico(stateIcon(e.to)), ' ', e.moved ? [stateLabel(e.from), h('span', { class: 'arrow' }, ' → '), stateLabel(e.to)] : ['Reste en ', stateLabel(e.to)],
-          h('span', { class: 'hint' }, e.reason ? '  (' + e.reason + ')' : '')),
+          h('span', { class: 'hint' }, e.reason ? '  (' + reasonLabel(e.reason) + ')' : '')),
         h('div', { class: 'meta' }, `${Number(e.t).toFixed(1)} s · chaîne ${e.chain}` + ((e.effects || []).length ? ' · ' + e.effects.join(', ') : '')))));
     }
     const sel = box.querySelector('.trow.sel');
@@ -1104,7 +1151,7 @@
     box.append(h('p', { class: 'hint' }, "Essaie le graphe en cours d'édition (même non enregistré) sur un robot simulé : sans son ni micro, le vrai robot n'est jamais touché."));
     box.append(field('État de départ', selectCtl((meta.states || []).map((s) => ({ v: s.id, l: stateLabel(s.id) })), startStateId(), (v) => { sim.start = v; sim.note = ''; simRun(false); })));
     // Result first (state + trace, scrolls on its own), controls below.
-    box.append(h('div', { id: 'simTrace' }));
+    box.append(h('div', { id: 'simStatus' }), h('div', { id: 'simTrace' }));
     box.append(h('div', { class: 'sect' }, 'Un événement arrive'));
     const grid = h('div', { class: 'evgrid' });
     V.events.forEach((e) => grid.append(h('button', { type: 'button', title: e.help || e.label, onclick: () => addStep({ event: e.id }) }, ico(e.icon), h('span', { class: 't' }, e.label))));
@@ -1188,7 +1235,7 @@
       const ev = byId(evs(), e.event);
       box.append(h('div', { class: 'trow', onclick: () => focusChain(e.chain) },
         h('div', {}, ico(ev ? ev.icon : 'clock'), ' ', e.moved ? [stateLabel(e.from), h('span', { class: 'arrow' }, ' → '), stateLabel(e.to)] : ['Reste en ', stateLabel(e.to)]),
-        h('div', { class: 'meta' }, `${fmtTime(e.t)} · ${ev ? ev.label : e.event || 'délai'}` + (e.reason ? ' · ' + e.reason : '') + ' · chaîne ' + e.chain)));
+        h('div', { class: 'meta' }, `${fmtTime(e.t)} · ${ev ? ev.label : e.event || 'délai'}` + (e.reason && reasonLabel(e.reason) !== (ev && ev.label) ? ' · ' + reasonLabel(e.reason) : '') + ' · chaîne ' + e.chain)));
     });
   }
   function onLastTransition(lt) {
@@ -1269,6 +1316,7 @@
   // ---------- test hooks (used by the verification scenarios; harmless in normal use) ----------
   window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () => Object.keys(dfData()).length,
     activateTab, sim, addStep, simRun, computeChains, liveChains: () => liveChains, focusBand, focusNode, fit, intentCard, renderIntents,
+    panDf: (dfid) => { const d = dfNode(dfid), st = $('#drawflow'), z = 0.9; setView(z, st.clientWidth / 2 - (d.pos_x + 400) * z, st.clientHeight / 2 - (d.pos_y + 40) * z); },
     meta: () => meta, journal: () => journal, loadJournal, loadVersions, selectTrace, toast };
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -1287,9 +1335,6 @@
       await sleep(300);
       const r = sim.final;
       dbg('sim final=' + JSON.stringify(r) + ' trace=' + sim.trace.map((e) => e.chain).join(','));
-      const last = sim.trace[sim.trace.length - 1];
-      const ids = sim.chains.keys.get(last.chain);
-      focusBand(model(nidToDf.get(ids[0])).group, 0.6);
     } else if (mode === 'versions') { activateTab('versions'); }
     else if (mode === 'journal') { activateTab('journal'); await sleep(500); }
     else if (mode === 'intents') {
