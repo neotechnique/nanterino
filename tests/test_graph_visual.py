@@ -154,7 +154,7 @@ def expect_error(doc, node, fragment):
 
 
 def test_error_cases():
-    base = V.to_visual(default_raw())
+    base = V.to_visual(default_raw(), compact=False)   # explicit state-condition nodes (the legacy form still compiles)
     # chain without target: cut the link into the final goto of the `visage` transition
     d = copy.deepcopy(base)
     trig = find(d, kind="trigger", event="stop")[0]
@@ -442,12 +442,14 @@ def _triggers(doc, event, group):
 def test_sharing_lighter_and_equivalent():
     """Sharing nodes is only a drawing: fewer nodes/links, same compiled graph (modulo no-op fan tags)."""
     raw = default_raw()
-    old, new, comp = V.to_visual(raw, share=False), V.to_visual(raw), V.to_visual(raw, compact=True)
+    old, new, comp = V.to_visual(raw, share=False, compact=False), V.to_visual(raw, compact=False), V.to_visual(raw)
     print("  nodes old/shared/compact = %d/%d/%d, links %d/%d/%d" % (
         len(old["nodes"]), len(new["nodes"]), len(comp["nodes"]), len(old["links"]), len(new["links"]), len(comp["links"])))
     # NOTE the brief asked for <= 70 %: not reachable without dropping the per-chain state condition (compact mode)
     assert len(new["nodes"]) <= 0.90 * len(old["nodes"]) and len(new["links"]) <= 0.97 * len(old["links"])
     assert len(comp["nodes"]) <= 0.76 * len(old["nodes"]) and len(comp["links"]) <= 0.80 * len(old["links"])
+    assert len(comp["nodes"]) <= 0.76 * 182, "compact (default) drawing of the shipped graph"
+    assert [(n["kind"], n["params"]) for n in V.to_visual(raw)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the default"
     for doc in (new, comp):
         ends = {}
         for n in doc["nodes"]:
@@ -472,7 +474,7 @@ def test_sharing_lighter_and_equivalent():
 
 def test_layout_no_overlap_and_few_crossings():
     raw = default_raw()
-    for kw in ({}, {"compact": True}, {"share": False}):
+    for kw in ({}, {"compact": False}, {"share": False, "compact": False}):
         doc = V.to_visual(raw, **kw)
         pos = {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}
         assert GL.overlaps(doc["nodes"], pos) == [], kw
@@ -507,7 +509,7 @@ def test_merged_fan_trigger_reloads_as_one_node():
     doc = to_json_and_back(V.to_visual(raw))
     trigs = _triggers(doc, "intent.question", "ecoute")
     assert len(trigs) == 1 and trigs[0]["params"]["fan"] == "fan-x1"
-    assert sum(1 for l in doc["links"] if l["from"] == trigs[0]["id"]) == 1       # one state condition, then a tree
+    assert sum(1 for l in doc["links"] if l["from"] == trigs[0]["id"]) == 2       # compact: the two guard branches (turns_left / not)
     raw2, _ = compile_ok(doc)
     assert semantic(raw2, nofan=True) == semantic(raw, nofan=True), "branch order survives the reload"
     assert [t.get("fan") for t in semantic(raw2)["states"]["ecoute"]["transitions"] if t.get("on") == "intent.question"] == ["fan-x1"] * 2

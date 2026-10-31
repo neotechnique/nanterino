@@ -92,6 +92,8 @@ def node_height(n) -> int:
     h = 36 + 18 * max(1, _lines(summ, 26)) + 17 * _lines(str(n.get("description") or ""), 25) + 6
     if k == "condition":
         h += 22
+    if k == "trigger" and p.get("state") and p.get("type") != "enter":
+        h += 18   # "dans : <état>" scope line of a compact trigger
     return h
 
 

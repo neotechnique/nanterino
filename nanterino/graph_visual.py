@@ -26,8 +26,8 @@ Wave 2 (2026-10-31): trigger `params.enabled`, state icons (layout `icons`), int
 Wave 3 (2026-10-31, "graphe optimisé"): `to_visual()` draws the graph lighter (shared trigger/condition tree for
     consecutive transitions with the same trigger, one End and one go-to per group, see its docstring) and lays
     it out with `nanterino.graph_layout` (layered, no overlap, default theme frames). Pure drawing: the compiled
-    graph is equivalent (only no-op `fan` tags appear on shared exclusive branches). `compact=True` (off) also
-    moves the state condition into `params.state` of the trigger.
+    graph is equivalent (only no-op `fan` tags appear on shared exclusive branches). `compact=True` (default) also
+    moves the state condition into `params.state` of the trigger (now the default).
 
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
@@ -149,7 +149,7 @@ def _joinable(cluster, head0_sig, spec):
 
 
 def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "veille", share: bool = True,
-              compact: bool = False, share_ends: bool = True) -> dict:
+              compact: bool = True, share_ends: bool = True) -> dict:
     """Editor document of a raw graph dict (as read from graph.yaml).
 
     `layout` is the content of graph.layout.json ({"nodes": {key: {"x","y"}}, "states": {id: color}, "frames": [...]});
@@ -165,8 +165,9 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
       - one End per state group and one "go to state" node per (group, target, reason) reached by several
         chains (fan-in), as long as each chain keeps a node of its own to carry its description.
     `share=False` is the old one-chain-per-transition drawing (kept for measurements and tests).
-    `compact=True` also drops the per-chain "state" condition: the trigger carries `params.state` instead
-    (needs the compiler support below and an editor that mirrors it; off by default).
+    `compact=True` (default) also drops the per-chain "state" condition: the trigger carries `params.state`
+    instead (compiler support in from_visual, mirrored by web/editor.js computeChains); `compact=False` draws
+    the explicit state-condition nodes (still compiled the same way).
     """
     layout = layout or {}
     saved = layout.get("nodes") or {}

@@ -194,8 +194,10 @@
     const k = KINDS[m.kind];
     const tag = m.group === 'global' ? `<span class="ntag" style="background:${esc(stateColor(m.group))}">${esc(m.group === 'global' ? 'global' : stateLabel(m.group))}</span>` : '';
     const off = m.kind === 'trigger' && (m.params || {}).enabled === false ? '<span class="ntag off">désactivée</span>' : '';
+    const scope = m.kind === 'trigger' && (m.params || {}).state && (m.params || {}).type !== 'enter'
+      ? `<div class="nsum nscope">${icoHtml(stateIcon(m.params.state), stateColor(m.params.state))} dans : ${esc(stateLabel(m.params.state))}</div>` : '';
     const desc = m.description ? `<div class="nsum" style="color:var(--mut)">${esc(m.description)}</div>` : '';
-    return `<div class="nhead">${icoHtml(iconOf(m), k.color)}<span class="ntitle">${esc(k.label)}</span>${off}${tag}</div><div class="nsum">${esc(summary(m))}</div>${desc}<div class="nmsg"></div>`;
+    return `<div class="nhead">${icoHtml(iconOf(m), k.color)}<span class="ntitle">${esc(k.label)}</span>${off}${tag}</div><div class="nsum">${esc(summary(m))}</div>${scope}${desc}<div class="nmsg"></div>`;
   }
   function nodeEl(dfid) { return document.getElementById('node-' + dfid); }
   function refreshNode(dfid) {
@@ -332,6 +334,7 @@
         const ids = path.map((x) => x[0]);
         if (p.type === 'enter') { const k = p.state + '/enter'; if (!keys.has(k)) { keys.set(k, ids); mine.push(k); } return; }
         const pos = [], neg = []; let force = false;
+        if ((p.type === 'event' || p.type === 'after') && p.state) pos.push([p.state]);   // compact drawing: the trigger carries its state
         path.slice(1, -1).forEach(([nid, inv]) => {
           const n = nodes[nid]; if (n.kind !== 'condition') return;
           const q = n.params || {}, isNeg = !!q.negate !== inv;
@@ -848,8 +851,14 @@
       if (selDf != null && dfNode(selDf)) pt = { x: dfNode(selDf).pos_x + 260, y: dfNode(selDf).pos_y };
       else { const st = $('#stage').getBoundingClientRect(); pt = canvasPoint(st.x + st.width / 2 - 100, st.y + st.height / 2 - 40); }
     }
+    const wanted = pt;   // where the user dropped it (the band test uses it, not the nudged free spot)
     pt = freeSpot(pt.x, pt.y);
     const m = defaultModel(kind, preset);
+    if (kind === 'trigger' && !m.params.state) {   // dropped inside a state band: the trigger takes that state
+      const rects = bandRects(), cx = wanted.x + 107, cy = wanted.y + 40;
+      const gid = Object.keys(rects).find((k) => k !== 'global' && cx >= rects[k].x0 && cx <= rects[k].x1 && cy >= rects[k].y0 && cy <= rects[k].y1);
+      if (gid) { m.params.state = gid; m.group = gid; }
+    }
     freshIds.add(m.id);
     const dfid = addNodeFromModel(m, pt.x, pt.y);
     commitSoon();
@@ -972,13 +981,20 @@
     }
     if (m.kind === 'trigger') {
       box.append(field('Type', selectCtl([{ v: 'event', l: 'Un événement arrive' }, { v: 'after', l: 'Après un délai' }, { v: 'enter', l: "À l'entrée dans un état" }], p.type, (v) => edit((mm) => {
-        const wasOff = mm.params.enabled === false;
+        const wasOff = mm.params.enabled === false, scope = mm.params.state;
         mm.params = { type: v };
+        if (scope && v !== 'enter') mm.params.state = scope;
         if (v === 'event') mm.params.event = (V.events[0] || {}).id;
         if (v === 'after') { mm.params.delay = (V.delays[0] || {}).key || 5; mm.params.since = 'state'; }
         if (v === 'enter') mm.params.state = (V.states[0] || {}).id;
         else if (wasOff) mm.params.enabled = false;
       }, true))));
+      if (p.type === 'event' || p.type === 'after') {
+        const opts = (p.type === 'after' ? [] : [{ v: '', l: 'Toutes (règle globale)' }]).concat(V.states.map((s) => ({ v: s.id, l: s.label })));
+        box.append(field("Dans l'état", selectCtl(opts, p.state || (p.type === 'after' ? (V.states[0] || {}).id : ''), (v) => edit((mm) => {
+          if (v) { mm.params.state = v; mm.group = v; } else { delete mm.params.state; mm.group = 'global'; }
+        }, true)), "La chaîne ne s'applique que dans cet état ; le nœud rejoint sa bande à l'enregistrement."));
+      }
       if (p.type === 'event') box.append(field('Événement', iconSelect(evs().map((e) => ({ v: e.id, l: e.label, icon: e.icon })), p.event, (v) => edit((mm) => { mm.params.event = v; }, true)), helpOf(evs(), p.event)));
       if (p.type !== 'enter') {
         box.append(h('p', { class: 'hint fannote' }, "Plusieurs branches : toutes celles qui ne changent pas d'état s'exécutent (dans l'ordre des numéros), puis une seule branche change d'état : la première qui correspond."));
