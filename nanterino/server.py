@@ -130,6 +130,7 @@ def _graph_paths() -> tuple[str, str]:
     return gp, graph_visual.layout_path_for(gp)
 
 
+_NO_CACHE = {"Cache-Control": "no-cache"}
 _EDITOR_ASSETS = {"editor.js": "text/javascript", "editor.css": "text/css"}
 _VENDOR_ASSETS = {"drawflow.min.js": "text/javascript", "drawflow.min.css": "text/css", "LICENSE": "text/plain"}
 
@@ -139,7 +140,8 @@ def web_asset(name: str):
     """Editor page assets (whitelist: no directory listing, no other web file is exposed here)."""
     if name not in _EDITOR_ASSETS:
         return PlainTextResponse("not found", status_code=404)
-    return FileResponse(os.path.join(WEB, name), media_type=_EDITOR_ASSETS[name])
+    # no-cache: browsers must revalidate, otherwise an edited editor.js stays stale after a deploy.
+    return FileResponse(os.path.join(WEB, name), media_type=_EDITOR_ASSETS[name], headers=_NO_CACHE)
 
 
 @app.get("/web/vendor/drawflow/{name}")
@@ -169,7 +171,7 @@ def editor():
     path = os.path.join(WEB, "editor.html")
     if not os.path.exists(path):
         return PlainTextResponse("editor.html is not installed yet", status_code=404)
-    return FileResponse(path)
+    return FileResponse(path, headers=_NO_CACHE)
 
 
 @app.get("/api/graph/vocab")
