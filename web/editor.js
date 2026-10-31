@@ -314,6 +314,7 @@
     paintWires();
     drawFrames();
     drawNotes();
+    drawJumpbar(); zoomVars();
     renderPalette();
     renderInspector();
     renderIntents();
@@ -466,6 +467,7 @@
   }
   function blinkChain(key) {
     const ids = liveChains.keys.get(key); if (!ids) return;
+    if (curTab === 'journal') focusChainIds(ids);    // L7 fix round: the journal follows the live chain
     ids.forEach((nid) => {
       const el = nodeEl(nidToDf.get(nid)); if (!el) return;
       el.classList.remove('blink'); void el.offsetWidth; el.classList.add('blink');
@@ -790,6 +792,98 @@
     // selection changes arrive through Drawflow's own click handling: re-evaluate just after it
     editor.container.addEventListener('mouseup', () => setTimeout(applyRetFocus, 0));
   }
+
+  // ---------- overview helpers (L7 fix round): zoom-scaled frame titles, semantic zoom, jump bar, minimap ----------
+  // --fts on precanvas = scale of the automatic frame titles so they never get smaller than ~14 px on screen;
+  // below SEM_ZOOM the container gets `semzoom`: each column shows a big card (state, chain count, in/out wires)
+  // and the nodes fade. Jump bar chips and the minimap live inside #drawflow but stop their own presses (no pan).
+  const SEM_ZOOM = 0.25;
+  let jumpEl = null, miniEl = null, miniRaf = 0;
+  const MINI_KEY = 'nanterino.editor.minimap';
+  function zoomVars() {
+    if (!editor || !editor.precanvas) return;
+    const z = editor.zoom || 1;
+    editor.precanvas.style.setProperty('--fts', String(Math.max(1, 14 / (13 * z))));
+    editor.container.classList.toggle('semzoom', z < SEM_ZOOM);
+    scheduleMinimap();
+  }
+  const stopPress = (el) => ['mousedown', 'touchstart', 'pointerdown', 'wheel', 'dblclick'].forEach((t) => el.addEventListener(t, (e) => e.stopPropagation(), { passive: true }));
+  // Fit one state column (its band rect) at a readable zoom 0.6-0.8, top of the column (hub) in view.
+  function focusColumn(g) {
+    const r = bandRects()[g], c = $('#drawflow'); if (!r) return false;
+    const w = r.x1 - r.x0, hh = r.y1 - r.y0;
+    const z = Math.max(0.6, Math.min(0.8, c.clientWidth / (w * 1.05), c.clientHeight / (hh * 1.05)));
+    const cx = w * z <= c.clientWidth ? (c.clientWidth - w * z) / 2 - r.x0 * z : 20 - r.x0 * z;
+    setView(z, cx, 50 - r.y0 * z);          // 50: below the jump bar
+    return true;
+  }
+  function drawJumpbar() {
+    if (!editor) return;
+    if (!jumpEl || !jumpEl.isConnected) { jumpEl = h('div', { id: 'jumpbar', role: 'toolbar', 'aria-label': 'Aller à un état' }); stopPress(jumpEl); editor.container.append(jumpEl); }
+    jumpEl.innerHTML = '';
+    const groups = new Set(Object.values(dfData()).map((d) => d.data.model.group).filter(Boolean));
+    (meta.states || []).forEach((s) => {
+      if (!groups.has(s.id)) return;
+      jumpEl.append(h('button', { type: 'button', class: 'jchip', 'data-g': s.id, title: 'Aller à la colonne « ' + stateLabel(s.id) + ' »', style: '--c:' + stateColor(s.id),
+        onclick: () => focusColumn(s.id) }, ico(stateIcon(s.id), stateColor(s.id)), stateLabel(s.id)));
+    });
+    if (groups.has('global')) jumpEl.append(h('button', { type: 'button', class: 'jchip', 'data-g': 'global', title: 'Aller aux règles globales', style: '--c:#e0504d', onclick: () => focusColumn('global') }, ico('git-branch', '#e0504d'), 'Globales'));
+  }
+  function miniOpen() { try { return localStorage.getItem(MINI_KEY) !== 'closed'; } catch (e) { return true; } }
+  function scheduleMinimap() { if (!miniRaf) miniRaf = requestAnimationFrame(() => { miniRaf = 0; drawMinimap(); }); }
+  function drawMinimap() {
+    if (!editor || !editor.container) return;
+    if (!miniEl || !miniEl.isConnected) {
+      const cv = h('canvas', { width: 200, height: 130, 'aria-label': 'Carte du graphe (clic : y aller)' });
+      const tog = h('button', { type: 'button', class: 'mtog', title: 'Afficher / masquer la carte' });
+      miniEl = h('div', { id: 'minimap' }, tog, cv);
+      stopPress(miniEl);
+      tog.onclick = () => { const open = !miniEl.classList.contains('open'); try { localStorage.setItem(MINI_KEY, open ? 'open' : 'closed'); } catch (e) { /* per page */ } miniEl.classList.toggle('open', open); drawMinimap(); };
+      cv.addEventListener('click', (e) => {
+        const m = miniEl._map; if (!m) return;
+        const r = cv.getBoundingClientRect(), x = m.x0 + (e.clientX - r.x) / m.s, y = m.y0 + (e.clientY - r.y) / m.s;
+        focusRect({ x0: x, y0: y, x1: x, y1: y }, editor.zoom);
+      });
+      miniEl.classList.toggle('open', miniOpen());
+      editor.container.append(miniEl);
+    }
+    miniEl.querySelector('.mtog').textContent = miniEl.classList.contains('open') ? '▾ Carte' : '▸ Carte';
+    if (!miniEl.classList.contains('open')) return;
+    const cv = miniEl.querySelector('canvas'), ctx2 = cv.getContext('2d');
+    const rects = Object.entries(bandRects()), b = bbox();
+    if (!b) return;
+    const pad = 30, x0 = b.x0 - pad, y0 = b.y0 - pad, s = Math.min(cv.width / (b.x1 - b.x0 + 2 * pad), cv.height / (b.y1 - b.y0 + 2 * pad));
+    miniEl._map = { x0, y0, s };
+    ctx2.clearRect(0, 0, cv.width, cv.height);
+    ctx2.fillStyle = '#0d1117cc'; ctx2.fillRect(0, 0, cv.width, cv.height);
+    rects.forEach(([g, r]) => { ctx2.fillStyle = stateColor(g) + '88'; ctx2.fillRect((r.x0 - x0) * s, (r.y0 - y0) * s, (r.x1 - r.x0) * s, (r.y1 - r.y0) * s); });
+    const st = editor.container.getBoundingClientRect(), a = canvasPoint(st.x, st.y), c = canvasPoint(st.right, st.bottom);
+    ctx2.strokeStyle = '#ffffff'; ctx2.lineWidth = 1.5;
+    ctx2.strokeRect((a.x - x0) * s, (a.y - y0) * s, (c.x - a.x) * s, (c.y - a.y) * s);
+  }
+  // Semantic-zoom card of an automatic frame: state name, chain count, wires in / out of the column.
+  function frameCard(f) {
+    const g = f.id.startsWith('auto-') ? f.id.slice(5) : null; if (!g) return null;
+    let chains = 0, inn = 0, out = 0;
+    const data = dfData();
+    for (const id in data) { const m = data[id].data.model; if (m.group === g && m.kind === 'trigger') chains++; }
+    editor.container.querySelectorAll('svg.connection.ret').forEach((svg) => {
+      const a = nidToDf.get(svg.dataset.src), b = nidToDf.get(svg.dataset.dst), ma = a != null && model(a), mb = b != null && model(b);
+      if (!ma || !mb) return;
+      if (mb.kind === 'state' && mb.group === g && ma.group !== g) inn++;
+      if (ma.group === g && ma.kind !== 'state' && mb.kind === 'state' && mb.group !== g) out++;
+    });
+    return h('div', { class: 'fcard' }, h('div', { class: 'fcname' }, f.title || g), h('div', { class: 'fcstat' }, chains + ' chaîne' + (chains > 1 ? 's' : '') + ' · ↘ ' + inn + ' entrant' + (inn > 1 ? 's' : '') + ' · ↗ ' + out + ' sortant' + (out > 1 ? 's' : '')));
+  }
+  // Pan / zoom to a chain: its non-hub nodes at ~0.75, or the whole chain when larger (zoom >= 0.3).
+  function focusChainIds(ids) {
+    let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+    (ids || []).forEach((nid) => { const d = nidToDf.get(nid); const m = d == null ? null : model(d); if (!m || m.kind === 'state') return; const b = nodeBox(d); x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1 + 120); y1 = Math.max(y1, b.y1); });
+    if (x0 > x1) { const first = (ids || [])[0]; if (first) panTo(first, 0.75); return; }
+    const c = $('#drawflow'), w = x1 - x0, hh = y1 - y0;
+    const z = Math.max(0.3, Math.min(0.75, c.clientWidth / (w * 1.15), (c.clientHeight - 50) / (hh * 1.15)));
+    setView(z, c.clientWidth / 2 - ((x0 + x1) / 2) * z, 25 + c.clientHeight / 2 - ((y0 + y1) / 2) * z);
+  }
   // ---------- groups (cosmetic frames, "Groupe") ----------
   // meta.frames = [{id, title, color, x, y, w, h, note?}] lives in the document (serialize() copies meta), so undo/redo,
   // dirty tracking and Enregistrer cover it for free. The server stores it only in graph.layout.json: it is never
@@ -826,6 +920,7 @@
       const grip = h('div', { class: 'fresize', title: 'Redimensionner' });
       const el = h('div', { class: 'frame' + (f.auto ? ' auto' : '') + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id }, title, grip);
       placeFrame(f, el);
+      if (f.auto) { const card = frameCard(f); if (card) el.append(card); }   // semantic-zoom card (CSS shows it below 0.25)
       for (const part of [title, grip]) {
         part.addEventListener('mousedown', (e) => startFrameDrag(e, f, part === grip ? 'resize' : 'move'));
         part.addEventListener('touchstart', (e) => startFrameDrag(e, f, part === grip ? 'resize' : 'move'), { passive: false });
@@ -984,8 +1079,9 @@
   function fit() {
     const b = bbox(), c = $('#drawflow');
     if (!b) return;
-    const z = fitZoom(), w = b.x1 - b.x0, hh = b.y1 - b.y0;
-    setView(z, (c.clientWidth - w * z) / 2 - b.x0 * z, (c.clientHeight - hh * z) / 2 - b.y0 * z);
+    const w = b.x1 - b.x0, hh = b.y1 - b.y0, top = 44;   // L7 fix round: leave the jump bar row free
+    const z = Math.min(fitZoom(), (c.clientHeight - top) / (hh * 1.08));
+    setView(z, (c.clientWidth - w * z) / 2 - b.x0 * z, top + (c.clientHeight - top - hh * z) / 2 - b.y0 * z);
   }
   // Jump to a state band: fit it to the canvas (or use a fixed readable zoom when given).
   function focusRect(r, zoom) {
@@ -1019,6 +1115,7 @@
     cx -= ox * (1 - z); cy -= oy * (1 - z);
     editor.zoom = z; editor.zoom_last_value = z; editor.canvas_x = cx; editor.canvas_y = cy;
     editor.precanvas.style.transform = `translate(${cx}px, ${cy}px) scale(${z})`;
+    zoomVars();
   }
   function focusNode(nid) {
     const dfid = nidToDf.get(nid);
@@ -1115,6 +1212,13 @@
   function noteSpot(x, y, w, hh, selfId) {
     const boxes = Object.keys(dfData()).map((id) => nodeBox(id));
     notes().forEach((o) => { if (o.id !== selfId) boxes.push({ x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + o.h }); });
+    // L7 fix round: keep clear of each hub's wire fan too (from the hub's output port to its first chain layer)
+    const bands = bandRects(), data = dfData();
+    for (const id in data) {
+      const m = data[id].data.model; if (m.kind !== 'state') continue;
+      const hb = nodeBox(id), r = bands[m.group];
+      boxes.push({ x0: hb.x1, y0: hb.y0, x1: hb.x0 + 330, y1: r ? r.y1 : hb.y1 });
+    }
     const M = 18, free = (px, py) => boxes.every((b) => px + w + M < b.x0 || px > b.x1 + M || py + hh + M < b.y0 || py > b.y1 + M);
     if (free(x, y)) return { x: Math.round(x), y: Math.round(y) };
     for (let r = 1; r <= 60; r++) {
@@ -2041,9 +2145,9 @@
     sim.trace.slice(0, Math.max(i, 0)).forEach((e) => idsOf(e).forEach((x) => lit.past.add(x)));
     simState = sim.trace[i] ? sim.trace[i].to : null;
     paintChains(); drawBands(); renderSimTrace();
-    const first = i >= 0 && sim.trace[i] ? idsOf(sim.trace[i])[0] : null;
-    if (pan === 'fit') fitLit();
-    else if (pan && first && !isVisible(first)) panTo(first, 0.45);
+    // L7 fix round: every displayed step brings its chain to the middle of the canvas (~0.75 zoom, or the whole
+    // chain when larger); `pan === false` (tab switch) keeps the user's view
+    if (pan !== false && i >= 0 && sim.trace[i]) focusChainIds(idsOf(sim.trace[i]));
   }
   // Frame every lit node (fired chains in blue, current one in yellow) when they fit at zoom >= 0.3;
   // otherwise keep that zoom and centre on the current chain.
@@ -2235,6 +2339,7 @@
     const origUpdate = editor.updateConnectionNodes.bind(editor);
     editor.updateConnectionNodes = (id) => { origUpdate(id); paintWires(id); };
     installRetHover();
+    editor.on('zoom', zoomVars); editor.on('translate', scheduleMinimap);
     setRetVisible(retVisible());
     $('#btnRet').onclick = () => setRetVisible(!document.body.classList.contains('ret-visible'));
     installButtonGuards();

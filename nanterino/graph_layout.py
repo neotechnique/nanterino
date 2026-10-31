@@ -107,6 +107,13 @@ def node_height(n) -> int:
 HUB_PITCH = 320         # layer pitch inside a hub column: leaves ~100 px after a node for its "→ État" badge
 HUB_GAP = 70            # vertical space between the hub row and the first chain row of its column
 COL_GAP = 150           # free space between two hub columns (badge of the last layer + frame padding)
+ROW_GAP = 300           # hub row of a wrapped row sits this far below the previous row (room for zoom-scaled frame titles)
+SUBCOL_CHAINS = 6       # a column with more chain groups than this is split into two sub-columns
+SUBCOL_GAP = 40         # extra space between the two sub-columns of one state column
+MAX_ROWS = 4
+# wanted width / height of the whole drawing. Measured 2026-10-31: the editor canvas between the two side panels is
+# about 660 x 614 at 1280 x 700 (aspect ~1.1); 16/9 gave fit 0.090 there, 1.1 gives 0.105 (best of the splits).
+TARGET_ASPECT = 1.1
 BADGE_ROOM = 110        # width reserved right of the last layer for the "→ État" proxy badges
 STATE_LABELS = {"veille": "Veille", "accueil": "Accueil", "ecoute": "Écoute", "reponse": "Réponse",
                 "relance": "Relance", "cloture": "Clôture", "eteint": "Éteint", "global": "Règles globales"}
@@ -129,7 +136,11 @@ def hub_groups(nodes) -> list:
 
 
 def hub_layout(nodes, links, y0: int = TOP) -> dict:
-    """Columns layout of the state-node (hub) drawing (L7, 2026-10-31).
+    """Columns layout of the state-node (hub) drawing (L7, 2026-10-31; fix round: columns wrapped into rows).
+
+    Fix round: the columns (flow order kept) are wrapped into 1..4 rows chosen by `_wrap_rows()` for an
+    overall aspect close to TARGET_ASPECT; hubs sit at the top of their column (one hub row per row); a column
+    with more than SUBCOL_CHAINS chain groups is split into two sub-columns. The text below describes one row.
 
     Every state hub sits on the TOP row, left to right in flow order (veille ... eteint); it heads a column that
     holds the chains starting in that state, laid out with the layered band algorithm of `auto_layout()` one
@@ -138,23 +149,105 @@ def hub_layout(nodes, links, y0: int = TOP) -> dict:
     columns; inside a column `auto_layout()` already guarantees no overlap. The wires that return to a state hub
     are not optimised (the editor draws them faded with a "→ État" badge, see web/editor.js).
     """
-    pos, x = {}, 0
+    # L7 fix round: the columns are built at the origin, then wrapped into rows (see _wrap_rows)
     hub_h = max([node_height(n) for n in nodes if n.get("kind") == "state"] + [0])
-    chain_top = y0 + (hub_h + HUB_GAP if hub_h else 0)
-    for g in hub_groups(nodes):
-        hubs = [n["id"] for n in nodes if n.get("group") == g and n.get("kind") == "state"]
-        mine = [n for n in nodes if n.get("group") == g and n.get("kind") != "state"]
-        for i in hubs:
-            pos[i] = (x, y0)
-        width = NODE_W
-        if mine:
-            cx = x + (HUB_PITCH if hubs else 0)
-            band = auto_layout(mine, links, chain_top)       # one band: x = layer * COLW, y from chain_top
-            for i, (bx, by) in band.items():
-                pos[i] = (cx + (bx // COLW) * HUB_PITCH, by)
-            width = max(pos[i][0] + NODE_W for i in band) - x + BADGE_ROOM
-        x += width + COL_GAP
+    chain_top = hub_h + HUB_GAP if hub_h else 0
+    cols = [_hub_column(g, nodes, links, chain_top) for g in hub_groups(nodes)]
+    pos = {}
+    for row in _wrap_rows(cols):
+        x = 0
+        for rel, w, _h in row["cols"]:
+            for i, (rx, ry) in rel.items():
+                pos[i] = (x + rx, y0 + row["y"] + ry)
+            x += w + COL_GAP
     return pos
+
+
+def _components(mine, links) -> list:
+    """Connected groups of chain nodes (chain-internal links only), in order of first appearance."""
+    ids = [n["id"] for n in mine]
+    parent = {i: i for i in ids}
+
+    def find(i):
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for lk in links:
+        a, b = lk["from"], lk["to"]
+        if a in parent and b in parent:
+            parent[find(a)] = find(b)
+    out, seen = [], {}
+    for i in ids:
+        r = find(i)
+        if r not in seen:
+            seen[r] = len(out)
+            out.append([])
+        out[seen[r]].append(i)
+    return out
+
+
+def _band(sub, links, top) -> dict:
+    """auto_layout of one sub-band, x converted from COLW layers to HUB_PITCH layers, starting at x = 0."""
+    band = auto_layout(sub, links, top)
+    return {i: ((bx // COLW) * HUB_PITCH, by) for i, (bx, by) in band.items()}
+
+
+def _hub_column(g, nodes, links, chain_top):
+    """({id: (x, y)} relative to the column's top-left, width, height) of one state column.
+
+    Hub at (0, 0); chains one layer to the right, from `chain_top` down. A column with more than SUBCOL_CHAINS
+    chains (connected chain groups) is split into two side-by-side sub-columns of about equal height.
+    """
+    by_id = {n["id"]: n for n in nodes}
+    rel = {n["id"]: (0, 0) for n in nodes if n.get("group") == g and n.get("kind") == "state"}
+    mine = [n for n in nodes if n.get("group") == g and n.get("kind") != "state"]
+    width, height = NODE_W, max([node_height(by_id[i]) for i in rel] + [0])
+    if mine:
+        x0 = HUB_PITCH if rel else 0
+        comps = _components(mine, links)
+        parts = [comps]
+        if len(comps) > SUBCOL_CHAINS:
+            weight = [sum(node_height(by_id[i]) + GAP_Y for i in c) for c in comps]
+            half, acc, k = sum(weight) / 2, 0, 0
+            while k < len(comps) - 1 and acc + weight[k] / 2 < half:
+                acc += weight[k]
+                k += 1
+            parts = [comps[:k], comps[k:]] if 0 < k < len(comps) else [comps]
+        for part in parts:
+            sub_ids = {i for c in part for i in c}
+            band = _band([n for n in mine if n["id"] in sub_ids], links, chain_top)
+            for i, (bx, by) in band.items():
+                rel[i] = (x0 + bx, by)
+            x0 = max(rel[i][0] for i in band) + NODE_W + BADGE_ROOM + SUBCOL_GAP
+        width = max(rel[i][0] for i in rel) + NODE_W + BADGE_ROOM
+        height = max(rel[i][1] + node_height(by_id[i]) for i in rel)
+    return rel, width, height
+
+
+def _wrap_rows(cols) -> list:
+    """Split the column list (flow order kept) into rows so the whole drawing gets close to TARGET_ASPECT.
+
+    Every contiguous split into 1..4 rows is scored by the zoom that fits it in a TARGET_ASPECT x 1 canvas
+    (min(aspect / W, 1 / H)); the best score wins, fewer rows on a tie. Returns [{"y", "cols"}]."""
+    import itertools
+    n = len(cols)
+    best = None
+    for k in range(1, min(MAX_ROWS, n) + 1):
+        for cuts in itertools.combinations(range(1, n), k - 1):
+            bounds = (0,) + cuts + (n,)
+            rows = [cols[bounds[j]:bounds[j + 1]] for j in range(k)]
+            w = max(sum(c[1] for c in r) + COL_GAP * (len(r) - 1) for r in rows)
+            h = sum(max(c[2] for c in r) for r in rows) + ROW_GAP * (k - 1)
+            score = min(TARGET_ASPECT / w, 1.0 / h)
+            if best is None or score > best[0] * 1.0001:
+                best = (score, rows)
+    out, y = [], 0
+    for r in best[1]:
+        out.append({"y": y, "cols": r})
+        y += max(c[2] for c in r) + ROW_GAP
+    return out
 
 
 def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:

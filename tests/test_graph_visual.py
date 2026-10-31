@@ -121,13 +121,16 @@ def test_layout_bands_and_persistence():
     assert len(set(pts)) == len(pts), "two nodes share a position"
     pos = {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}
     kind = {n["id"]: n["kind"] for n in doc["nodes"]}
+    grp = {n["id"]: n.get("group") for n in doc["nodes"]}
     for lk in doc["links"]:
         if kind[lk["to"]] == "state":     # CHANGED: the wire back to a state hub runs right to left by design
             continue
+        if kind[lk["from"]] == "state" and grp[lk["from"]] != grp[lk["to"]]:
+            continue                      # CHANGED (L7 fix round): hub -> global rule in another (wrapped) column
         assert pos[lk["to"]][0] > pos[lk["from"]][0], "a link does not run left to right: %r" % (lk,)
     # CHANGED (L7): state hubs form the top row, one per column, in state order from left to right
     hubs = [n for n in doc["nodes"] if n["kind"] == "state"]
-    assert len({n["y"] for n in hubs}) == 1 and [n["x"] for n in hubs] == sorted(n["x"] for n in hubs)
+    assert [(n["y"], n["x"]) for n in hubs] == sorted((n["y"], n["x"]) for n in hubs)   # fix round: reading order
     # bands of one state are contiguous and the state colours are distinct
     assert len({s["color"] for s in doc["states"]}) == len(doc["states"])
     # a moved node comes back where the user put it, through the structural layout keys
@@ -778,18 +781,21 @@ def test_hub_layout_has_no_overlap_and_global_area():
     for n in doc["nodes"]:
         if n.get("group"):
             xs.setdefault(n["group"], []).append(pos[n["id"]][0])
-    lefts = [min(xs[g]) for g in order]
-    assert lefts == sorted(lefts), "columns run left to right in state order, globals last"
-    for g in order[:-1]:     # columns are disjoint: every node of a column is left of the next column
-        nxt = order[order.index(g) + 1]
-        assert max(xs[g]) + GL.NODE_W < min(xs[nxt]), (g, nxt)
+    # CHANGED (L7 fix round): columns are wrapped into rows; reading order (row top, then x) = state order
+    reading = [(min(groups[g]), min(xs[g])) for g in order]
+    assert reading == sorted(reading), "columns in reading order = state order, globals last"
     hubs = [n for n in doc["nodes"] if n["kind"] == "state"]
-    assert len({pos[n["id"]][1] for n in hubs}) == 1, "all hubs on one row"
     assert all(pos[n["id"]][1] <= min(groups[n["group"]]) for n in hubs), "hub heads its column"
     assert [f["title"] for f in doc["frames"]][-1] == "Règles globales"
     assert all(f.get("auto") for f in doc["frames"]) and len(doc["frames"]) == len(order)
     fr = doc["frames"]
-    assert all(fr[i]["x"] + fr[i]["w"] < fr[i + 1]["x"] for i in range(len(fr) - 1)), "auto frames never overlap"
+    for i in range(len(fr)):      # auto frames (one per column) never overlap
+        for j in range(i + 1, len(fr)):
+            a, b = fr[i], fr[j]
+            assert a["x"] + a["w"] < b["x"] or b["x"] + b["w"] < a["x"] or a["y"] + a["h"] < b["y"] or b["y"] + b["h"] < a["y"], (a["id"], b["id"])
+    W = max(f["x"] + f["w"] for f in fr) - min(f["x"] for f in fr)
+    H = max(f["y"] + f["h"] for f in fr) - min(f["y"] for f in fr)
+    assert 0.6 < W / H < 2.2, "wrapped drawing is not a thin strip (%dx%d)" % (W, H)
     print("  hub columns: %d crossings with all wires, %d without the faded returning wires" % (
         GL.crossings(doc["nodes"], doc["links"], pos), GL.crossings(doc["nodes"], doc["links"], pos, returning=False)))
     # an old layout file (no `state/` key) is ignored for positions but its frames stay
