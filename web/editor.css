@@ -355,3 +355,14 @@ body:not(.ret-visible) .drawflow svg.connection.ret .main-path:hover{opacity:.6;
 #minimap.open canvas{display:block}
 /* tester: past chain wires blue, returning wires outside the lit chains stay dimmed */
 #drawflow.simdim svg.connection.ret:not(.wlit-now):not(.wlit-past) .main-path{opacity:.12!important}
+/* Polish after QA: the jump bar stays on one line (scrolls sideways instead of wrapping over frame titles),
+   the minimap is translucent until hovered so it never hides the nodes behind it,
+   and semantic column cards shrink their text to fit small frames. */
+#jumpbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;pointer-events:auto;background:linear-gradient(#0d1117cc,#0d111700)}
+#jumpbar::-webkit-scrollbar{display:none}
+#jumpbar .jchip{flex:0 0 auto}
+#minimap{opacity:.45;transition:opacity .15s}
+#minimap:hover,#minimap:focus-within{opacity:1}
+#minimap canvas{width:170px;height:110px}
+#drawflow.semzoom .frame.auto .fcard{overflow:hidden;padding:4%;box-sizing:border-box;text-align:center}
+#drawflow.semzoom .fcard .fcname,#drawflow.semzoom .fcard .fcstat{max-width:100%;overflow-wrap:anywhere}
