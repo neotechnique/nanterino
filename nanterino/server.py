@@ -7,6 +7,7 @@ is not exposed to the venue Wi-Fi.
 import asyncio
 import ipaddress
 import os
+import re
 import subprocess
 import threading
 import time
@@ -18,10 +19,11 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Res
 
 from . import config
 from .audio import AudioOut, SpeakerProfiles, find_device, list_devices
-from .brain import Brain, build_messages
+from .brain import JOURNAL_MAX, Brain, build_messages
 from .corpus import Corpus
 from . import graph as graph_mod
 from . import graph_visual
+from . import sim
 from .engines import LLM, STT, TTS
 from .log import log
 from .metrics import Metrics
@@ -65,6 +67,7 @@ vision = Vision(lost_face_s=cfg["lost_face_s"])
 vision.on_face = lambda dist: cfg.get("auto_greet_on_face") and brain.post("visage")
 # `visage_perdu` (no face for lost_face_s) is posted for graph authors; the default graph ignores it.
 vision.on_face_lost = lambda: brain.post("visage_perdu")
+vision.on_faces = brain.set_faces   # face count for the events personnes_multiples / inactivite_longue
 app = FastAPI(title="Nanterino")
 
 
@@ -147,6 +150,20 @@ def web_vendor(name: str):
     return FileResponse(os.path.join(WEB, "vendor", "drawflow", name), media_type=_VENDOR_ASSETS[name])
 
 
+_ICON_NAME = re.compile(r"^[a-z0-9-]{1,40}\.svg$")
+
+
+@app.get("/web/vendor/tabler/{name}")
+def web_tabler(name: str):
+    """Vendored Tabler icons (MIT): only `<lowercase-name>.svg` and LICENSE, read from web/vendor/tabler/."""
+    if not (_ICON_NAME.match(name) or name == "LICENSE"):
+        return PlainTextResponse("not found", status_code=404)
+    path = os.path.join(WEB, "vendor", "tabler", name)
+    if not os.path.isfile(path):
+        return PlainTextResponse("not found", status_code=404)
+    return FileResponse(path, media_type="text/plain" if name == "LICENSE" else "image/svg+xml")
+
+
 @app.get("/editor")
 def editor():
     path = os.path.join(WEB, "editor.html")
@@ -194,6 +211,56 @@ async def graph_reset():
     applied = await run_in_threadpool(brain.request_graph_reload)
     return {"ok": True, "applied": applied, "message": (
         "Graphe par défaut rétabli." if applied else "Graphe par défaut rétabli : appliqué à la prochaine veille.")}
+
+
+@app.post("/api/graph/simulate")
+async def graph_simulate(request: Request):
+    """Editor "Tester" mode: compile the posted document (nothing written) and run it in an isolated simulated
+    robot (nanterino/sim.py): no sound, no microphone, manual clock. The live brain is never touched."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "errors": [{"node": None, "message": "JSON invalide."}]}, status_code=400)
+    raw, _layout, errors = graph_visual.from_visual(body.get("doc"), brain.cfg)
+    if errors:
+        return JSONResponse({"ok": False, "errors": errors}, status_code=400)
+    ov = body.get("cfg") or {}
+    if not isinstance(ov, dict):
+        return JSONResponse({"ok": False, "errors": [{"node": None, "message": "`cfg` doit être un objet."}]}, status_code=400)
+    try:
+        result = await run_in_threadpool(sim.simulate, raw, brain.cfg, body.get("start_state") or "veille",
+                                         body.get("steps") or [], body.get("start_time"), ov)
+    except sim.SimError as e:
+        return JSONResponse({"ok": False, "errors": e.errors}, status_code=400)
+    except graph_mod.GraphError as e:
+        return JSONResponse({"ok": False, "errors": [{"node": None, "message": str(e)}]}, status_code=400)
+    return {"ok": True, **result}
+
+
+@app.get("/api/graph/versions")
+def graph_versions():
+    """Backups of the active graph file (newest first) with a short summary each."""
+    return {"versions": graph_visual.list_versions(_graph_paths()[0]), "max": graph_visual.KEEP_BACKUPS}
+
+
+@app.post("/api/graph/versions/{vid}/restore")
+async def graph_version_restore(vid: str):
+    """Back up the current graph, then make backup `vid` active (now when idle, else at the next veille)."""
+    gp, lp = _graph_paths()
+    ok, status, msg = await run_in_threadpool(graph_visual.restore_version, vid, brain.cfg, gp, lp)
+    if not ok:
+        return JSONResponse({"ok": False, "errors": [{"node": None, "message": msg}]}, status_code=status)
+    applied = await run_in_threadpool(brain.request_graph_reload)
+    return {"ok": True, "applied": applied, "message": (
+        "Version restaurée et appliquée." if applied else "Version restaurée : elle sera appliquée à la prochaine veille.")}
+
+
+@app.get("/api/graph/trace")
+def graph_trace():
+    """Live journal: the last chains that fired (oldest first)."""
+    return {"trace": brain.trace(), "max": JOURNAL_MAX}
 
 
 @app.get("/api/live")

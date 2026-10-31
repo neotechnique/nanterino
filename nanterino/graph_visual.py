@@ -20,6 +20,9 @@ Boundary
       (`<state>/t<index>/<position in chain>`, `<state>/enter/<pos>`, `global/t<i>/<pos>`, `start`),
       because node ids are regenerated on every `to_visual()`.
 
+Wave 2 (2026-10-31): trigger `params.enabled`, state icons (layout `icons`), intent errors that name the
+    intent, 30 backups with their layout copy (`backup_pair`), `list_versions()` / `restore_version()`.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -50,11 +53,14 @@ PALETTE = ["#4f8ef7", "#2fb59a", "#e0a030", "#a06cd5", "#e07a5f", "#6c8ea4", "#7
 STATE_COLORS = {"veille": "#4f8ef7", "accueil": "#2fb59a", "ecoute": "#e0a030", "reponse": "#a06cd5",
                 "relance": "#e07a5f", "cloture": "#6c8ea4", "eteint": "#7a7a7a"}
 GLOBAL_COLOR = "#c0504d"
+ICON_NAME = re.compile(r"^[a-z0-9-]{1,40}$")        # Tabler icon file name; also what the server serves
+KEEP_BACKUPS = 30                                    # graph.yaml.bak-* copies kept (was 10)
+BACKUP_ID = re.compile(r"^\d{8}-\d{6}(-\d+)?$")        # <stamp> of graph.yaml.bak-<stamp>
 KINDS = ("start", "trigger", "condition", "action", "goto", "end")
 PORTS = {"start": ("out",), "trigger": ("out",), "condition": ("true", "false"), "action": ("out",)}
 HEADER = (
     "# Graphe de dialogue de Nanterino, écrit par l'éditeur visuel (/editor).\n"
-    "# L'éditeur réécrit ce fichier en entier : une copie datée est gardée à côté (graph.yaml.bak-<date>, 10 dernières).\n"
+    "# L'éditeur réécrit ce fichier en entier : une copie datée est gardée à côté (graph.yaml.bak-<date>, 30 dernières).\n"
     "# Le sens des clés est expliqué dans nanterino/graph.yaml (le graphe livré avec le code).\n"
     "# Pour revenir au graphe d'origine : POST /api/graph/reset (ou le bouton de l'éditeur).\n")
 
@@ -92,6 +98,12 @@ def _coerce_delay(v):
 
 def state_color(sid: str, index: int, layout: dict | None = None) -> str:
     return ((layout or {}).get("states") or {}).get(sid) or STATE_COLORS.get(sid) or PALETTE[index % len(PALETTE)]
+
+
+def state_icon(sid: str, layout: dict | None = None) -> str:
+    """Icon of a state: the one saved with the layout (editor choice), else the registry's."""
+    icon = ((layout or {}).get("icons") or {}).get(sid)
+    return icon if isinstance(icon, str) and ICON_NAME.match(icon) else G.state_icon(sid)
 
 
 # ---------------------------------------------------------------- raw dict -> visual document
@@ -150,6 +162,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
             trig = {"type": "after", "delay": t["after"], "since": t.get("since") or "state"}
         else:
             trig = {"type": "event", "event": t.get("on")}
+        trig["enabled"] = t.get("enabled", True) is not False   # False: kept in the file, ignored by the engine
         order.append(chain(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
                            _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason")))
 
@@ -195,7 +208,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     doc = {
         "version": 1, "nodes": nodes, "links": links,
         "states": [{"id": s, "description": str((spec or {}).get("description") or ""),
-                    "color": state_color(s, i, layout)} for i, (s, spec) in enumerate(states_raw.items())],
+                    "color": state_color(s, i, layout), "icon": state_icon(s, layout)}
+                   for i, (s, spec) in enumerate(states_raw.items())],
         "intents": json.loads(json.dumps(graph_dict.get("intents") or {})),
         "order": order,
     }
@@ -212,10 +226,10 @@ def from_visual(doc: dict, cfg: dict):
     """
     errors, seen = [], set()
 
-    def err(node, msg):
+    def err(node, msg, **extra):
         if (node, msg) not in seen:
             seen.add((node, msg))
-            errors.append({"node": node, "message": msg})
+            errors.append({"node": node, "message": msg, **extra})
 
     if not isinstance(doc, dict) or not isinstance(doc.get("nodes"), list):
         return None, {}, [{"node": None, "message": "Document invalide : la liste `nodes` est absente."}]
@@ -301,8 +315,12 @@ def from_visual(doc: dict, cfg: dict):
         elif kind == "enter":
             if p.get("state") not in state_ids:
                 err(tid, "État inconnu : %r." % (p.get("state"),))
+            if p.get("enabled") is False:
+                err(tid, "Un déclencheur « entrée dans l'état » ne peut pas être désactivé.")
         else:
             err(tid, "Type de déclencheur inconnu : %r (event, after ou enter)." % (kind,))
+        if p.get("enabled") not in (None, True, False):
+            err(tid, "« enabled » doit être vrai ou faux.")
         if len(errors) > n_err:
             paths(tid)  # still walk it so its nodes count as reached
             continue
@@ -379,6 +397,8 @@ def from_visual(doc: dict, cfg: dict):
                     t["since"] = p.get("since") or "state"
                 else:
                     t["on"] = p["event"]
+                if p.get("enabled") is False:
+                    t["enabled"] = False
                 single = len(pos_sets) == 1 and len(pos_sets[0]) == 1 and not neg_sets and not force_global
                 if single:
                     container, label = transitions.setdefault(pos_sets[0][0], []), "state %s transition" % pos_sets[0][0]
@@ -445,9 +465,17 @@ def from_visual(doc: dict, cfg: dict):
             items = e.items or [("", str(e))]
             for where, msg in items:
                 nid = next((v for k, v in where_map.items() if where == k or where.startswith(k + " ")), None)
-                err(nid, "%s : %s" % (where, msg) if where else msg)
+                if where.startswith("intent "):   # the editor shows intent problems next to the intent, not a node
+                    err(None, "%s : %s" % (where, msg), intent=where[7:])
+                else:
+                    err(nid, "%s : %s" % (where, msg) if where else msg)
 
     layout = {"nodes": node_pos, "states": {s["id"]: s["color"] for s in states_doc if isinstance(s, dict) and s.get("color")}}
+    icons = {s["id"]: s["icon"] for s in states_doc
+             if isinstance(s, dict) and isinstance(s.get("icon"), str) and ICON_NAME.match(s["icon"])
+             and s["icon"] != G.state_icon(s["id"])}
+    if icons:   # only the icons the user changed; the registry supplies the rest
+        layout["icons"] = icons
     for nid, n in nodes.items():
         if n["kind"] == "start":
             layout["nodes"]["start"] = {"x": n.get("x", 0), "y": n.get("y", 0)}
@@ -509,7 +537,7 @@ def dump_yaml(raw: dict) -> str:
 
 
 def _tr(t: dict) -> dict:
-    order = ("on", "after", "since", "when", "only_in", "not_in", "do", "to", "reason", "then", "description")
+    order = ("on", "after", "since", "enabled", "when", "only_in", "not_in", "do", "to", "reason", "then", "description")
     return {k: (_flow(t[k]) if isinstance(t[k], list) else t[k]) for k in order if k in t}
 
 
@@ -532,7 +560,7 @@ def load_layout(path: str) -> dict:
         return {}
 
 
-def backup_file(path: str, keep: int = 10):
+def backup_file(path: str, keep: int = KEEP_BACKUPS):
     """Copy `path` to `path.bak-<timestamp>` (if it exists) and keep only the `keep` newest copies."""
     d, base = os.path.dirname(path), os.path.basename(path)
     made = None
@@ -551,6 +579,90 @@ def backup_file(path: str, keep: int = 10):
         except OSError:
             pass
     return made
+
+
+def backup_pair(graph_path: str, layout_path: str):
+    """Back up graph.yaml AND graph.layout.json under the same stamp; returns the graph backup path or None.
+
+    The layout copy lets a restore bring the nodes back where they were; layout copies whose graph copy was
+    pruned are removed too.
+    """
+    made = backup_file(graph_path)
+    if made:
+        suffix = made.rsplit(".bak-", 1)[1]
+        if os.path.exists(layout_path):
+            shutil.copy2(layout_path, "%s.bak-%s" % (layout_path, suffix))
+        gbase = os.path.basename(graph_path)
+        live = {f[len(gbase) + 5:] for f in os.listdir(os.path.dirname(graph_path)) if f.startswith(gbase + ".bak-")}
+        d, base = os.path.dirname(layout_path), os.path.basename(layout_path)
+        for f in os.listdir(d):
+            if f.startswith(base + ".bak-") and f[len(base) + 5:] not in live:
+                try:
+                    os.remove(os.path.join(d, f))
+                except OSError:
+                    pass
+    return made
+
+
+def _summary(raw: dict) -> dict:
+    states = raw.get("states") or {}
+    trs = list(raw.get("global") or []) + [t for s in states.values() for t in ((s or {}).get("transitions") or [])]
+    return {"states": len(states), "chains": len(trs),
+            "disabled": sum(1 for t in trs if isinstance(t, dict) and t.get("enabled") is False)}
+
+
+def list_versions(graph_path: str) -> list:
+    """Backups of the graph file, newest first: [{id, date, size, summary}]."""
+    d, base = os.path.dirname(graph_path), os.path.basename(graph_path)
+    out = []
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    for f in names:
+        vid = f[len(base) + 5:] if f.startswith(base + ".bak-") else None
+        if not vid or not BACKUP_ID.match(vid):
+            continue
+        p = os.path.join(d, f)
+        try:
+            summary = _summary(load_raw(p))
+        except Exception as e:  # unreadable backup: still listed so the user can see it
+            summary = {"error": str(e)[:120]}
+        stamp = vid[:15]
+        date = "%s-%s-%sT%s:%s:%s" % (stamp[:4], stamp[4:6], stamp[6:8], stamp[9:11], stamp[11:13], stamp[13:15])
+        out.append({"id": vid, "date": date, "size": os.path.getsize(p), "summary": summary})
+    out.sort(key=lambda v: (v["id"][:15], int(v["id"][16:] or 0) if len(v["id"]) > 16 else 0), reverse=True)
+    return out
+
+
+def restore_version(vid: str, cfg: dict, graph_path: str, layout_path: str):
+    """Make backup `vid` the active graph. Returns (ok, http_status, message).
+
+    The id is matched against a strict pattern first (it becomes a file name). The backup must still
+    validate against the current vocabulary/config; the CURRENT graph is backed up before it is replaced.
+    """
+    if not isinstance(vid, str) or not BACKUP_ID.match(vid):
+        return False, 404, "Version inconnue."
+    src = "%s.bak-%s" % (graph_path, vid)
+    if not os.path.exists(src):
+        return False, 404, "Version inconnue."
+    try:
+        with open(src, encoding="utf-8") as f:
+            text = f.read()
+        G.parse_graph(yaml.load(text, Loader=G._Loader), cfg, src)
+    except (OSError, yaml.YAMLError, G.GraphError) as e:
+        return False, 400, "Cette sauvegarde n'est plus valide : %s" % str(e)[:300]
+    lsrc = "%s.bak-%s" % (layout_path, vid)
+    ltext = None
+    if os.path.exists(lsrc):
+        with open(lsrc, encoding="utf-8") as f:
+            ltext = f.read()
+    backup_pair(graph_path, layout_path)
+    _atomic_write(graph_path, text)
+    if ltext is not None:
+        _atomic_write(layout_path, ltext)
+    log.info("graph restored from backup %s", vid)
+    return True, 200, "Version restaurée."
 
 
 def _atomic_write(path: str, text: str):
@@ -572,7 +684,7 @@ def save(doc: dict, cfg: dict, graph_path: str, layout_path: str):
     except (G.GraphError, yaml.YAMLError) as e:
         log.error("graph save: produced file invalid: %s", e)
         return False, [{"node": None, "message": "Le fichier produit est invalide : %s" % e}]
-    made = backup_file(graph_path)
+    made = backup_pair(graph_path, layout_path)
     _atomic_write(graph_path, text)
     _atomic_write(layout_path, json.dumps(layout, ensure_ascii=False, indent=1))
     log.info("graph saved from the visual editor (backup=%s)", os.path.basename(made) if made else None)
@@ -581,7 +693,7 @@ def save(doc: dict, cfg: dict, graph_path: str, layout_path: str):
 
 def reset(graph_path: str, layout_path: str):
     """Back up the override and remove it (and its layout): the packaged default graph runs again."""
-    made = backup_file(graph_path)
+    made = backup_pair(graph_path, layout_path)
     for p in (graph_path, layout_path):
         try:
             os.remove(p)

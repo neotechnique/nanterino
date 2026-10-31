@@ -14,9 +14,10 @@
 # Les noms d'actions, de gardes et d'événements sont un vocabulaire fermé défini dans graph.py :
 # un nom inconnu est refusé au chargement.
 #
-# Événement prévu mais NON utilisé par ce graphe (parité avec l'ancien code) :
-#   visage_perdu : posté par la vision quand plus aucun visage n'est vu depuis `lost_face_s` (10 s).
-#   Branchement possible : dans `ecoute` ou `relance`, `- on: visage_perdu` puis `to: cloture`.
+# `enabled: false` sur une transition : elle reste écrite (et visible, grisée, dans l'éditeur) mais le moteur
+# l'ignore. Mettre `enabled: true` (ou retirer la ligne) pour l'activer.
+# Exemple livré DÉSACTIVÉ (parité avec l'ancien code) : `visage_perdu`, posté par la vision quand plus aucun
+# visage n'est vu depuis `lost_face_s` (10 s), dans `ecoute` et `relance` : dire au revoir (`to: cloture`).
 version: 1
 
 states:
@@ -89,6 +90,11 @@ states:
         when: not_speaking
         do: [count_repair]
         description: "Déjà deux demandes de répétition : ne plus insister, les délais prennent le relais."
+      - on: visage_perdu
+        enabled: false
+        to: cloture
+        reason: visage_perdu
+        description: "EXEMPLE DÉSACTIVÉ : le visiteur est parti (plus de visage depuis lost_face_s) : dire au revoir. Activer dans l'éditeur."
 
   reponse:
     description: "Le robot répond (ou chante) ; les phrases sont dites au fil de la génération."
@@ -143,6 +149,11 @@ states:
         when: not_speaking
         do: [count_repair]
         description: "Déjà deux demandes de répétition : ne plus insister."
+      - on: visage_perdu
+        enabled: false
+        to: cloture
+        reason: visage_perdu
+        description: "EXEMPLE DÉSACTIVÉ : le visiteur est parti (plus de visage) : dire au revoir. Activer dans l'éditeur."
 
   cloture:
     description: "Le robot dit au revoir, oublie la conversation, puis retourne en veille."

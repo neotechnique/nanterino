@@ -34,6 +34,7 @@ from robotlog import get_logger  # noqa: E402
 
 from nanterino import brain as brain_mod  # noqa: E402
 from nanterino import config  # noqa: E402
+from nanterino.sim import FakeCorpus, FakeIn, FakeLLM, FakeOut, FakeSTT, FakeTTS, Rec  # noqa: E402,F401
 
 log = get_logger("test_brain_graph")
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -52,94 +53,8 @@ BASE_CFG = {
 }
 
 
-class Rec:
-    """Thread-safe append-only trace."""
-
-    def __init__(self):
-        self.events, self._lock = [], threading.Lock()
-
-    def add(self, *e):
-        with self._lock:
-            self.events.append(list(e))
-
-
-class FakeIn:
-    def __init__(self, rec, *a, **k):
-        self.rec, self.active, self.level = rec, False, 0.0
-
-    def start(self):
-        self.rec.add("mic", "on"); self.active = True
-
-    def stop(self):
-        self.rec.add("mic", "off"); self.active = False
-
-
-class FakeOut:
-    """Output that is 'busy' for `dur` seconds after play(); hold mode = long dur until release()."""
-    level, muted, preroll_ms, last_play_preroll = 0.0, True, 0, False
-
-    def __init__(self, rec, tts):
-        self.rec, self.tts, self.dur, self.song_dur, self._until = rec, tts, 0.1, 0.25, 0.0
-        self.keys = {}
-
-    def play(self, pcm, rate):
-        if len(pcm) > 100:
-            label, d = "song", (self.dur if self.dur > 1 else self.song_dur)
-        else:
-            text = self.tts.texts[int(pcm[0])]
-            label, d = self.keys.get(text, text), self.dur
-        self.rec.add("play", label)
-        self._until = time.monotonic() + d
-
-    def stop(self):
-        self.rec.add("cancel"); self._until = 0.0
-
-    def release(self):
-        self._until = 0.0
-
-    @property
-    def busy(self):
-        return time.monotonic() < self._until
-
-
-class FakeTTS:
-    rate = 22050
-
-    def __init__(self):
-        self.texts = []
-
-    def synth(self, text):
-        if text not in self.texts:
-            self.texts.append(text)
-        return np.full(4, self.texts.index(text), dtype=np.int16)
-
-
-class FakeSTT:
-    prompt = ""
-
-    def __init__(self):
-        self.text = ""
-
-    def transcribe(self, pcm):
-        return self.text
-
-
-class FakeLLM:
-    def __init__(self, rec):
-        self.rec, self.delay = rec, 0.05
-
-    def sentences(self, messages):
-        self.rec.add("llm")
-        for s in ("Réponse un.", "Réponse deux.", "Réponse trois."):
-            time.sleep(self.delay)
-            yield s
-
-
-class FakeCorpus:
-    sheets = []
-
-    def search(self, *a, **k):
-        return []
+# The fake world (Rec, FakeIn, FakeOut, FakeTTS, FakeSTT, FakeLLM, FakeCorpus) lives in nanterino/sim.py, shared
+# with the graph simulator of the editor's "Tester" mode; re-exported here under the same names.
 
 
 class H:

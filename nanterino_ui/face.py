@@ -38,6 +38,16 @@ STATES = {  # constant eye size in every state; only blink / eteint close the ey
     "eteint":  {"happy": False, "smile": 0.0, "closed": True},
 }
 
+# Expressions set by the graph action `set_expression` (snapshot["expression"]): they override the state's
+# look while active. smile < 0 draws a frown; eye_scale multiplies the eye height; look = pupil target.
+EXPRESSIONS = {
+    "content":   {"happy": True,  "smile": 1.0},
+    "surpris":   {"happy": False, "smile": 0.0, "eye_scale": 1.3},
+    "reflechit": {"happy": False, "smile": 0.1, "look": (0.55, -0.65)},
+    "triste":    {"happy": False, "smile": -0.8, "eye_scale": 0.8, "look": (0.0, 0.55)},
+    "neutre":    {"happy": False, "smile": 0.0},
+}
+
 
 class FaceWidget(QWidget):
     def __init__(self, on_click, on_toggle=None):
@@ -76,7 +86,8 @@ class FaceWidget(QWidget):
     @staticmethod
     def _view_key(s: dict):
         return (s.get("state"), s.get("subtitle"), s.get("muted"), s.get("deaf"), s.get("face_scale"),
-                s.get("speaking"), bool((s.get("face") or {}).get("present")))
+                s.get("speaking"), bool((s.get("face") or {}).get("present")),
+                (s.get("expression") or {}).get("name"), s.get("gaze_mode"))
 
     @property
     def s(self):
@@ -199,11 +210,16 @@ class FaceWidget(QWidget):
         self._glow(p, self._stroke(arc, 0.45 * u), EYE, u)
 
     # ------------------------------------------------------------------ gaze
-    def _update_gaze(self, st: str, t: float, steps: float = 1.0):
+    def _update_gaze(self, st: str, t: float, steps: float = 1.0, look=None):
         face = self.s.get("face") or {}
+        mode = self.s.get("gaze_mode") or "suivre"   # graph action `gaze`: suivre (default) | devant | errer
         if st == "eteint":  # eyes closed: no tracking, no wandering
             self.gaze_target = [0.0, 0.0]; self.next_saccade = t + 1.0
-        elif face.get("present"):
+        elif look:  # an active expression (thinking, sad...) steers the pupils
+            self.gaze_target = [look[0], look[1]]; self.next_saccade = t + 1.0
+        elif mode == "devant":
+            self.gaze_target = [0.0, 0.0]; self.next_saccade = t + 1.0
+        elif face.get("present") and mode == "suivre":
             # Look AT the person: a person facing the screen appears mirrored in the camera image.
             g = self.s.get("gaze") or {}  # calibration from the dashboard (camera above the screen)
             gx = -face.get("x", 0) * g.get("gain_x", 1.6) + g.get("offset_x", 0.0)
@@ -211,7 +227,9 @@ class FaceWidget(QWidget):
             self.gaze_target = [max(-1, min(1, gx)), max(-1, min(1, gy))]
             self.next_saccade = t + 1.5  # resume wandering 1.5 s after the face disappears
         elif t >= self.next_saccade:
-            if st in ("ecoute", "reponse"):  # attending: small drift only
+            if mode == "errer":
+                self.gaze_target = [random.uniform(-0.8, 0.8), random.uniform(-0.5, 0.4)]
+            elif st in ("ecoute", "reponse"):  # attending: small drift only
                 self.gaze_target = [random.uniform(-0.15, 0.15), random.uniform(-0.1, 0.1)]
             else:
                 self.gaze_target = [random.uniform(-0.8, 0.8), random.uniform(-0.5, 0.4)]
@@ -231,6 +249,9 @@ class FaceWidget(QWidget):
         t = time.monotonic() - self.t0
         st = self.s.get("state", "veille")
         cfg = STATES.get(st, STATES["veille"])
+        expr = EXPRESSIONS.get((self.s.get("expression") or {}).get("name")) if st != "eteint" else None
+        if expr:
+            cfg = {**cfg, **expr}
         # Face unit; the dashboard "Taille du visage" slider scales the whole face around its centre.
         u = min(w, face_h) / 10 * float(self.s.get("face_scale", 1.0) or 1.0)
         cx, cy = w / 2, face_h * 0.45
@@ -240,7 +261,7 @@ class FaceWidget(QWidget):
         self._last_paint = now
         self.eye_open += ((0.07 if cfg.get("closed") else 1.0) - self.eye_open) * (1 - 0.85 ** steps)
         blink = 0.12 if (t % (5.0 if st == "veille" else 3.8)) < 0.13 else 1.0
-        self._update_gaze(st, t, steps)
+        self._update_gaze(st, t, steps, (expr or {}).get("look"))
         speaking = st == "reponse" or self.s.get("speaking")
         target_m = min(1.0, self.s.get("out_level", 0) * 1.6) if speaking else 0.0
         self.mouth += (target_m - self.mouth) * (1 - 0.65 ** steps)
@@ -251,7 +272,7 @@ class FaceWidget(QWidget):
             if cfg["happy"]:
                 self._happy_eye(p, ex, cy, u)
             else:
-                eh = max(eh_full * self.eye_open * blink, 0.18 * u)
+                eh = max(eh_full * cfg.get("eye_scale", 1.0) * self.eye_open * blink, 0.18 * u)
                 rect = QRectF(ex - ew / 2, cy - eh / 2, ew, eh)
                 self._eye(p, rect, min(ew, eh) * 0.42, u, with_pupil=not cfg.get("closed"))
             self._draw_cheek(p, side, cx, cy, u)

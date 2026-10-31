@@ -36,10 +36,11 @@ class Vision:
         self.max_dist_m = max_dist_m
         self.lost_face_s = lost_face_s  # absence needed before on_face_lost fires
         self.state = {"present": False, "x": 0.0, "y": 0.0, "dist_m": None, "track_id": None, "fps": 0.0,
-                      "camera": False}
+                      "camera": False, "faces": 0}
         self._box, self._last_seen, self._next_id = None, 0.0, 1
         self.on_face = None  # optional callback(dist_m) when a face appears within max_dist_m
         self.on_face_lost = None  # optional callback() once, after lost_face_s without any face
+        self.on_faces = None  # optional callback(count) for every processed frame: faces seen within max_dist_m
         self._lost_fired = False
         threading.Thread(target=self._run, daemon=True, name="vision").start()
 
@@ -48,7 +49,9 @@ class Vision:
             try:
                 self._loop()
             except Exception as e:
-                self.state = {**self.state, "present": False, "camera": False}
+                self.state = {**self.state, "present": False, "camera": False, "faces": 0}
+                if self.on_faces:
+                    self.on_faces(0)
                 log.warning("vision stopped: %s (retry in 5 s)", e)
                 time.sleep(5)
 
@@ -119,6 +122,11 @@ class Vision:
             if dist is not None and dist > self.max_dist_m:
                 continue  # people further than 3 m are ignored (F01)
             cands.append(((x, y, w, h), dist))
+        # Every detection within range counts (the tracker below keeps following ONE face); an anonymous
+        # count only, used for the `personnes_multiples` event and the idle timer.
+        self.state["faces"] = len(cands)
+        if self.on_faces:
+            self.on_faces(len(cands))
         if not cands:
             if self.state["present"] and now - self._last_seen > LOST_AFTER_S:
                 self.state.update(present=False, track_id=None)

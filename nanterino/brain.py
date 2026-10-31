@@ -17,11 +17,18 @@ the graph's `after:` delays and the scheduled events. A watchdog thread trips wh
 for cfg["watchdog_s"] seconds (a handler is stuck): it logs to errors.log, cancels speech, queues a
 priority `stop` and restarts a dead loop thread.
 
+Wave 2 (2026-10-31): the same class also runs the editor's simulator (nanterino/sim.py) through constructor seams
+(`clock`, `wall`, `mic`, `graph`, `threaded=False`, `start_state`; events are drained by `pump()`). It keeps a
+journal of the last 50 fired chains (`note_fire`, `trace()`, snapshot `last_transition`), derives sensor events
+(`_sensors`: personnes_multiples, inactivite_longue, ouverture/fermeture) and exposes `expression` / `gaze_mode`
+in the snapshot for the face UI.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
 running answers missed it and kept talking after "Stop".)
 """
+import datetime
 import itertools
 import re
 import numpy as np
@@ -33,6 +40,7 @@ import time
 
 from . import graph as graph_mod
 from .audio import AudioIn, find_device
+from . import hours as hours_mod
 from .log import log
 
 VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
@@ -42,6 +50,11 @@ VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
 PHANTOMS = ("sous-titres", "sous titres", "merci d'avoir regardé", "abonnez-vous", "amara.org",
             "merci de votre attention", "♪", "[musique]", "(musique)")
 MAX_TURNS = 12  # safety net: a conversation never loops forever
+JOURNAL_MAX = 50       # fired chains kept for /api/graph/trace
+MULTI_FACES_S = 1.0    # personnes_multiples: >= 2 faces for this long
+SENSOR_PERIOD_S = 1.0  # opening-hours check rate (the other sensor rules run every tick)
+SIM_ANSWER_S, SIM_SONG_S = 2.0, 3.0   # virtual durations of a simulated answer / song (simulator only)
+SAY_TEXTS_MAX = 40     # free phrases pre-synthesised per graph (memory bound)
 
 
 # Single words Whisper typically invents on breath/noise; other single words are real answers
@@ -101,10 +114,17 @@ def build_messages(cfg: dict, sheets: list[dict], history: list[dict], question:
 
 
 class Brain:
-    def __init__(self, cfg, out, stt, llm, tts, corpus):
+    def __init__(self, cfg, out, stt, llm, tts, corpus, *, clock=None, wall=None, mic=None, graph=None,
+                 threaded=True, start_state=None):
+        """`clock`/`wall`/`mic`/`graph`/`threaded` exist for the graph simulator (nanterino/sim.py): a manual
+        monotonic clock, a simulated wall clock, a fake microphone, an in-memory Graph (no file read) and no
+        threads at all (events are processed by `pump()`). The live robot uses none of them."""
         self.cfg, self.out, self.stt, self.llm, self.tts, self.corpus = cfg, out, stt, llm, tts, corpus
-        self.state, self.since = VEILLE, time.monotonic()
-        self.subtitle, self.last_speech = "", time.monotonic()
+        self.now = clock or time.monotonic
+        self.wall = wall or time.time
+        self._threaded, self._fixed_graph, self._start_state = threaded, graph, start_state
+        self.state, self.since = VEILLE, self.now()
+        self.subtitle, self.last_speech = "", self.now()
         self.history: list[dict] = []
         self.latencies = collections.deque(maxlen=20)  # ms, end of user speech -> first sound
         # PriorityQueue: the watchdog's `stop` (priority -1) must pass ahead of anything queued.
@@ -118,11 +138,11 @@ class Brain:
         self.repairs = 0           # consecutive "pardon ?" (max 2, then the normal timers act)
         self._relance_text = None  # one-shot text for the next RELANCE (used by the repair)
         self.stt.prompt = cfg.get("stt_prompt", "")
-        self.mic = AudioIn(self._on_utterance, self._on_speech_start,
-                           device=find_device(cfg["mic_device"], "input"),
-                           silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"],
-                           source_match=cfg.get("mic_source_match", ""),
-                           early_ms=cfg.get("stt_early_ms", 0), speculate=self.stt.transcribe)
+        self.mic = mic or AudioIn(self._on_utterance, self._on_speech_start,
+                                  device=find_device(cfg["mic_device"], "input"),
+                                  silence_ms=cfg["vad_silence_ms"], max_s=cfg["max_utterance_s"],
+                                  source_match=cfg.get("mic_source_match", ""),
+                                  early_ms=cfg.get("stt_early_ms", 0), speculate=self.stt.transcribe)
         # Fixed phrases (greeting, relance, goodbye, repair) are synthesized once and replayed:
         # identical samples, no TTS wait before the robot starts talking.
         self._phrases: dict[str, np.ndarray] = {}
@@ -131,7 +151,7 @@ class Brain:
         self.watchdog_s = float(cfg.get("watchdog_s", 5))
         self._closing = threading.Event()
         self._tick_pending = False   # at most one tick in the queue: a stuck loop must not pile them up
-        self._last_beat = time.monotonic()
+        self._last_beat = self.now()
         self._lag_ms, self._hz, self._trips, self._wd_tripped = 0.0, 0.0, 0, False
         self._beats: collections.deque = collections.deque(maxlen=30)
         self._tick_err_at = 0.0
@@ -139,9 +159,23 @@ class Brain:
         self._sched_lock = threading.Lock()
         self.graph_error = None
         self.graph_pending = False   # a saved graph waits for the next idle state (see request_graph_reload)
+        # Journal of fired chains (last 50): feeds GET /api/graph/trace, snapshot()["last_transition"] and
+        # the simulator. `journal_hook(entry)` lets the simulator observe each new entry.
+        self.journal: collections.deque = collections.deque(maxlen=JOURNAL_MAX)
+        self.journal_hook = None
+        # Face expression / gaze commands of the graph actions set_expression and gaze (read by the UI).
+        self._expression = None      # (name, expires monotonic) or None
+        self.gaze_mode = "suivre"
+        self._deferred: list = []    # (due monotonic, gen, fn): continuations of the `wait` action
+        # Sensor-derived events (personnes_multiples, inactivite_longue, ouverture/fermeture), see _sensors().
+        self.faces, self._multi_since, self._multi_posted = 0, None, False
+        self.last_activity, self._idle_posted = self.now(), False
+        self._open_prev, self._open_check = None, 0.0
         self.engine = self._build_engine()
-        threading.Thread(target=self._cache_phrases, daemon=True, name="phrase-cache").start()
-        self._start_threads()
+        if self._threaded:
+            self._start_threads()
+        else:
+            self._boot()   # simulator: no threads, the caller drives pump() with a manual clock
 
     # ------------------------------------------------------------------ public API (UI / sensors)
     def post(self, kind: str, **kw):
@@ -152,11 +186,15 @@ class Brain:
         self.events.put((-1, next(self._seq), kind, kw))
 
     def snapshot(self) -> dict:
-        now = time.monotonic()
+        now = self.now()
+        expr = self._expression
         return {"state": self.state, "subtitle": self.subtitle, "mic_on": self.mic.active,
                 "mic_level": round(self.mic.level, 3), "out_level": round(self.out.level, 3),
                 "speaking": self.out.busy, "muted": self.out.muted, "deaf": self.deaf, "latencies_ms": list(self.latencies),
                 "state_age_s": round(now - self.since, 1), "turns": self.turns,
+                # graph actions set_expression / gaze (the face UI reads them; `gaze` is taken by /api/live)
+                "expression": {"name": expr[0], "left_s": round(expr[1] - now, 1)} if expr and expr[1] > now else None,
+                "gaze_mode": self.gaze_mode, "last_transition": self.last_transition(),
                 "heartbeat": {"hz": round(self._hz, 1), "lag_ms": round(self._lag_ms, 1),
                               "age_ms": int((now - self._last_beat) * 1000), "trips": self._trips}}
 
@@ -180,6 +218,97 @@ class Brain:
             self.graph_pending = True
             log.info("graph saved while busy: will be applied at the next idle state")
         return ok
+
+    # ------------------------------------------------------------------ journal of fired chains
+    def note_fire(self, chain_key, tr, event):
+        """Called by the GraphEngine each time a transition fires; returns the (mutable) journal entry.
+
+        The engine fills `to`/`moved`/`reason` when the chain really changes the state (a chain may also only
+        run actions, or be paused by `wait`, so the entry is completed later).
+        """
+        entry = {"t": round(self.wall(), 3), "mono": self.now(), "event": event, "from": self.state,
+                 "to": self.state, "moved": False, "reason": tr.reason or tr.on or "after",
+                 "chain": chain_key, "actions": [c.label() for c in tr.do + tr.then]}
+        self.journal.append(entry)
+        if self.journal_hook:
+            self.journal_hook(entry)
+        return entry
+
+    @staticmethod
+    def _public_entry(e: dict, now: float) -> dict:
+        d = {k: v for k, v in e.items() if k != "mono"}
+        d["age_s"] = round(max(0.0, now - e["mono"]), 1)
+        return d
+
+    def last_transition(self):
+        try:
+            return self._public_entry(self.journal[-1], self.now())
+        except IndexError:
+            return None
+
+    def trace(self) -> list:
+        """The last fired chains, oldest first (GET /api/graph/trace)."""
+        now = self.now()
+        return [self._public_entry(e, now) for e in list(self.journal)]
+
+    def defer(self, delay_s: float, fn):
+        """Run `fn` in the brain loop after `delay_s` (non-blocking `wait`). A stop/off/hush in between bumps
+        `gen` and drops it, exactly like scheduled events."""
+        with self._sched_lock:
+            self._deferred.append((self.now() + delay_s, self.gen, fn))
+
+    # ------------------------------------------------------------------ sensors (vision count, idle, hours)
+    def set_faces(self, n: int):
+        """Number of faces the camera sees right now (called by the vision thread, or by the simulator)."""
+        self.faces = n
+        if n > 0:
+            self._activity()
+
+    def _activity(self):
+        self.last_activity, self._idle_posted = self.now(), False
+
+    def _sensors(self, now: float):
+        """Derived events: personnes_multiples (>= 2 faces for 1 s), inactivite_longue (no face and no
+        speech for idle_long_s) and ouverture/fermeture (opening_hours). Runs in the brain loop on every tick."""
+        if self.faces >= 2:
+            if self._multi_since is None:
+                self._multi_since = now
+            elif not self._multi_posted and now - self._multi_since >= MULTI_FACES_S:
+                self._multi_posted = True
+                self.post("personnes_multiples")
+        else:
+            self._multi_since, self._multi_posted = None, False
+        idle_s = float(self.cfg.get("idle_long_s", 300))
+        if idle_s > 0 and not self._idle_posted and self.faces == 0 and now - self.last_activity >= idle_s:
+            self._idle_posted = True
+            self.post("inactivite_longue")
+        if now - self._open_check >= SENSOR_PERIOD_S:
+            self._open_check = now
+            table = hours_mod.safe_parse(self.cfg.get("opening_hours"))
+            if table is None:
+                self._open_prev = None   # empty / invalid hours: always open, no events
+            else:
+                is_open = hours_mod.is_open(table, self._wall_dt())
+                if self._open_prev is not None and is_open != self._open_prev:
+                    self.post("ouverture" if is_open else "fermeture")
+                self._open_prev = is_open
+
+    def _wall_dt(self) -> "datetime.datetime":
+        return datetime.datetime.fromtimestamp(self.wall())
+
+    def pump(self, limit: int = 5000):
+        """Process every queued event synchronously (non-threaded simulator only).
+
+        Raises RuntimeError after `limit` events: a graph whose chains keep posting each other's events would
+        otherwise loop forever.
+        """
+        for _ in range(limit):
+            try:
+                _, _, kind, kw = self.events.get_nowait()
+            except queue.Empty:
+                return
+            self._handle(kind, kw)
+        raise RuntimeError("boucle d'événements : plus de %d événements sans fin" % limit)
 
     def set_deaf(self, deaf: bool):
         self.deaf = deaf
@@ -205,7 +334,8 @@ class Brain:
 
     # ------------------------------------------------------------------ audio callbacks
     def _on_speech_start(self):
-        self.last_speech = time.monotonic()
+        self.last_speech = self.now()
+        self._activity()
         if self.state == REPONSE and self.cfg["barge_in"]:
             self.post("barge_in")
 
@@ -222,7 +352,8 @@ class Brain:
             text = ""
         finally:
             self._busy = False
-        self.last_speech = time.monotonic()
+        self.last_speech = self.now()
+        self._activity()
         if not text or is_phantom(text, keep_words=set(self.cfg["refusal_words"]) | {"nanterino", "oui", "non"}):
             log.info("utterance rejected reason=%s words=%d", "phantom" if text else "empty", len(text.split()))  # never the text itself
             # Loud enough to be someone talking, but nothing usable: ask to repeat instead of
@@ -233,8 +364,10 @@ class Brain:
 
     # ------------------------------------------------------------------ state machine
     def _go(self, state: str, reason: str):
-        log.info("transition %s -> %s reason=%s", self.state, state, reason)
-        self.state, self.since = state, time.monotonic()
+        log.info("%stransition %s -> %s reason=%s", "" if self._threaded else "[sim] ", self.state, state, reason)
+        self.state, self.since = state, self.now()
+        if state in (VEILLE, ETEINT):
+            self.gaze_mode = "suivre"   # a `gaze` command lasts for one conversation
         if self.graph_pending and state in (VEILLE, ETEINT):
             # Deferred editor save: swap graphs here, before the new state's on_enter runs. The old engine
             # object that called us may still run its remaining `then` actions; that is harmless.
@@ -250,13 +383,16 @@ class Brain:
         names a graph file may use and GraphEngine refuses to start if one is missing.
         """
         cfg = self.cfg
-        graph, self.graph_error = graph_mod.load_active(cfg)
+        if self._fixed_graph is not None:   # simulator: the graph is given in memory, nothing is read from disk
+            graph, self.graph_error = self._fixed_graph, None
+        else:
+            graph, self.graph_error = graph_mod.load_active(cfg)
 
         def clear_conversation(kw):
             self.history.clear(); self.turns = 0; self.subtitle = ""
 
         def reset_silence(kw):
-            self.last_speech = time.monotonic()
+            self.last_speech = self.now()
 
         def speak_relance(kw):
             text, self._relance_text = self._relance_text or cfg["relance"], None  # one-shot repair text
@@ -265,7 +401,7 @@ class Brain:
         def schedule(kw, event, delay):
             d = float(delay if isinstance(delay, (int, float)) else cfg[delay])
             with self._sched_lock:  # gen captured now: stop/off before the due time drops the event
-                self._scheduled.append((time.monotonic() + d, event, self.gen))
+                self._scheduled.append((self.now() + d, event, self.gen))
 
         def count_turn(kw):
             self.turns += 1
@@ -277,13 +413,27 @@ class Brain:
             self._relance_text = cfg.get("repair_text") or cfg["relance"]
 
         def start_answer(kw):
+            if not self._threaded:   # simulator: a fixed fake answer, finished after SIM_ANSWER_S virtual seconds
+                self.subtitle = "(réponse simulée)"
+                self.llm.simulate_answer()   # the simulator's fake LLM records that an answer started
+                self._schedule_at(self.now() + SIM_ANSWER_S, "answer_done")
+                return
             threading.Thread(target=self._answer, args=(kw["text"], kw["t_end"], self.gen), daemon=True).start()
 
         def start_sing(kw):
+            if not self._threaded:
+                self._schedule_at(self.now() + SIM_SONG_S, "answer_done")
+                return
             threading.Thread(target=self._sing, args=(self.gen,), daemon=True).start()
 
+        def set_expression(kw, name, seconds):
+            self._expression = (name, self.now() + float(seconds))
+
+        def set_gaze(kw, mode):
+            self.gaze_mode = mode
+
         def as_utterance(kw):  # typed text (dashboard "ask") handled exactly like a spoken one
-            self.engine.dispatch("utterance", {"text": kw["text"], "t_end": kw.get("t_end") or time.monotonic()})
+            self.engine.dispatch("utterance", {"text": kw["text"], "t_end": kw.get("t_end") or self.now()})
 
         actions = {
             "cancel_all": lambda kw: self._cancel_all(),
@@ -302,6 +452,9 @@ class Brain:
             "schedule": schedule,
             "emit": lambda kw, event: self.engine.dispatch(event, {}),
             "start_answer": start_answer, "start_sing": start_sing, "as_utterance": as_utterance,
+            "say_text": lambda kw, text: self._speak_then(text, "say_done"),
+            "set_expression": set_expression, "gaze": set_gaze,
+            "wait": lambda kw, seconds: None,   # handled by GraphEngine._exec (it needs the rest of the chain)
         }
         guards = {
             "auto_greet_on_face": lambda kw: bool(cfg.get("auto_greet_on_face")),
@@ -311,12 +464,31 @@ class Brain:
             "not_speaking": lambda kw: not self.out.busy,
             "repairs_left": lambda kw: self.repairs < 2,          # "pardon ?" at most twice in a row
             "turns_left": lambda kw: self.turns < MAX_TURNS,       # looked up at call time (tests patch it)
+            "dans_les_horaires": lambda kw: hours_mod.is_open(hours_mod.safe_parse(cfg.get("opening_hours")),
+                                                              self._wall_dt()),
         }
-        return graph_mod.GraphEngine(graph, self, actions, guards, cfg)
+        engine = graph_mod.GraphEngine(graph, self, actions, guards, cfg)
+        # Pre-synthesise the graph's free phrases (say_text) like the fixed ones, off the loop thread.
+        if self._threaded:
+            threading.Thread(target=self._cache_phrases, args=(graph,), daemon=True, name="phrase-cache").start()
+        else:
+            self._cache_phrases(graph)
+        return engine
+
+    def _schedule_at(self, due: float, event: str):
+        with self._sched_lock:
+            self._scheduled.append((due, event, self.gen))
 
     def _speak_then(self, text: str, done_event: str):
         self.subtitle = text
         gen = self.gen
+        if not self._threaded:   # simulator: play on the fake output, then the done event after its duration
+            pcm = self._phrases.get(text)
+            if pcm is None:
+                pcm = self.tts.synth(text)
+            self.out.play(pcm, self.tts.rate)
+            self._schedule_at(self.now() + 0.15 + float(getattr(self.out, "dur", 1.0)), done_event)
+            return
 
         def run():
             try:
@@ -332,9 +504,17 @@ class Brain:
                 self.post(done_event, gen=gen)
         threading.Thread(target=run, daemon=True).start()
 
-    def _cache_phrases(self):
-        for key in ("greeting", "relance", "goodbye", "repair_text"):
-            text = self.cfg.get(key)
+    def _cache_phrases(self, graph=None):
+        """Synthesise once: the fixed config phrases and every `say_text` of `graph` (at most SAY_TEXTS_MAX).
+
+        Synthesis is silent (nothing is played), so a muted robot is unaffected; playback at run time goes
+        through AudioOut, which keeps honouring `muted`. A text already cached is skipped, so a graph
+        reload only pays for new phrases.
+        """
+        texts = [(key, self.cfg.get(key)) for key in ("greeting", "relance", "goodbye", "repair_text")]
+        if graph is not None:
+            texts += [("say_text", t) for t in graph_mod.say_texts(graph)[:SAY_TEXTS_MAX]]
+        for key, text in texts:
             if text and text not in self._phrases:
                 try:
                     self._phrases[text] = self.tts.synth(text)
@@ -363,31 +543,40 @@ class Brain:
         self._closing.set()
         self.post_priority("_quit")
 
+    def _boot(self):
+        # Power state survives restarts: an "off" robot stays off after a reboot (user request).
+        if self._start_state:          # simulator: begin in any state of the graph
+            self.state = self._start_state
+        elif self.cfg.get("power") == "off":
+            self.state = ETEINT
+        try:
+            self.engine.enter(self.state)
+        except Exception:
+            log.exception("boot entry failed")
+
+    def _handle(self, kind: str, kw: dict):
+        """One queued event (loop thread, or pump() in the simulator)."""
+        if kind == "tick":
+            self._on_tick(kw)
+            return
+        if "gen" in kw and kw["gen"] != self.gen:
+            return  # late event from a cancelled thread
+        self.engine.dispatch(kind, kw)
+
     def _loop(self, boot: bool = True):
         if boot:
-            # Power state survives restarts: an "off" robot stays off after a reboot (user request).
-            if self.cfg.get("power") == "off":
-                self.state = ETEINT
-            try:
-                self.engine.enter(self.state)
-            except Exception:
-                log.exception("boot entry failed")
+            self._boot()
         while not self._closing.is_set():
             try:
                 _, _, kind, kw = self.events.get()  # blocks: the heartbeat wakes it 10x/s
                 if kind == "_quit":
                     return
-                if kind == "tick":
-                    self._on_tick(kw)
-                    continue
-                if "gen" in kw and kw["gen"] != self.gen:
-                    continue  # late event from a cancelled thread
-                self.engine.dispatch(kind, kw)
+                self._handle(kind, kw)
             except Exception:
                 log.exception("event handling failed")
 
     def _on_tick(self, kw: dict):
-        now = time.monotonic()
+        now = self.now()
         # Beat accounting comes first: "a beat was processed" is what the watchdog measures.
         self._tick_pending, self._wd_tripped, self._last_beat = False, False, now
         self._lag_ms = (now - kw["t"]) * 1000.0
@@ -396,6 +585,7 @@ class Brain:
             self._hz = (len(self._beats) - 1) / (now - self._beats[0])
         try:
             self._release_scheduled(now)
+            self._sensors(now)
             self.engine.tick(now)
         except Exception:
             if now - self._tick_err_at > 5:  # a systematic bug must not flood the log at 10 Hz
@@ -408,6 +598,15 @@ class Brain:
             self._scheduled = [x for x in self._scheduled if x[0] > now]
         for _, event, gen in due:
             self.post(event, gen=gen)  # dropped by the loop if a stop/off bumped gen meanwhile
+        with self._sched_lock:
+            ready = [x for x in self._deferred if x[0] <= now]
+            self._deferred = [x for x in self._deferred if x[0] > now]
+        for _, gen, fn in ready:   # continuations of `wait`: run here, in the loop thread, like any event
+            if gen == self.gen:
+                try:
+                    fn()
+                except Exception:
+                    log.exception("deferred chain failed")
 
     def _heartbeat(self):
         period = 1.0 / self.hb_hz
@@ -431,7 +630,7 @@ class Brain:
             if not self._loop_thread.is_alive():
                 log.error("watchdog: brain loop thread died, restarting it")
                 self._start_loop(boot=False)
-            age = time.monotonic() - self._last_beat
+            age = self.now() - self._last_beat
             if age > self.watchdog_s and not self._wd_tripped:
                 self._wd_tripped = True  # one trip per stall; cleared by the next processed beat
                 self._trips += 1

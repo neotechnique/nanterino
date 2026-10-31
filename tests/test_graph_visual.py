@@ -118,7 +118,7 @@ def test_vocabulary():
     g = G.load_graph(G.DEFAULT_PATH, CFG)
     v = G.vocabulary(CFG, g)
     counts = {k: len(x) for k, x in v.items()}
-    assert counts == {"events": 16, "actions": 19, "guards": 7, "delays": 3, "since": 2, "states": 7, "intents": 4}, counts
+    assert counts == {"events": 21, "actions": 23, "guards": 8, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6}, counts
     assert {a["id"] for a in v["actions"]} == set(G.ACTION_SPECS)
     assert {x["id"] for x in v["guards"]} == set(G.GUARDS)
     assert {e["id"] for e in v["events"]} == set(G.EVENTS) - set(G.INTERNAL_EVENTS)
@@ -301,6 +301,7 @@ def test_save_backups_and_reset():
     doc = V.to_visual(default_raw())
     ok, errs = V.save(doc, CFG, gp, lp)
     assert ok and not errs and os.path.exists(gp) and os.path.exists(lp)
+    baks = lambda: [f for f in os.listdir(TMP) if f.startswith("graph.yaml.bak-")]  # noqa: E731  (layout copies not counted)
     assert not [f for f in os.listdir(TMP) if ".bak-" in f], "first save has nothing to back up"
     first = open(gp, encoding="utf-8").read()
     assert first.startswith("# Graphe de dialogue de Nanterino")
@@ -309,16 +310,21 @@ def test_save_backups_and_reset():
     find(bad, kind="goto", state="accueil")[0]["params"]["state"] = "atlantis"
     ok, errs = V.save(bad, CFG, gp, lp)
     assert not ok and errs and open(gp, encoding="utf-8").read() == first
-    # edit a delay 8 -> 10: the file changes, a backup appears; 13 saves keep the 10 newest backups
+    # edit a delay 8 -> 10: the file changes, a backup appears; backups are capped at V.KEEP_BACKUPS (30)
     d2 = copy.deepcopy(doc)
     find(d2, kind="trigger", delay="silence_relance_s")[0]["params"]["delay"] = "10"      # text coerced to a number
     ok, _ = V.save(d2, CFG, gp, lp)
-    assert ok and len([f for f in os.listdir(TMP) if ".bak-" in f]) == 1
+    assert ok and len(baks()) == 1
+    assert len([f for f in os.listdir(TMP) if f.startswith("graph.layout.json.bak-")]) == 1, "layout is backed up too"
     g = G.load_graph(gp, CFG)
     assert next(t for t in g.states["ecoute"].transitions if t.after is not None).after == 10
     for _ in range(12):
         assert V.save(d2, CFG, gp, lp)[0]
-    assert len([f for f in os.listdir(TMP) if ".bak-" in f]) == 10
+    assert len(baks()) == 13, len(baks())
+    for _ in range(25):
+        assert V.save(d2, CFG, gp, lp)[0]
+    assert len(baks()) == V.KEEP_BACKUPS == 30, len(baks())
+    assert len([f for f in os.listdir(TMP) if f.startswith("graph.layout.json.bak-")]) <= 30
     made = V.reset(gp, lp)
     assert made and not os.path.exists(gp) and not os.path.exists(lp)
     shutil.rmtree(TMP, ignore_errors=True)

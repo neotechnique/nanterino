@@ -50,7 +50,12 @@ DEFAULTS = {
     "silence_relance_s": 8,
     "silence_cloture_s": 15,
     "cloture_to_veille_s": 2,
-    "lost_face_s": 10,  # no face for this long -> vision posts `visage_perdu` (unused by the default graph)
+    "lost_face_s": 10,  # no face for this long -> vision posts `visage_perdu` (only a disabled example chain uses it)
+    # Opening hours for the guard `dans_les_horaires` and the events ouverture/fermeture, e.g.
+    # {"lun-ven": "09:00-18:00", "sam": ["10:00-12:00", "14:00-17:00"]}. Empty = always open, no events.
+    "opening_hours": {},
+    # No face and no speech for this long -> the event `inactivite_longue` is posted once (until activity).
+    "idle_long_s": 300,
     # Heartbeat: the brain loop ticks at this rate (delays are accurate to one tick); the watchdog
     # trips when no tick was processed for watchdog_s seconds (stuck handler). See nanterino/graph.py.
     "heartbeat_hz": 10,
