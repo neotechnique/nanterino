@@ -38,12 +38,18 @@
     <div id="toasts"></div>
   </section>
   <aside id="right">
-    <nav class="tabs">
-      <button id="tabNode" class="on">Nœud</button>
-      <button id="tabIntents">Intentions</button>
+    <nav class="tabs" id="tabs">
+      <button data-tab="node" class="on">Nœud</button>
+      <button data-tab="intents">Intentions</button>
+      <button data-tab="tester">Tester</button>
+      <button data-tab="versions">Versions</button>
+      <button data-tab="journal">Journal</button>
     </nav>
-    <div id="inspector"></div>
-    <div id="intents" hidden></div>
+    <div id="inspector" class="panel" data-panel="node"></div>
+    <div id="intents" class="panel" data-panel="intents" hidden></div>
+    <div id="tester" class="panel" data-panel="tester" hidden></div>
+    <div id="versions" class="panel" data-panel="versions" hidden></div>
+    <div id="journal" class="panel" data-panel="journal" hidden></div>
   </aside>
 </main>
 

@@ -32,12 +32,12 @@ button.danger{border-color:#7a2b2b}button.danger:hover{background:#4a1f1f}
 #stage{flex:1;position:relative;min-width:0}
 #drawflow{position:absolute;inset:0;background-color:var(--bg);
   background-image:radial-gradient(#2a303b 1px,transparent 1px);background-size:24px 24px}
-#right{width:330px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+#right{width:370px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
 .tabs{display:flex;border-bottom:1px solid var(--line)}
-.tabs button{flex:1;border:0;border-radius:0;background:transparent;padding:10px}
+.tabs button{flex:1;border:0;border-radius:0;background:transparent;padding:10px 4px;font-size:13px}
 .tabs button.on{border-bottom:2px solid var(--cond);color:#fff}
-#inspector,#intents{overflow:auto;padding:10px;flex:1}
-#inspector[hidden],#intents[hidden],#msgs[hidden],#toast[hidden],.msgtoggle[hidden],.dirty[hidden]{display:none}
+.panel{overflow:auto;padding:10px;flex:1}
+.panel[hidden],#msgs[hidden],#toast[hidden],.msgtoggle[hidden],.dirty[hidden]{display:none}
 .hint{color:var(--mut)}
 .fld{display:block;margin:10px 0}
 .fld>span{display:block;color:var(--mut);font-size:12px;margin-bottom:3px}
@@ -130,3 +130,65 @@ button.danger{border-color:#7a2b2b}button.danger:hover{background:#4a1f1f}
 .node-condition .output.output_1::after,.node-condition .output.output_2::after{position:absolute;right:26px;top:0;line-height:20px;font-size:13px;font-weight:700}
 .node-condition .output.output_1::after{color:var(--ok)}
 .node-condition .output.output_2::after{color:var(--err)}
+
+/* ---- wave 2: icons (Tabler, CSS mask so currentColor drives the colour), disabled chains, panels ---- */
+.ico{display:inline-block;width:1.2em;height:1.2em;flex:none;vertical-align:-.22em;background:currentColor;
+  -webkit-mask:var(--ic) center/contain no-repeat;mask:var(--ic) center/contain no-repeat}
+.nhead .ico{width:16px;height:16px}
+.nhead .ntitle{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ntag.off{background:#555;color:#ddd}
+.pitem .ico{width:18px;height:18px}
+.insttitle .ico{width:20px;height:20px}
+.btitle{display:flex;align-items:center;gap:10px}
+.btitle .ico{width:30px;height:30px}
+.band.sim{border-style:solid;border-color:#f5d90a;background:color-mix(in srgb,#f5d90a 9%,transparent)}
+.drawflow .drawflow-node.disabled{opacity:.38;filter:grayscale(1)}
+.drawflow .drawflow-node.lit-past{box-shadow:0 0 0 3px #4fc3f777}
+.drawflow .drawflow-node.lit-now{box-shadow:0 0 0 4px #ffd54a,0 0 18px 4px #ffd54a99;border-color:#ffd54a}
+@keyframes blinkNode{0%,100%{box-shadow:0 2px 6px #0008}30%,70%{box-shadow:0 0 0 5px #ff7ad9,0 0 22px 6px #ff7ad9aa}}
+.drawflow .drawflow-node.blink{animation:blinkNode .6s ease-in-out 3}
+/* custom dropdown with icons */
+.dd{position:relative}
+.ddb{width:100%;display:flex;align-items:center;gap:8px;text-align:left}
+.ddb .ddt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ddb .ddc{color:var(--mut)}
+.ddl{position:absolute;left:0;right:0;top:100%;z-index:25;max-height:280px;overflow:auto;background:var(--panel2);
+  border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 18px #000b;margin-top:2px}
+.ddl[hidden]{display:none}
+.ddi{display:flex;align-items:center;gap:8px;padding:6px 10px;cursor:pointer}
+.ddi:hover,.ddi.on{background:#2f3644}
+.chk .ico{width:16px;height:16px}
+/* tabs, small panels */
+.sect{margin:12px 0 4px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.evgrid{display:grid;grid-template-columns:1fr 1fr;gap:4px}
+.evgrid button,.rowbtns button{display:flex;align-items:center;gap:6px;padding:4px 8px;text-align:left;font-size:12px;min-width:0}
+.evgrid button span.t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rowbtns{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0}
+.rowbtns input{width:90px}
+.simstate{padding:8px 10px;border-radius:8px;background:#2a2610;border:1px solid #6b5e12;margin:8px 0;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.simstate b{color:#f5d90a}
+.sstep{margin:8px 0 2px;font-weight:600;display:flex;align-items:center;gap:6px}
+.sstep small{color:var(--mut);font-weight:400}
+.trow{padding:5px 8px;margin:2px 0;border-radius:6px;background:var(--panel2);border:1px solid transparent;cursor:pointer;font-size:13px}
+.trow:hover{border-color:var(--line)}
+.trow.sel{border-color:#ffd54a}
+.trow .meta{color:var(--mut);font-size:11px;word-break:break-word}
+.trow .arrow{color:var(--mut)}
+.row{display:flex;gap:8px;align-items:flex-start;padding:7px 8px;margin:4px 0;border-radius:8px;background:var(--panel2)}
+.row .grow{flex:1;min-width:0}
+.row .sub{color:var(--mut);font-size:12px}
+.note{color:var(--mut);font-size:12px;font-style:italic}
+.chip{display:inline-flex;align-items:center;gap:4px;background:#2f3644;border-radius:12px;padding:2px 4px 2px 10px;margin:2px;font-size:13px}
+.chip button{border:0;background:transparent;padding:0 6px;color:var(--mut);font-size:15px;line-height:1}
+.chip button:hover{color:var(--err)}
+.intent .ihead{display:flex;align-items:center;gap:8px}
+.intent .ierr{margin:6px 0;padding:5px 8px;border-radius:6px;background:#3d1818;color:#ffb3ad;font-size:13px}
+.intent input.rx{font-family:ui-monospace,Consolas,monospace;width:100%}
+.intent .addrow{display:flex;gap:6px;margin-top:4px}
+.intent .addrow input{flex:1;min-width:0}
+.simerr{margin:6px 0;padding:6px 8px;border-radius:6px;background:#3d1818;color:#ffb3ad;font-size:13px;cursor:pointer}
+#simTrace{max-height:40vh;overflow:auto;margin:6px 0;padding-right:4px;border-bottom:1px solid var(--line)}
+#simTrace:empty{display:none}
+.rowbtns input[type=number]{width:76px}
+.simstate{position:sticky;top:0;z-index:2;font-size:13px}
+.fld>span.chip{display:inline-flex;color:var(--fg);font-size:13px;margin:2px;text-transform:none}
