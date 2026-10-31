@@ -46,6 +46,13 @@ Lot L1 (2026-10-31, "variables et triggers sans entrée"): the default drawing (
     older files only lend their user frames, colours, icons and post-its. `variables` rides on the document like
     `intents`. See Notes/graph-visual-format.md, "Variables et triggers sans entrée".
 
+Lot L3 (2026-10-31, "si / sinon"): in the shared trigger/condition tree, a transition whose next condition is the
+    NEGATION of the condition the previous transition of the same tree left by its `true` port (same trigger, same
+    leading conditions, adjacent in the file) reuses that condition node through its `false` port instead of drawing
+    a negated twin. from_visual walks `true` before `false`, so it recompiles the same transitions in the same order
+    (`{not: g}` comes from the false port). Only a true -> false step merges (never back to `true`). Leading actions
+    common to both branches stay duplicated: a condition may not follow an action (the engine evaluates guards first).
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -336,16 +343,29 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         shared = bool(share and prev is not None and _joinable(prev["cluster"], prev["head"][0][1], s))
         s["cluster"] = prev["cluster"] if shared else []
         s["cluster"].append(s)
+        # head entries are (node id, signature AS SEEN BY THIS SPEC, port this spec leaves the node by)
         path = []
         for d, (kind, params) in enumerate(head):
             sig = _tsig(s) if d == 0 else _sig(kind, params)
-            if shared and d < len(prev["head"]) and prev["head"][d][1] == sig:
-                path.append(prev["head"][d])
+            port = "true" if kind == "condition" else "out"
+            p_ent = prev["head"][d] if shared and d < len(prev["head"]) else None
+            if p_ent is not None and p_ent[1] == sig:
+                path.append(p_ent)
+            elif (p_ent is not None and kind == "condition" and p_ent[2] == "true"
+                  and p_ent[1] == _sig("condition", dict(params, negate=not params.get("negate")))):
+                # lot L3 (if/else): this spec's condition is the negation of the one the previous spec left by its
+                # `true` port, after the same trigger and leading conditions. Draw it as the `false` output of that
+                # node. from_visual walks the true port before the false one, so the compiled order (previous spec,
+                # then this one) and the guards (`{not: g}` from the false port) are exactly the file's. Only a
+                # true -> false step is allowed: going back to `true` after `false` would reorder the transitions.
+                path.append((p_ent[0], sig, "false"))
+                shared = False
             else:
                 shared = False
-                path.append((mk(kind, params, s["group"]), sig))
+                path.append((mk(kind, params, s["group"]), sig, port))
         s["head"] = path
-        s["pre"] = [nid for nid, _sig_ in path] + [
+        s["ports"] = {nid: prt for nid, _sig_, prt in path}
+        s["pre"] = [nid for nid, _sig_, _prt in path] + [
             mk("action", dict({"action": n, "args": a, "phase": ph[0]}, **({"reason": ph[1]} if len(ph) > 1 and ph[1] else {})),
                s["group"]) for n, a, *ph in s["acts"]]
         prev = s
@@ -388,7 +408,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         if ids[0] not in order:
             order.append(ids[0])
         for a, b in zip(ids, ids[1:]):
-            lk = {"from": a, "port": "true" if nodes[int(a[1:]) - 1]["kind"] == "condition" else "out", "to": b}
+            # a condition is left by `true`, or by `false` for the else-branch of an if/else pair (lot L3)
+            lk = {"from": a, "port": s["ports"].get(a) or ("true" if nodes[int(a[1:]) - 1]["kind"] == "condition" else "out"), "to": b}
             sig = (lk["from"], lk["port"], lk["to"])
             if hub and b == tid:
                 lk.update(hop)

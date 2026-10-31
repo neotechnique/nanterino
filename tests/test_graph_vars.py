@@ -401,12 +401,95 @@ def test_default_graph_has_no_crossing():
     assert all(grp[l["from"]] == grp[l["to"]] for l in doc["links"])
 
 
+def _nofan(d):
+    """Graph.to_dict() without the no-op `fan` tags (exclusive branches of one drawn trigger carry one)."""
+    d = copy.deepcopy(d)
+    for t in [t for s in d["states"].values() for t in s.get("transitions") or []] + list(d.get("global") or []):
+        t.pop("fan", None)
+    return d
+
+
+def test_if_else_is_one_condition():
+    """Lot L3: a transition pair `g` / `{not: g}` (same trigger and leading guards, adjacent) is ONE condition node
+    whose Vrai output carries the first chain and Faux the second; it compiles back to the same two transitions."""
+    raw = V.load_raw(G.DEFAULT_PATH)
+    doc = json.loads(json.dumps(V.to_visual(raw)))
+    by = {n["id"]: n for n in doc["nodes"]}
+    negs = [n for n in doc["nodes"] if n["kind"] == "condition" and n["params"].get("negate")]
+    false = [l for l in doc["links"] if l["port"] == "false"]
+    assert negs == [], "a negated twin condition is still drawn: %s" % [(n["group"], n["params"]) for n in negs]
+    assert sorted((by[l["from"]]["group"], by[l["from"]]["params"]["guard"]) for l in false) == [
+        ("ecoute", "repairs_left"), ("ecoute", "turns_left"), ("relance", "repairs_left"), ("relance", "turns_left")], false
+    for l in false:   # each Faux output belongs to a condition whose Vrai output is used too
+        assert any(k["from"] == l["from"] and k["port"] == "true" for k in doc["links"]), l
+    raw2, _l, errs = V.from_visual(doc, CFG)
+    assert not errs, errs
+    assert _nofan(parse(raw2).to_dict()) == _nofan(parse(raw).to_dict()), "if/else drawing changed the compiled graph"
+    for st in ("ecoute", "relance"):   # the exact transitions (order, guards, actions) of the pairs, fan aside
+        # (the compiler always writes `when` as a list; graph.yaml spells a single guard as a scalar)
+        want = [dict(t, when=V._aslist(t["when"])) for t in raw["states"][st]["transitions"] if t.get("on") in ("intent.question", "not_understood")]
+        got = [{k: v for k, v in t.items() if k != "fan"} for t in raw2["states"][st]["transitions"] if t.get("on") in ("intent.question", "not_understood")]
+        assert got == want, (st, got, want)
+    # redrawing the recompiled graph gives the same drawing (stable round trip)
+    doc2 = V.to_visual(raw2)
+    assert len(doc2["nodes"]) == len(doc["nodes"]) and len(doc2["links"]) == len(doc["links"])
+    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 4
+
+
+def test_hand_wired_false_branch_compiles():
+    """A Faux output wired by hand compiles to the negated-guard transition, right after the Vrai branch."""
+    nodes = [N("t", "trigger", type="event", event="visage"), N("c", "condition", **etat("=", "a")),
+             N("g", "condition", type="guard", guard="not_speaking", negate=False),
+             N("r", "condition", type="guard", guard="repairs_left", negate=False),
+             N("x", "action", action="count_repair", args={}, phase="do"),
+             N("m", "action", action="set_var", args={"name": "etat", "value": "b"}, phase="do", reason="r"),
+             N("y", "action", action="reset_repairs", args={}, phase="do"),
+             N("u", "trigger", type="event", event="stop"), N("cu", "condition", **etat("=", "a")),
+             N("z", "action", action="cancel_all", args={}, phase="do")]
+    links = [L("t", "c"), L("c", "g", "true"), L("g", "r", "true"), L("r", "x", "true"), L("x", "m"), L("r", "y", "false"),
+             L("u", "cu"), L("cu", "z", "true")]
+    raw, _l, errs = V.from_visual(vdoc(nodes, links, ["t", "u"]), CFG)
+    assert not errs, errs
+    assert raw["states"]["a"]["transitions"] == [
+        {"on": "visage", "fan": "fan-t", "when": ["not_speaking", "repairs_left"], "do": ["count_repair"], "to": "b", "reason": "r", "description": ""},
+        {"on": "visage", "fan": "fan-t", "when": ["not_speaking", {"not": "repairs_left"}], "do": ["reset_repairs"], "description": ""},
+        {"on": "stop", "do": ["cancel_all"], "description": ""}], raw["states"]["a"]["transitions"]
+    assert run(raw, [{"event": "visage"}], start_state="a")["final"]["state"] == "b"   # repairs left at start: Vrai wins
+    # redrawn: one repairs_left node again, Faux wired, no negated twin; compiles to the same transitions
+    doc2 = json.loads(json.dumps(V.to_visual(raw)))
+    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 1
+    assert not [n for n in doc2["nodes"] if n["kind"] == "condition" and n["params"].get("negate")]
+    raw2, _l, errs = V.from_visual(doc2, CFG)
+    assert not errs and _nofan(parse(raw2).to_dict()) == _nofan(parse(raw).to_dict())
+    # g / not g / g: the third transition may NOT go back to the Vrai port (it would compile before the second one)
+    raw3 = mini(a=[{"on": "visage", "when": "repairs_left", "do": ["count_repair"]},
+                   {"on": "visage", "when": {"not": "repairs_left"}, "do": ["reset_repairs"]},
+                   {"on": "visage", "when": "repairs_left", "do": ["cancel_all"]}])
+    doc3 = json.loads(json.dumps(V.to_visual(raw3)))
+    assert sum(1 for l in doc3["links"] if l["port"] == "false") == 1
+    raw4, _l, errs = V.from_visual(doc3, CFG)
+    assert not errs and _nofan(parse(raw4).to_dict()) == _nofan(parse(raw3).to_dict()), raw4["states"]["a"]
+    # a condition that is itself negated: its Faux output gives the positive guard
+    nodes[3] = N("r", "condition", type="guard", guard="repairs_left", negate=True)
+    raw, _l, errs = V.from_visual(vdoc(nodes, links, ["t", "u"]), CFG)
+    assert not errs and [t.get("when") for t in raw["states"]["a"]["transitions"]] == [
+        ["not_speaking", {"not": "repairs_left"}], ["not_speaking", "repairs_left"], None]
+    # hoisting the actions both branches share (reset_repairs, count_turn in the shipped graph) before the condition
+    # is not a drawing the compiler accepts: a condition may not follow an action (guards are evaluated first)
+    hoist = vdoc([N("t", "trigger", type="event", event="visage"), N("c", "condition", **etat("=", "a")),
+                  N("x", "action", action="reset_repairs", args={}, phase="do"),
+                  N("r", "condition", type="guard", guard="turns_left", negate=False),
+                  N("m", "action", action="set_var", args={"name": "etat", "value": "b"}, phase="do")],
+                 [L("t", "c"), L("c", "x", "true"), L("x", "r"), L("r", "m", "true")], ["t"])
+    assert any(e["node"] == "r" and "après une action" in e["message"] for e in V.from_visual(hoist, CFG)[2])
+
+
 TESTS = [test_each_type_is_validated, test_system_variables_are_read_only, test_set_var_fires_var_changed_with_anti_loop,
          test_list_contains_with_utterance_and_list_actions, test_say_random_is_cached_and_stays_muted,
          test_used_variable_cannot_be_deleted, test_wire_into_trigger_is_refused, test_old_hub_layout_migrates,
          test_multi_state_condition_duplicates_with_one_fan, test_user_var_changed_trigger_roundtrips,
          test_simulator_returns_vars_per_step, test_vocabulary_icons_are_vendored, test_live_snapshot_shape,
-         test_default_graph_has_no_crossing]
+         test_default_graph_has_no_crossing, test_if_else_is_one_condition, test_hand_wired_false_branch_compiles]
 
 
 def main(argv):

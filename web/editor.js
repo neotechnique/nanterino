@@ -27,6 +27,9 @@
  *           Variables panel (tab "vars": Noms / Listes) edits doc.variables; GET /api/graph/vars feeds its live column
  *           (polled <= 1 Hz only while the tab is open). Inspector args of type var / list / value / enum are typed
  *           controls; the Tester shows the simulated variables of each trace entry (changed ones highlighted).
+ *           L3 (2026-10-31): if/else pairs arrive as ONE condition using its Faux output (server side); every wire,
+ *           including the one being dragged (paintDragWire), is a gradient from the SOURCE node kind colour to the
+ *           target kind colour: a Faux wire starts green like its condition, the red pastille is only a port marker.
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -867,6 +870,45 @@
     });
     scheduleBadges();
     applyRetFocus();
+  }
+
+  // Lot L3: the wire being dragged out of a port (Drawflow's `connection_ele`, classes "connection" only until it is
+  // dropped) gets the same gradient: it STARTS with the source node's kind colour (green for a condition, whatever
+  // its port: the red / green pastille of Vrai / Faux is only a port marker) and ends with the colour of the node
+  // under the pointer, or the source colour while it hangs in the void. Called on connectionStart and on every
+  // Drawflow updateConnection (pointer move); paintWires() takes over once the wire is linked.
+  let dragSrcKind = null;
+  function paintDragWire(clientX, clientY) {
+    const svg = editor && editor.connection_ele;
+    if (!svg || !dragSrcKind) return;
+    const path = svg.querySelector('.main-path');
+    const nums = path && (path.getAttribute('d') || '').match(/-?\d+(?:\.\d+)?(?:e-?\d+)?/g);
+    const NS = 'http://www.w3.org/2000/svg';
+    let g = svg.querySelector('linearGradient');
+    if (!g) {
+      const defs = document.createElementNS(NS, 'defs');
+      g = document.createElementNS(NS, 'linearGradient');
+      g.id = 'wg' + (++gradSeq);
+      g.setAttribute('gradientUnits', 'userSpaceOnUse');
+      g.append(document.createElementNS(NS, 'stop'), document.createElementNS(NS, 'stop'));
+      defs.append(g); svg.insertBefore(defs, svg.firstChild);
+    }
+    if (nums && nums.length >= 4) {
+      let x2 = +nums[nums.length - 2];
+      if (+nums[0] === x2 && +nums[1] === +nums[nums.length - 1]) x2 += 1;
+      g.setAttribute('x1', nums[0]); g.setAttribute('y1', nums[1]); g.setAttribute('x2', x2); g.setAttribute('y2', nums[nums.length - 1]);
+    }
+    let dst = dragSrcKind;
+    if (clientX != null) {
+      const el = document.elementFromPoint(clientX, clientY);
+      const ne = el && el.closest && el.closest('.drawflow-node');
+      const m = ne ? model(ne.id.replace('node-', '')) : null;
+      if (m) dst = m.kind;
+    }
+    const stops = g.querySelectorAll('stop');
+    stops[0].setAttribute('offset', '0'); stops[0].setAttribute('stop-color', KIND_HEX[dragSrcKind] || '#8b949e');
+    stops[1].setAttribute('offset', '1'); stops[1].setAttribute('stop-color', KIND_HEX[dst] || '#8b949e');
+    if (path) path.style.stroke = `url(#${g.id})`;
   }
 
   // ---------- returning wires: faded by default, "→ État" proxy badges, focus on hover / selection (L7) ----------
@@ -3102,6 +3144,13 @@
     // Wires are repainted (gradient from the source kind colour to the target kind colour) whenever Drawflow redraws them.
     const origUpdate = editor.updateConnectionNodes.bind(editor);
     editor.updateConnectionNodes = (id) => { origUpdate(id); paintWires(id); };
+    // L3: the dragged wire starts with its source node's kind colour (not the red / green port pastille), and a
+    // freshly linked wire is painted at once (Drawflow does not redraw a node's wires when a link is created).
+    editor.on('connectionStart', (c) => { const m = model(c.output_id); dragSrcKind = m ? m.kind : null; paintDragWire(); });
+    const origDragUpdate = editor.updateConnection.bind(editor);
+    editor.updateConnection = (x, y) => { origDragUpdate(x, y); paintDragWire(x, y); };
+    editor.on('connectionCreated', (c) => { dragSrcKind = null; requestAnimationFrame(() => paintWires('node-' + c.output_id)); });
+    editor.on('connectionCancel', () => { dragSrcKind = null; });
     installRetHover();
     editor.on('zoom', zoomVars); editor.on('translate', scheduleMinimap);
     setRetVisible(retVisible());

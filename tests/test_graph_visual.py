@@ -564,9 +564,13 @@ def test_merged_fan_trigger_reloads_as_one_node():
     vt = _triggers(vdoc, "intent.question", "ecoute")
     assert len(vt) == 1 and vt[0]["params"]["fan"] == "fan-x1"
     (cond,) = [l["to"] for l in vdoc["links"] if l["from"] == vt[0]["id"]]
-    assert sum(1 for l in vdoc["links"] if l["from"] == cond) == 2
+    # CHANGED (lot L3, if/else): etat = ecoute -> ONE turns_left condition, Vrai -> réponse chain, Faux -> clôture chain
+    (tl,) = [l["to"] for l in vdoc["links"] if l["from"] == cond]
+    assert sorted(l["port"] for l in vdoc["links"] if l["from"] == tl) == ["false", "true"]
     assert semantic(compile_ok(vdoc)[0], nofan=True) == semantic(compile_ok(doc)[0], nofan=True)   # fan ids follow node ids
-    assert sum(1 for l in doc["links"] if l["from"] == trigs[0]["id"]) == 2       # compact: the two guard branches (turns_left / not)
+    # hub form: the trigger leads to the same single turns_left condition (was two guard branches before L3)
+    (htl,) = [l["to"] for l in doc["links"] if l["from"] == trigs[0]["id"]]
+    assert sorted(l["port"] for l in doc["links"] if l["from"] == htl) == ["false", "true"]
     raw2, _ = compile_ok(doc)
     assert semantic(raw2, nofan=True) == semantic(raw, nofan=True), "branch order survives the reload"
     assert [t.get("fan") for t in semantic(raw2)["states"]["ecoute"]["transitions"] if t.get("on") == "intent.question"] == ["fan-x1"] * 2
@@ -591,7 +595,7 @@ def test_sharing_keeps_independent_transitions_apart():
     assert len(_triggers(doc, "ask", "reponse")) == 2
     assert semantic(compile_ok(doc)[0], nofan=True) == semantic(raw, nofan=True)
     assert not any(t.get("fan") for t in semantic(compile_ok(doc)[0])["states"]["reponse"]["transitions"][-2:])   # no fan tag
-    # opposite guards make them exclusive: now they share the trigger and the guard node is private per branch
+    # opposite guards make them exclusive: now they share the trigger (and, since lot L3, one guard node: Vrai / Faux)
     ga = dict(a, when="turns_left")
     gb = dict(b, when={"not": "turns_left"})
     raw2 = _dedupe_graph([ga, gb])
