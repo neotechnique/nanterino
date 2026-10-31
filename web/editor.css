@@ -211,3 +211,6 @@ button.danger{border-color:#7a2b2b}button.danger:hover{background:#4a1f1f}
 .err .nmsg{color:#ffb3ad}.warn .nmsg{color:#ffd58a}
 #simStatus:empty{display:none}
 .drawflow .drawflow-node.lit-past{box-shadow:0 0 0 3px #4fc3f7,0 0 12px 2px #4fc3f7aa;border-color:#4fc3f7}
+/* Keep the full kind title visible: the "désactivée" badge wraps under it instead of truncating it. */
+.nhead{flex-wrap:wrap;row-gap:3px}
+.nhead .ntitle{flex:1 0 auto}
