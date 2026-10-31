@@ -157,7 +157,9 @@ def test_enabled_false_is_ignored_and_roundtrips():
     t0["params"]["enabled"] = "no"
     assert V.from_visual(bad, CFG)[0] is None
     bad = json.loads(json.dumps(doc))
-    ent = next(n for n in bad["nodes"] if n["kind"] == "trigger" and n["params"]["type"] == "enter")
+    # CHANGED (lot L1): the on_enter trigger is now "etat becomes X" (var_changed on etat)
+    ent = next(n for n in bad["nodes"] if n["kind"] == "trigger" and (n["params"]["type"] == "enter" or (
+        n["params"].get("event") == "var_changed" and n["params"].get("name") == "etat")))
     ent["params"]["enabled"] = False
     assert any(e["node"] == ent["id"] for e in V.from_visual(bad, CFG)[2])
 
@@ -177,7 +179,11 @@ def test_sim_matches_real_brain_and_parity():
     assert first["step"] == -1 and first["chain"] == "veille/enter" and first["reason"] == "start"
     chains = [e["chain"] for e in res["trace"] if e["moved"]]
     assert chains == ["veille/t0", "accueil/t0", "ecoute/t1", "cloture/t1"], chains
+    # CHANGED (lot L1): `final` also carries the variable values (system ones included)
+    fv = res["final"].pop("vars")
+    assert fv["names"]["etat"] == "veille" and fv["names"]["tours"] == 0 and "salutations" in fv["lists"], fv
     assert res["final"] == {"state": "veille", "turns": 0, "expression": None, "gaze_mode": "suivre"}
+    res["final"]["vars"] = fv
     # same input, same trace (no real time involved)
     assert run(default_raw(), [{"event": "visage"}, {"wait_s": 3}, {"say": "Au revoir"}, {"wait_s": 5}]) == res
     # timers: silence -> relance -> cloture -> veille on the virtual clock only

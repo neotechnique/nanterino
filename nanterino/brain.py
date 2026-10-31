@@ -23,6 +23,13 @@ journal of the last 50 fired chains (`note_fire`, `trace()`, snapshot `last_tran
 (`_sensors`: personnes_multiples, inactivite_longue, ouverture/fermeture) and exposes `expression` / `gaze_mode`
 in the snapshot for the face UI.
 
+Variables (lot L1, 2026-10-31): the graph's user variables and lists live here (`vars`, `lists`), initialised from the
+graph's `variables:` block on every (re)load; the system variables (etat, tours, max_tours, reparations,
+max_reparations) are read from the brain's own state (`var_value`). set_var / add_var / toggle_var post
+`var_changed` only for variables a transition watches; a `var_changed` caused while handling a `var_changed` is
+dropped (MAX_VAR_CASCADE = 1, logged once per variable). `say_random` speaks through `_speak_then` (cached voice,
+AudioOut keeps honouring `muted`). Random picks use `self.rng` (the simulator seeds it: deterministic traces).
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -30,6 +37,7 @@ running answers missed it and kept talking after "Stop".)
 """
 import datetime
 import itertools
+import random
 import re
 import numpy as np
 import os
@@ -50,6 +58,8 @@ VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
 PHANTOMS = ("sous-titres", "sous titres", "merci d'avoir regardé", "abonnez-vous", "amara.org",
             "merci de votre attention", "♪", "[musique]", "(musique)")
 MAX_TURNS = 12  # safety net: a conversation never loops forever
+MAX_REPAIRS = 2  # "pardon ?" at most this many times in a row (system variable max_reparations)
+MAX_VAR_CASCADE = 1  # var_changed events a var_changed chain may cause (anti-loop)
 JOURNAL_MAX = 50       # fired chains kept for /api/graph/trace
 MULTI_FACES_S = 1.0    # personnes_multiples: >= 2 faces for this long
 SENSOR_PERIOD_S = 1.0  # opening-hours check rate (the other sensor rules run every tick)
@@ -171,6 +181,10 @@ class Brain:
         self.faces, self._multi_since, self._multi_posted = 0, None, False
         self.last_activity, self._idle_posted = self.now(), False
         self._open_prev, self._open_check = None, 0.0
+        # Graph variables (lot L1): user values (reset at every graph load), last heard sentence ($utterance).
+        self.vars, self.lists, self._watched = {}, {}, frozenset()
+        self.last_text, self._var_depth, self._cascade_logged = "", 0, set()
+        self.rng = random.Random()
         self.engine = self._build_engine()
         if self._threaded:
             self._start_threads()
@@ -432,6 +446,49 @@ class Brain:
         def set_gaze(kw, mode):
             self.gaze_mode = mode
 
+        # ---- variables (lot L1): values reset from the graph at every load
+        self.vars = {n: v.value for n, v in graph.variables.items()}
+        self.lists = {n: list(li.items) for n, li in graph.lists.items() if not li.source}
+        self._watched, self._cascade_logged = graph.watched_vars(), set()
+
+        def add_var(kw, name, delta):
+            v = self.vars.get(name, 0) + delta
+            if graph.variables[name].type == "duration":
+                v = max(0, v)   # a duration never goes negative
+            self._set_var(name, v)
+
+        def list_add(kw, list, value):  # noqa: A002 (argument name fixed by the graph vocabulary)
+            self.lists.setdefault(list, []).append(self._resolve(value, kw))
+
+        def list_remove(kw, list, value):  # noqa: A002
+            v = self._resolve(value, kw)
+            self.lists[list] = [x for x in self.lists.get(list, []) if x != v]
+
+        def say_random(kw, list):  # noqa: A002
+            items = [x for x in self.list_items(list) if isinstance(x, str) and x.strip()]
+            if not items:
+                log.info("say_random: list %s is empty, nothing said", list)
+                return
+            self._speak_then(self.rng.choice(items), "say_done")
+
+        def var_compare(kw, name, op, value):
+            a, b = self.var_value(name), self._resolve(value, kw)
+            if op == "=":
+                return a == b
+            if op == "!=":
+                return a != b
+            num = (int, float)
+            if not (isinstance(a, num) and isinstance(b, num)) or isinstance(a, bool) or isinstance(b, bool):
+                return False
+            return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+
+        def list_contains(kw, list, value):  # noqa: A002
+            items = self.list_items(list)
+            if value == "$utterance":   # an item of the list appears in the sentence (like the intent words)
+                text = str(self._resolve(value, kw) or "").lower()
+                return any(str(x).lower() in text for x in items if str(x).strip())
+            return self._resolve(value, kw) in items
+
         def as_utterance(kw):  # typed text (dashboard "ask") handled exactly like a spoken one
             self.engine.dispatch("utterance", {"text": kw["text"], "t_end": kw.get("t_end") or self.now()})
 
@@ -455,6 +512,12 @@ class Brain:
             "say_text": lambda kw, text: self._speak_then(text, "say_done"),
             "set_expression": set_expression, "gaze": set_gaze,
             "wait": lambda kw, seconds: None,   # handled by GraphEngine._exec (it needs the rest of the chain)
+            "set_var": lambda kw, name, value: self._set_var(name, self._resolve(value, kw)),
+            "add_var": add_var,
+            "toggle_var": lambda kw, name: self._set_var(name, not self.vars.get(name)),
+            "list_add": list_add, "list_remove": list_remove,
+            "list_clear": lambda kw, list: self.lists.__setitem__(list, []),
+            "say_random": say_random,
         }
         guards = {
             "auto_greet_on_face": lambda kw: bool(cfg.get("auto_greet_on_face")),
@@ -462,10 +525,14 @@ class Brain:
             "not_busy": lambda kw: not self._busy,
             "mic_active": lambda kw: bool(self.mic.active),
             "not_speaking": lambda kw: not self.out.busy,
-            "repairs_left": lambda kw: self.repairs < 2,          # "pardon ?" at most twice in a row
+            "repairs_left": lambda kw: self.repairs < MAX_REPAIRS,  # "pardon ?" at most twice in a row
             "turns_left": lambda kw: self.turns < MAX_TURNS,       # looked up at call time (tests patch it)
             "dans_les_horaires": lambda kw: hours_mod.is_open(hours_mod.safe_parse(cfg.get("opening_hours")),
                                                               self._wall_dt()),
+            "var_compare": var_compare,
+            "var_true": lambda kw, name: self.var_value(name) is True,
+            "list_contains": list_contains,
+            "list_empty": lambda kw, list: not self.list_items(list),
         }
         engine = graph_mod.GraphEngine(graph, self, actions, guards, cfg)
         # Pre-synthesise the graph's free phrases (say_text) like the fixed ones, off the loop thread.
@@ -561,7 +628,67 @@ class Brain:
             return
         if "gen" in kw and kw["gen"] != self.gen:
             return  # late event from a cancelled thread
-        self.engine.dispatch(kind, kw)
+        if isinstance(kw.get("text"), str):
+            self.last_text = kw["text"]     # `$utterance` of the variable conditions / actions
+        self._var_depth = kw.get("depth", 0) if kind == "var_changed" else 0
+        try:
+            self.engine.dispatch(kind, kw)
+        finally:
+            self._var_depth = 0
+
+    # ------------------------------------------------------------------ graph variables (lot L1)
+    def var_value(self, name: str):
+        """Current value of a user or system variable (None when unknown)."""
+        if name == "etat":
+            return self.state
+        if name == "tours":
+            return self.turns
+        if name == "max_tours":
+            return MAX_TURNS
+        if name == "reparations":
+            return self.repairs
+        if name == "max_reparations":
+            return MAX_REPAIRS
+        return self.vars.get(name)
+
+    def list_items(self, name: str) -> list:
+        li = self.engine.graph.lists.get(name) if hasattr(self, "engine") else None
+        if li is not None and li.source and li.source[0] == "cfg":
+            return list(self.cfg.get(li.source[1]) or [])   # bound to config.json: always the live words
+        if name in self.lists:
+            return self.lists[name]
+        return list(li.items) if li is not None else []
+
+    def var_snapshot(self) -> dict:
+        """Live values for GET /api/graph/vars and the simulator (system variables included)."""
+        from .graph import SYSTEM_VARS
+        names = {n: self.var_value(n) for n in SYSTEM_VARS}
+        names.update(dict(list(self.vars.items())))
+        graph = self.engine.graph
+        return {"names": names, "lists": {n: list(self.list_items(n)) for n in graph.lists}}
+
+    def _resolve(self, value, kw):
+        """A literal, `$utterance` (the sentence being handled, else the last one heard) or `$<variable>`."""
+        if isinstance(value, str) and value.startswith("$"):
+            ref = value[1:]
+            if ref == "utterance":
+                return kw.get("text") if isinstance(kw.get("text"), str) else self.last_text
+            return self.var_value(ref)
+        return value
+
+    def _set_var(self, name: str, value):
+        old = self.vars.get(name)
+        if old == value and type(old) is type(value):
+            return
+        self.vars[name] = value
+        if name not in self._watched:
+            return
+        if self._var_depth >= MAX_VAR_CASCADE:   # anti-loop: a var_changed chain does not re-trigger var_changed
+            if name not in self._cascade_logged:
+                self._cascade_logged.add(name)
+                log.warning("graph: var_changed %s dropped (cascade limit %d)", name, MAX_VAR_CASCADE)
+            return
+        self.post("var_changed", name=name, value=value, old=old, depth=self._var_depth + 1)
 
     def _loop(self, boot: bool = True):
         if boot:

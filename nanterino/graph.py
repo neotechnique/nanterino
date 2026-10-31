@@ -34,6 +34,16 @@ Wave 2 (2026-10-31)
     - `wait` is the only non-blocking action: GraphEngine._exec hands the rest of the chain to
       `brain.defer(delay, fn)`; every fired chain is reported to `brain.note_fire` (journal, simulator).
 
+Variables (lot L1, 2026-10-31)
+    - `variables: {names: {...}, lists: {...}}` declares typed user variables (bool, number, string, choice, duration)
+      and lists (string/number/bool items, or bound read-only to a config key `from:` / an intent's words `intent:`).
+      SYSTEM_VARS (etat, tours, max_tours, reparations, max_reparations) are read-only views of the brain's state.
+    - New actions set_var / add_var / toggle_var / list_add / list_remove / list_clear / say_random, guards with
+      arguments (var_compare, var_true, list_contains, list_empty: `when: [{var_compare: {...}}]`), and the event
+      `var_changed` (`on: var_changed` + `var:` + optional `value:`). The brain owns the values (`Brain.vars`); this
+      module only validates names and types. A system variable is never written and `etat` is never compared or
+      watched in YAML (placement under a state, only_in/not_in and on_enter already say it).
+
 Invariants
     - dispatch() (GC2-like branches, 2026-10-31): every applicable transition (event match + only_in/not_in + all
       guards, judged against the state at event arrival; global ones first, then the current state's, file order)
@@ -89,7 +99,8 @@ EVENT_DOC = {
     "ouverture": ("Ouverture", "L'heure d'ouverture de la configuration `opening_hours` vient de passer (jamais si les horaires sont vides).", False),
     "fermeture": ("Fermeture", "L'heure de fermeture de la configuration `opening_hours` vient de passer (jamais si les horaires sont vides).", False),
     "inactivite_longue": ("Longue inactivité", "Aucun visage ni parole depuis idle_long_s (300 s) ; posté une seule fois jusqu'à la prochaine activité.", False),
-    "say_done": ("Phrase libre terminée", "Le robot a fini de dire la phrase de l'action « Dire un texte ».", False),
+    "say_done": ("Phrase libre terminée", "Le robot a fini de dire la phrase de l'action « Dire un texte » (ou « Dire une phrase au hasard »).", False),
+    "var_changed": ("Une variable change", "La valeur d'une variable vient de changer (valeur précise facultative). Une chaîne lancée par ce déclencheur qui change encore une variable ne relance pas de déclencheur (anti-boucle).", False),
     "utterance": ("Phrase du visiteur", "Interne : une phrase transcrite, classée en événement intent.*.", True),
     "tick": ("Battement de coeur", "Interne : le battement de coeur (10 Hz) qui fait avancer les délais.", True),
 }
@@ -128,6 +139,20 @@ ACTION_DOC = {
              {"seconds": ("delay", "Durée (secondes ou clé de configuration)")}),
     "gaze": ("Régler le regard", "Le regard du visage suit le visiteur, regarde devant lui, ou erre ; reste jusqu'au prochain réglage (retour à « suivre » en veille).",
              {"mode": ("gazemode", "Regard")}),
+    # variables (lot L1): `var`/`numvar`/`boolvar` = a writable user variable of a fitting type, `wlist` = a writable
+    # user list, `rlist` = any string list, `value` = a literal of the variable's / list's type (or "$<var>")
+    "set_var": ("Changer une variable", "Donne une nouvelle valeur à une variable (« etat » : change d'état).",
+                {"name": ("var", "Variable"), "value": ("value", "Valeur")}),
+    "add_var": ("Ajouter à une variable", "Ajoute un nombre (négatif pour retirer) à une variable nombre ou durée.",
+                {"name": ("numvar", "Variable"), "delta": ("number", "Quantité")}),
+    "toggle_var": ("Inverser une variable", "Une variable vrai/faux passe à l'autre valeur.", {"name": ("boolvar", "Variable")}),
+    "list_add": ("Ajouter à une liste", "Ajoute un élément à la fin d'une liste.",
+                 {"list": ("wlist", "Liste"), "value": ("value", "Élément")}),
+    "list_remove": ("Retirer d'une liste", "Retire un élément d'une liste (toutes ses occurrences).",
+                    {"list": ("wlist", "Liste"), "value": ("value", "Élément")}),
+    "list_clear": ("Vider une liste", "Retire tous les éléments d'une liste.", {"list": ("wlist", "Liste")}),
+    "say_random": ("Dire une phrase au hasard", "Dit une phrase tirée au hasard dans une liste de textes (voix calculée à l'avance comme « Dire un texte » ; muet = reste muet), puis say_done.",
+                   {"list": ("rlist", "Liste de phrases")}),
 }
 EXPRESSIONS = {"content": "Content", "surpris": "Surpris", "reflechit": "Réfléchit", "triste": "Triste", "neutre": "Neutre"}
 GAZE_MODES = {"suivre": "Suivre le visiteur", "devant": "Regarder devant", "errer": "Errer"}
@@ -144,8 +169,57 @@ GUARD_DOC = {
     "repairs_left": ("Il reste des demandes de répétition", "Le robot a demandé de répéter moins de 2 fois de suite."),
     "turns_left": ("Il reste des tours de parole", "La conversation n'a pas atteint le nombre maximal d'échanges."),
     "dans_les_horaires": ("Dans les horaires d'ouverture", "Les horaires `opening_hours` de la configuration sont en cours (toujours vrai s'ils sont vides)."),
+    "var_compare": ("Comparer une variable", "Compare une variable à une valeur (=, ≠ ; <, ≤, >, ≥ pour les nombres et durées)."),
+    "var_true": ("Une variable est vraie", "Une variable vrai/faux vaut vrai."),
+    "list_contains": ("Une liste contient", "La liste contient la valeur ; avec « $utterance », un élément de la liste est contenu dans la phrase entendue."),
+    "list_empty": ("Une liste est vide", "La liste n'a aucun élément."),
 }
 GUARDS = frozenset(GUARD_DOC)
+# Guards with arguments (same kinds as ACTION_DOC; `anyvar` = any variable, system ones included, `op` = OPS).
+GUARD_ARGS = {
+    "var_compare": {"name": ("anyvar", "Variable"), "op": ("op", "Opérateur"), "value": ("value", "Valeur")},
+    "var_true": {"name": ("anyboolvar", "Variable")},
+    "list_contains": {"list": ("rlist_any", "Liste"), "value": ("listvalue", "Valeur (ou $utterance)")},
+    "list_empty": {"list": ("rlist_any", "Liste")},
+}
+GUARD_SPECS = {g: {a: kd[0] for a, kd in GUARD_ARGS.get(g, {}).items()} for g in GUARD_DOC}
+# Display of the counter guards as variable comparisons (the compiled guard does not change: parity).
+GUARD_AS_VARS = {"turns_left": "tours < max_tours", "repairs_left": "reparations < max_reparations"}
+OPS = {"=": "égal à", "!=": "différent de", "<": "inférieur à", "<=": "inférieur ou égal à", ">": "supérieur à",
+       ">=": "supérieur ou égal à"}
+ORDER_OPS = frozenset({"<", "<=", ">", ">="})
+
+# ---------------------------------------------------------------- variables (lot L1)
+VAR_TYPES = {"bool": "Vrai / faux", "number": "Nombre", "string": "Texte", "choice": "Choix", "duration": "Durée (s)"}
+LIST_TYPES = {"string": "Textes", "number": "Nombres", "bool": "Vrai / faux"}
+# Read-only views of the brain's own state: (type, label, help). `etat` gets the state names as choices.
+SYSTEM_VARS = {
+    "etat": ("choice", "État", "L'état courant du robot (changer d'état : action « Changer une variable » sur etat)."),
+    "tours": ("number", "Tours de parole", "Échanges de la conversation en cours."),
+    "max_tours": ("number", "Tours maximum", "Nombre maximal d'échanges d'une conversation (garde-fou)."),
+    "reparations": ("number", "Demandes de répétition", "« Pardon ? » de suite."),
+    "max_reparations": ("number", "Répétitions maximum", "« Pardon ? » permis de suite."),
+}
+VAR_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
+CHOICE_MAX, LIST_MAX = 40, 200   # choices per choice variable, items per list
+def coerce_value(vtype: str, v):
+    """Editor text -> typed literal ('3' -> 3 for number/duration, 'true'/'false' -> bool); anything else unchanged.
+
+    The visual editor's inputs may send numbers and booleans as text; the YAML validator is strict, so the
+    compiler (graph_visual.from_visual) converts with this helper using the variable's declared type."""
+    if not isinstance(v, str) or v.startswith("$"):
+        return v
+    s = v.strip()
+    if vtype in ("number", "duration") and re.fullmatch(r"-?\d+(\.\d+)?", s):
+        f = float(s)
+        return int(f) if f == int(f) else f
+    if vtype == "bool" and s.lower() in ("true", "false", "vrai", "faux"):
+        return s.lower() in ("true", "vrai")
+    return v
+
+
+_VAR_KEYS = {"type", "value", "choices", "description"}
+_LIST_KEYS = {"type", "items", "from", "intent", "description"}
 
 # Config keys usable as `after:` / `schedule.delay` (seconds); the current value is read from cfg.
 DELAY_DOC = {
@@ -171,13 +245,16 @@ KIND_DOC = {  # editor node kinds
     "start": ("Départ", "flag"), "trigger": ("Déclencheur", "bolt"), "condition": ("Condition", "git-branch"),
     "action": ("Action", "player-play"), "goto": ("Aller à un état", "arrow-right"), "end": ("Fin de chaîne", "square"),
 }
+# (input count, output ports, legacy) per kind: a trigger has NO input (lot L1); goto is import-only (legacy).
+KIND_PORTS = {"start": (0, ("out",), False), "trigger": (0, ("out",), False), "condition": (1, ("true", "false"), False),
+              "action": (1, ("out",), False), "goto": (1, (), True), "end": (1, (), False)}
 EVENT_ICON = {
     "stop": "hand-stop", "off": "power", "on": "power", "start": "player-play", "visage": "scan-eye",
     "visage_perdu": "user-off", "greeting_done": "hand-move", "relance_done": "refresh", "goodbye_done": "door-exit",
     "cloture_done": "clock", "answer_done": "message", "hush": "volume-off", "barge_in": "microphone",
     "sing": "music", "not_understood": "question-mark", "ask": "keyboard", "utterance": "microphone", "tick": "clock",
     "personnes_multiples": "users", "ouverture": "lock-open", "fermeture": "lock", "inactivite_longue": "hourglass",
-    "say_done": "text-caption",
+    "say_done": "text-caption", "var_changed": "circle-dot",
 }
 ACTION_ICON = {
     "cancel_all": "x", "mic_on": "microphone", "mic_off": "microphone-off", "mic_off_no_barge_in": "microphone-off",
@@ -186,10 +263,13 @@ ACTION_ICON = {
     "speak_relance": "volume", "start_answer": "message", "start_sing": "music", "as_utterance": "keyboard",
     "speak_phrase": "volume", "schedule": "clock", "emit": "bolt", "say_text": "text-caption",
     "set_expression": "mood-smile", "wait": "hourglass", "gaze": "eye",
+    "set_var": "arrow-right", "add_var": "plus", "toggle_var": "refresh", "list_add": "plus", "list_remove": "x",
+    "list_clear": "eraser", "say_random": "volume",
 }
 GUARD_ICON = {
     "auto_greet_on_face": "scan-eye", "barge_in": "hand-stop", "not_busy": "circle-dot", "mic_active": "microphone",
     "not_speaking": "volume-off", "repairs_left": "refresh", "turns_left": "message", "dans_les_horaires": "calendar-time",
+    "var_compare": "git-branch", "var_true": "circle-dot", "list_contains": "eye", "list_empty": "square",
 }
 STATE_ICON = {"veille": "moon", "accueil": "hand-move", "ecoute": "ear", "reponse": "message", "relance": "refresh",
               "cloture": "door-exit", "eteint": "power"}
@@ -211,9 +291,10 @@ def all_icons() -> list:
         used |= set(d.values())
     return sorted(used | {DELAY_ICON, DEFAULT_STATE_ICON, DEFAULT_INTENT_ICON})
 
-_TOP_KEYS = {"version", "description", "states", "global", "intents"}
+_TOP_KEYS = {"version", "description", "states", "global", "intents", "variables"}
 _STATE_KEYS = {"description", "on_enter", "transitions"}
-_TR_KEYS = {"on", "after", "since", "when", "only_in", "not_in", "do", "to", "reason", "then", "description", "enabled", "fan"}
+_TR_KEYS = {"on", "after", "since", "when", "only_in", "not_in", "do", "to", "reason", "then", "description", "enabled", "fan",
+            "var", "value"}
 _INTENT_KEYS = {"description", "words", "words_from", "regex", "only_in", "icon"}
 _INTENT_NAME = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 
@@ -245,9 +326,39 @@ class Cond:
     """One guard of a `when:` list; `negate` comes from the `{not: guard}` form."""
     name: str
     negate: bool = False
+    args: types.MappingProxyType = types.MappingProxyType({})   # guards with arguments (var_compare ...)
 
     def label(self) -> str:
-        return ("not " if self.negate else "") + self.name
+        core = self.name if not self.args else "%s(%s)" % (self.name, ", ".join("%s=%s" % kv for kv in self.args.items()))
+        return ("not " if self.negate else "") + core
+
+
+class _NoValue:
+    """Sentinel: a `var_changed` transition without `value:` reacts to any change."""
+
+    def __repr__(self):
+        return "NOVALUE"
+
+
+NOVALUE = _NoValue()
+
+
+@dataclass(frozen=True)
+class Variable:
+    name: str
+    type: str
+    value: object
+    choices: tuple = ()
+    description: str = ""
+
+
+@dataclass(frozen=True)
+class VarList:
+    name: str
+    type: str
+    items: tuple
+    description: str = ""
+    source: tuple | None = None   # ("cfg", key) | ("intent", name): bound, read-only; None = user list (writable)
 
 
 @dataclass(frozen=True)
@@ -265,6 +376,8 @@ class Transition:
     description: str
     enabled: bool = True   # False = kept in the file / editor but ignored by the engine
     fan: str | None = None  # branches of ONE editor trigger share a fan id: shared leading actions run once
+    var: str | None = None  # `on: var_changed` only: the watched variable
+    value: object = NOVALUE  # `on: var_changed` only: the value that must be reached (NOVALUE = any change)
 
 
 @dataclass(frozen=True)
@@ -294,6 +407,35 @@ class Graph:
     intents: tuple
     source: str
     warnings: tuple = ()
+    variables: types.MappingProxyType = types.MappingProxyType({})   # name -> Variable (user variables)
+    lists: types.MappingProxyType = types.MappingProxyType({})       # name -> VarList
+
+    def watched_vars(self) -> frozenset:
+        """Variables some enabled `var_changed` transition listens to (the brain posts only those changes)."""
+        trs = list(self.globals) + [t for s in self.states.values() for t in s.transitions]
+        return frozenset(t.var for t in trs if t.enabled and t.on == "var_changed" and t.var)
+
+    def variables_raw(self) -> dict:
+        """The `variables:` block as plain data (to_dict, vocabulary)."""
+        names = {}
+        for v in self.variables.values():
+            d = {"type": v.type, "value": v.value}
+            if v.choices:
+                d["choices"] = list(v.choices)
+            if v.description:
+                d["description"] = v.description
+            names[v.name] = d
+        lists = {}
+        for li in self.lists.values():
+            d = {"type": li.type}
+            if li.source:
+                d["from" if li.source[0] == "cfg" else "intent"] = li.source[1]
+            else:
+                d["items"] = list(li.items)
+            if li.description:
+                d["description"] = li.description
+            lists[li.name] = d
+        return {"names": names, "lists": lists}
 
     def to_dict(self) -> dict:
         """JSON-friendly view for GET /api/graph (future visual editor)."""
@@ -301,9 +443,11 @@ class Graph:
             d = {"description": t.description}
             if not t.enabled:
                 d["enabled"] = False
-            for k in ("on", "after", "since", "to", "reason", "fan"):
+            for k in ("on", "after", "since", "to", "reason", "fan", "var"):
                 if getattr(t, k) is not None:
                     d[k] = getattr(t, k)
+            if t.value is not NOVALUE:
+                d["value"] = t.value
             for k in ("when", "only_in", "not_in"):
                 if getattr(t, k):
                     d[k] = [c.label() if k == "when" else c for c in getattr(t, k)]
@@ -321,6 +465,7 @@ class Graph:
                                  **({"words_from": i.words_from} if i.words_from else {}),
                                  **({"regex": i.regex_src} if i.regex_src else {}),
                                  **({"icon": i.icon} if i.icon else {})} for i in self.intents},
+            **({"variables": self.variables_raw()} if (self.variables or self.lists) else {}),
         }
 
 
@@ -346,6 +491,7 @@ class _Parser:
     def __init__(self, data, cfg, source):
         self.data, self.cfg, self.source = data, cfg, source
         self.errors, self.warnings, self.items = [], [], []
+        self.vars, self.lists, self.state_names = {}, {}, []   # filled by build() before any transition is read
 
     def err(self, where, msg):
         self.errors.append("%s: %s" % (where, msg))
@@ -384,11 +530,12 @@ class _Parser:
                 self.err(where, "arguments of %s must be a mapping" % name); continue
             if set(args) != set(spec):
                 self.err(where, "action %s takes %s, got %s" % (name, sorted(spec) or "no argument", sorted(args))); continue
+            self.var_args(where, name, spec, args)
             for k, kind in spec.items():
                 val = args[k]
                 if kind == "cfgkey" and val not in self.cfg:
                     self.err(where, "%s.%s: %r is not a config key" % (name, k, val))
-                elif kind == "event" and (val not in EVENTS or val == "tick"):
+                elif kind == "event" and (val not in EVENTS or val in ("tick", "var_changed")):
                     self.err(where, "%s.%s: unknown event %r" % (name, k, val))
                 elif kind == "delay" and not (_num(val) or (isinstance(val, str) and _num(self.cfg.get(val)))):
                     self.err(where, "%s.%s: %r is neither a number nor a numeric config key" % (name, k, val))
@@ -402,6 +549,156 @@ class _Parser:
                     self.err(where, "%s.%s: expected a number of seconds in (0, %d]" % (name, k, SECONDS_MAX))
             out.append(Call(name, types.MappingProxyType(dict(args))))
         return tuple(out)
+
+    # -- variables (lot L1)
+    def var_info(self, name):
+        """(type, choices) of a user or system variable, or None."""
+        if name in self.vars:
+            v = self.vars[name]
+            return v.type, v.choices
+        if name in SYSTEM_VARS:
+            return SYSTEM_VARS[name][0], (tuple(self.state_names) if name == "etat" else ())
+        return None
+
+    def check_value(self, where, what, vtype, choices, val, utterance=False):
+        """Validate a literal (or a `$<var>` reference) against a variable / list item type."""
+        if isinstance(val, str) and val.startswith("$"):
+            ref = val[1:]
+            if ref == "utterance":   # the visitor's last sentence (list_contains: an item contained in it)
+                if vtype not in ("string", "choice"):
+                    self.err(where, "%s: $utterance is a text, %s expected" % (what, vtype))
+                return
+            info = self.var_info(ref)
+            if info is None:
+                self.err(where, "%s: unknown variable %r" % (what, ref))
+            elif not (info[0] == vtype or {info[0], vtype} <= {"number", "duration"} or {info[0], vtype} <= {"string", "choice"}):
+                self.err(where, "%s: variable %r is %s, expected %s" % (what, ref, info[0], vtype))
+            return
+        ok = {"bool": lambda v: isinstance(v, bool),
+              "number": _num,
+              "duration": lambda v: _num(v) and v >= 0,
+              "string": lambda v: isinstance(v, str) and len(v) <= TEXT_MAX,
+              "choice": lambda v: v in choices}[vtype](val)
+        if not ok:
+            self.err(where, "%s: %r is not a valid %s value%s" % (
+                what, val, vtype, " (choices: %s)" % ", ".join(map(str, choices)) if vtype == "choice" else ""))
+
+    def var_args(self, where, name, spec, args):
+        """Check the variable-related arguments of an action / guard call (kinds of ACTION_DOC / GUARD_ARGS)."""
+        target = None                                   # (type, choices) the `value` argument must match
+        for k, kind in spec.items():
+            val = args.get(k)
+            what = "%s.%s" % (name, k)
+            if kind in ("var", "numvar", "boolvar", "anyvar", "anyboolvar"):
+                info = self.var_info(val) if isinstance(val, str) else None
+                if info is None:
+                    self.err(where, "%s: unknown variable %r" % (what, val)); continue
+                if kind in ("var", "numvar", "boolvar") and val in SYSTEM_VARS:
+                    self.err(where, "%s: %r is a read-only system variable%s" % (
+                        what, val, " (change the state with `to:`)" if val == "etat" else "")); continue
+                if kind == "anyvar" and val == "etat":
+                    self.err(where, "%s: compare the state with only_in / not_in or by placing the transition under the state" % what); continue
+                if kind == "numvar" and info[0] not in ("number", "duration"):
+                    self.err(where, "%s: %r is not a number or duration variable" % (what, val)); continue
+                if kind in ("boolvar", "anyboolvar") and info[0] != "bool":
+                    self.err(where, "%s: %r is not a true/false variable" % (what, val)); continue
+                target = info
+            elif kind in ("wlist", "rlist", "rlist_any"):
+                li = self.lists.get(val) if isinstance(val, str) else None
+                if li is None:
+                    self.err(where, "%s: unknown list %r" % (what, val)); continue
+                if kind == "wlist" and li.source:
+                    self.err(where, "%s: list %r is bound to %s %r (read-only)" % (
+                        what, val, "config key" if li.source[0] == "cfg" else "intent", li.source[1])); continue
+                if kind == "rlist" and li.type != "string":
+                    self.err(where, "%s: list %r does not hold texts" % (what, val)); continue
+                target = (li.type, ())
+            elif kind == "op":
+                if val not in OPS:
+                    self.err(where, "%s: unknown operator %r (allowed: %s)" % (what, val, " ".join(OPS)))
+                elif val in ORDER_OPS and target and target[0] not in ("number", "duration"):
+                    self.err(where, "%s: %r only compares numbers or durations" % (what, val))
+            elif kind == "number":
+                if not _num(val):
+                    self.err(where, "%s: expected a number" % what)
+            elif kind in ("value", "listvalue"):
+                if target is not None:
+                    self.check_value(where, what, target[0], target[1], val, utterance=kind == "listvalue")
+
+    def variables(self, d, intent_names):
+        """Parse the `variables:` block into self.vars / self.lists."""
+        if d is None:
+            return
+        if not isinstance(d, dict) or set(d) - {"names", "lists"}:
+            self.err("variables", "must be a mapping with `names:` and/or `lists:`"); return
+        names, lists = d.get("names") or {}, d.get("lists") or {}
+        if not isinstance(names, dict) or not isinstance(lists, dict):
+            self.err("variables", "`names:` and `lists:` must be mappings"); return
+        for n, spec in names.items():
+            w = "variable %s" % n
+            if not (isinstance(n, str) and VAR_NAME.match(n)) or n in SYSTEM_VARS:
+                self.err(w, "name must match [a-z][a-z0-9_]{0,31} and not be a system variable (%s)" % ", ".join(SYSTEM_VARS)); continue
+            if not isinstance(spec, dict):
+                self.err(w, "must be a mapping {type, value}"); continue
+            for k in set(spec) - _VAR_KEYS:
+                self.err(w, "unknown key %r" % k)
+            vt = spec.get("type")
+            if vt not in VAR_TYPES:
+                self.err(w, "type must be one of %s" % ", ".join(VAR_TYPES)); continue
+            choices = ()
+            if vt == "choice":
+                ch = spec.get("choices")
+                if not (isinstance(ch, list) and 0 < len(ch) <= CHOICE_MAX and all(isinstance(c, str) and c.strip() and len(c) <= 60 for c in ch)
+                        and len(set(ch)) == len(ch)):
+                    self.err(w, "a choice variable needs `choices:` (1..%d distinct texts)" % CHOICE_MAX); continue
+                choices = tuple(ch)
+            elif "choices" in spec:
+                self.err(w, "`choices:` only goes with type choice")
+            if "value" not in spec:
+                self.err(w, "`value:` (initial value) is required"); continue
+            n_err = len(self.errors)
+            if isinstance(spec["value"], str) and spec["value"].startswith("$"):
+                self.err(w, "the initial value cannot be a reference"); continue
+            self.check_value(w, "value", vt, choices, spec["value"])
+            if len(self.errors) == n_err:
+                self.vars[n] = Variable(n, vt, spec["value"], choices, str(spec.get("description") or "").strip())
+        for n, spec in lists.items():
+            w = "list %s" % n
+            if not (isinstance(n, str) and VAR_NAME.match(n)) or n in SYSTEM_VARS or n in self.vars:
+                self.err(w, "name must match [a-z][a-z0-9_]{0,31} and differ from every variable"); continue
+            if not isinstance(spec, dict):
+                self.err(w, "must be a mapping {type, items}"); continue
+            for k in set(spec) - _LIST_KEYS:
+                self.err(w, "unknown key %r" % k)
+            lt = spec.get("type", "string")
+            if lt not in LIST_TYPES:
+                self.err(w, "type must be one of %s" % ", ".join(LIST_TYPES)); continue
+            if sum(k in spec for k in ("items", "from", "intent")) != 1:
+                self.err(w, "exactly one of items / from (config key) / intent is required"); continue
+            source, items = None, ()
+            if "from" in spec:
+                if not isinstance(self.cfg.get(spec["from"]), (list, tuple)):
+                    self.err(w, "from: %r is not a config key holding a list" % (spec["from"],)); continue
+                source, items = ("cfg", spec["from"]), tuple(self.cfg[spec["from"]])
+            elif "intent" in spec:
+                if spec["intent"] not in intent_names:
+                    self.err(w, "intent: unknown intent %r (words or words_from only)" % (spec["intent"],)); continue
+                source, items = ("intent", spec["intent"]), tuple(intent_names[spec["intent"]])
+            else:
+                raw = spec["items"]
+                if not isinstance(raw, list) or len(raw) > LIST_MAX:
+                    self.err(w, "`items:` must be a list of at most %d elements" % LIST_MAX); continue
+                n_err = len(self.errors)
+                for i, it in enumerate(raw):
+                    self.check_value(w, "item #%d" % (i + 1), lt, (), it)
+                    if isinstance(it, str) and it.startswith("$"):
+                        self.err(w, "item #%d: a list item cannot be a reference" % (i + 1))
+                if len(self.errors) > n_err:
+                    continue
+                items = tuple(raw)
+            if source and lt != "string":
+                self.err(w, "a bound list holds texts: type string"); continue
+            self.lists[n] = VarList(n, lt, items, str(spec.get("description") or "").strip(), source)
 
     def transition(self, where, t, state_names, intent_events, is_global):
         if not isinstance(t, dict):
@@ -424,16 +721,38 @@ class _Parser:
                 self.err(where, "`since` must be one of %s" % (SINCE,))
         elif since is not None:
             self.err(where, "`since:` only goes with `after:`")
+        var, value = t.get("var"), t.get("value", NOVALUE)
+        if on == "var_changed":
+            info = self.var_info(var) if isinstance(var, str) else None
+            if var == "etat":
+                self.err(where, "var_changed on etat: use the state's on_enter")
+            elif info is None:
+                self.err(where, "`on: var_changed` needs `var:` = a declared variable, got %r" % (var,))
+            elif value is not NOVALUE:
+                self.check_value(where, "value", info[0], info[1], value)
+        elif var is not None or value is not NOVALUE:
+            self.err(where, "`var:` / `value:` only go with `on: var_changed`")
         when = []
         for g in self.as_list(where, t.get("when")):
             neg = False
-            if isinstance(g, dict):  # negated guard: `when: [{not: guard}]`
-                if set(g) != {"not"}:
-                    self.err(where, "a guard mapping must be {not: guard}, got %r" % (g,)); continue
+            if isinstance(g, dict) and set(g) == {"not"}:  # negated guard: `when: [{not: guard}]` / {not: {g: args}}
                 g, neg = g["not"], True
-            if g not in GUARDS:
+            args = {}
+            if isinstance(g, dict):          # guard with arguments: {var_compare: {name, op, value}}
+                if len(g) != 1:
+                    self.err(where, "a guard mapping must be {not: guard} or {guard: {args}}, got %r" % (g,)); continue
+                g, args = next(iter(g.items()))
+                if not isinstance(args, dict):
+                    self.err(where, "arguments of guard %s must be a mapping" % (g,)); continue
+            if not isinstance(g, str) or g not in GUARDS:
                 self.err(where, "unknown guard %r (allowed: %s)" % (g, ", ".join(sorted(GUARDS)))); continue
-            when.append(Cond(g, neg))
+            spec = GUARD_SPECS[g]
+            if set(args) != set(spec):
+                self.err(where, "guard %s takes %s, got %s" % (g, sorted(spec) or "no argument", sorted(args))); continue
+            n_err = len(self.errors)
+            self.var_args(where, g, spec, args)
+            if len(self.errors) == n_err:
+                when.append(Cond(g, neg, types.MappingProxyType(dict(args))))
         when = tuple(when)
         lists = {}
         for k in ("only_in", "not_in"):
@@ -459,7 +778,8 @@ class _Parser:
             fan = None
         return Transition(on, after, since, when, lists["only_in"], lists["not_in"],
                           self.calls(where + " do", t.get("do")), to, reason,
-                          self.calls(where + " then", t.get("then")), desc, enabled, fan)
+                          self.calls(where + " then", t.get("then")), desc, enabled, fan,
+                          var if on == "var_changed" else None, value if on == "var_changed" else NOVALUE)
 
     def build(self) -> Graph:
         d = self.data
@@ -511,6 +831,10 @@ class _Parser:
                 self.err(w, "icon must be a Tabler icon name (lowercase letters, digits, dashes)"); icon = None
             intents.append(Intent(n, self.need_desc(w, spec), words, wf, rx, spec.get("regex") if rx else None, oi, icon))
         intent_events = {"intent." + i.name for i in intents} | {"intent.question"}
+        # variables next: lists may mirror an intent's words; transitions below reference both
+        self.state_names = list(states_raw)
+        self.variables(d.get("variables"), {i.name: (list(i.words) or list(self.cfg.get(i.words_from) or []))
+                                            for i in intents if i.words or i.words_from})
         states = {}
         for n, spec in states_raw.items():
             w = "state %s" % n
@@ -532,7 +856,8 @@ class _Parser:
         if self.errors:
             raise GraphError("%s: %d problem(s):\n  - %s" % (self.source, len(self.errors), "\n  - ".join(self.errors)),
                              self.items)
-        return Graph(types.MappingProxyType(states), tuple(globs), tuple(intents), self.source, tuple(self.warnings))
+        return Graph(types.MappingProxyType(states), tuple(globs), tuple(intents), self.source, tuple(self.warnings),
+                     types.MappingProxyType(dict(self.vars)), types.MappingProxyType(dict(self.lists)))
 
 
 def parse_graph(data, cfg: dict, source: str = "<memory>") -> Graph:
@@ -575,12 +900,40 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
     are read from `cfg` so the editor shows the current seconds.
     """
     ev = [{"id": k, "label": v[0], "help": v[1], "icon": EVENT_ICON[k]} for k, v in EVENT_DOC.items() if not v[2]]
-    ev_ids = [e["id"] for e in ev]
+    ev_ids = [e["id"] for e in ev if e["id"] != "var_changed"]   # var_changed needs arguments: never emitted by name
+    for e in ev:
+        if e["id"] == "var_changed":
+            e["args"] = [{"name": "name", "type": "var", "var_types": list(VAR_TYPES), "writable": False, "label": "Variable"},
+                         {"name": "value", "type": "value", "of": "name", "optional": True, "label": "Valeur (facultative)"}]
+
+    def var_arg(a, kind, alabel):
+        """Argument schema of the variable kinds (lot L1); None for the older kinds."""
+        if kind in ("var", "numvar", "boolvar", "anyvar", "anyboolvar"):
+            types_ = {"numvar": ["number", "duration"], "boolvar": ["bool"], "anyboolvar": ["bool"]}.get(kind, list(VAR_TYPES))
+            return {"name": a, "type": "var", "var_types": types_, "writable": kind in ("var", "numvar", "boolvar"),
+                    "label": alabel}
+        if kind in ("wlist", "rlist", "rlist_any"):
+            return {"name": a, "type": "list", "list_types": ["string"] if kind == "rlist" else list(LIST_TYPES),
+                    "writable": kind == "wlist", "label": alabel}
+        if kind in ("value", "listvalue"):
+            d = {"name": a, "type": "value", "of": "name" if "name" in spec else "list", "label": alabel}
+            if kind == "listvalue":
+                d["utterance"] = True    # "$utterance" offered
+            return d
+        if kind == "op":
+            return {"name": a, "type": "enum", "options": list(OPS), "labels": dict(OPS), "label": alabel}
+        if kind == "number":
+            return {"name": a, "type": "number", "options": [], "label": alabel}
+        return None
+
     actions = []
     for name, (label, hlp, spec) in ACTION_DOC.items():
         args = []
         for a, (kind, alabel) in spec.items():
-            if kind == "cfgkey":
+            va = var_arg(a, kind, alabel)
+            if va is not None:
+                args.append(va)
+            elif kind == "cfgkey":
                 args.append({"name": a, "type": "enum", "options": list(PHRASE_KEYS), "label": alabel})
             elif kind == "event":
                 args.append({"name": a, "type": "enum", "options": ev_ids, "label": alabel})
@@ -595,10 +948,18 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             else:  # delay: a number of seconds, or one of the `options` config keys
                 args.append({"name": a, "type": "number", "options": list(DELAY_DOC), "label": alabel})
         actions.append({"id": name, "label": label, "help": hlp, "icon": ACTION_ICON[name], "args": args})
-    guards = [{"id": k, "label": v[0], "help": v[1], "icon": GUARD_ICON[k]} for k, v in GUARD_DOC.items()]
+    guards = []
+    for k, v in GUARD_DOC.items():
+        spec = GUARD_ARGS.get(k, {})
+        g = {"id": k, "label": v[0], "help": v[1], "icon": GUARD_ICON[k],
+             "args": [var_arg(a, kind, alabel) for a, (kind, alabel) in spec.items()]}
+        if k in GUARD_AS_VARS:
+            g["as_vars"] = GUARD_AS_VARS[k]
+        guards.append(g)
     delays = [{"key": k, "value": cfg.get(k), "label": v, "icon": DELAY_ICON} for k, v in DELAY_DOC.items()]
     since = [{"id": k, "label": v, "icon": SINCE_ICON[k]} for k, v in SINCE_DOC.items()]
-    kinds = [{"id": k, "label": lab, "icon": ic} for k, (lab, ic) in KIND_DOC.items()]
+    kinds = [{"id": k, "label": lab, "icon": ic, "inputs": KIND_PORTS[k][0], "outputs": list(KIND_PORTS[k][1]),
+              "legacy": KIND_PORTS[k][2]} for k, (lab, ic) in KIND_DOC.items()]
     states, intents = [], [{"id": "question", "label": "Une question (aucun autre motif reconnu)",
                             "event": "intent.question", "icon": INTENT_ICON["question"], "fixed": True,
                             "description": "Aucun autre motif reconnu.", "only_in": []}]
@@ -607,7 +968,32 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
                    "icon": state_icon(n)} for n, s in graph.states.items()]
         intents = [_intent_entry(i) for i in graph.intents] + intents
     return {"events": ev, "actions": actions, "guards": guards, "delays": delays, "since": since,
-            "states": states, "intents": intents, "kinds": kinds}
+            "states": states, "intents": intents, "kinds": kinds,
+            "var_types": [{"id": k, "label": v} for k, v in VAR_TYPES.items()],
+            "list_types": [{"id": k, "label": v} for k, v in LIST_TYPES.items()],
+            "ops": [{"id": k, "label": v} for k, v in OPS.items()],
+            "variables": variable_entries(graph, cfg)}
+
+
+def variable_entries(graph: "Graph | None", cfg: dict) -> dict:
+    """Variable manager rows: system variables first (read-only), then the graph's own names and lists."""
+    names = [{"id": n, "type": t, "label": lab, "description": hlp, "system": True, "readonly": True,
+              **({"choices": list(graph.states) if graph is not None else []} if n == "etat" else {})}
+             for n, (t, lab, hlp) in SYSTEM_VARS.items()]
+    lists = []
+    if graph is not None:
+        for v in graph.variables.values():
+            d = {"id": v.name, "type": v.type, "value": v.value, "description": v.description, "system": False, "readonly": False}
+            if v.choices:
+                d["choices"] = list(v.choices)
+            names.append(d)
+        for li in graph.lists.values():
+            items = list(cfg.get(li.source[1]) or []) if li.source and li.source[0] == "cfg" else list(li.items)
+            d = {"id": li.name, "type": li.type, "items": items, "description": li.description, "readonly": bool(li.source)}
+            if li.source:
+                d["source"] = {li.source[0]: li.source[1]}
+            lists.append(d)
+    return {"names": names, "lists": lists}
 
 
 def say_texts(graph: "Graph") -> list:
@@ -615,7 +1001,13 @@ def say_texts(graph: "Graph") -> list:
     calls = [c for s in graph.states.values() for c in s.on_enter]
     for t in list(graph.globals) + [t for s in graph.states.values() for t in s.transitions]:
         calls += list(t.do) + list(t.then)
-    return list(dict.fromkeys(c.args["text"] for c in calls if c.name == "say_text"))
+    texts = []
+    for c in calls:
+        if c.name == "say_text":
+            texts.append(c.args["text"])
+        elif c.name == "say_random" and c.args["list"] in graph.lists:   # every phrase of the list, cached like say_text
+            texts += [x for x in graph.lists[c.args["list"]].items if isinstance(x, str) and x.strip()]
+    return list(dict.fromkeys(texts))
 
 
 def _intent_entry(i: "Intent") -> dict:
@@ -686,7 +1078,14 @@ class GraphEngine:
             return False
         if tr.not_in is not None and state in tr.not_in:
             return False
-        return all(bool(self.guards[g.name](kw)) != g.negate for g in tr.when)
+        return all(bool(self.guards[g.name](kw, **g.args)) != g.negate for g in tr.when)
+
+    @staticmethod
+    def _var_match(tr: Transition, kw: dict) -> bool:
+        """`var_changed` transitions only react to their variable (and value, when one is given)."""
+        if tr.on != "var_changed":
+            return True
+        return tr.var == kw.get("name") and (tr.value is NOVALUE or tr.value == kw.get("value"))
 
     def _fire(self, tr: Transition, kw: dict, event: str | None, done: dict | None = None):
         """Run one chain: its `do` actions, the move, its `then` actions.
@@ -767,7 +1166,7 @@ class GraphEngine:
         if event == "utterance":
             event = self.classify(kw.get("text", ""), state)
         cands = [tr for tr in self.graph.globals + self.graph.states[state].transitions
-                 if tr.enabled and tr.on == event and self._applies(tr, state, kw)]
+                 if tr.enabled and tr.on == event and self._var_match(tr, kw) and self._applies(tr, state, kw)]
         return self._run_matches(cands, kw, event, state) if cands else False
 
     def _delay(self, after) -> float:

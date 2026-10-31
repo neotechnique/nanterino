@@ -15,6 +15,8 @@ Boundary
     - Time is virtual: `wait_s` steps advance a manual monotonic clock in 0.1 s ticks, calling the same
       `Brain._on_tick` the 10 Hz heartbeat calls; speaking / answering / singing take fixed virtual durations
       (SPEAK_S, brain.SIM_ANSWER_S, brain.SIM_SONG_S).
+    - Lot L1 (variables): every trace entry carries `vars` (values after its step, system variables included) and
+      `final.vars`; `say_random` uses the brain's rng seeded with 0.
 
 Invariants
     - Same inputs give the same trace (no real time, no randomness, no threads).
@@ -174,7 +176,7 @@ def _check_steps(steps, graph) -> list:
             continue
         (k, v), = st.items()
         if k == "event":
-            if not (v in G.EVENTS - G.INTERNAL_EVENTS or v in intent_events):
+            if v == "var_changed" or not (v in G.EVENTS - G.INTERNAL_EVENTS or v in intent_events):
                 errs.append({"step": i, "message": "Événement inconnu : %r." % (v,)})
         elif k == "say":
             if not (isinstance(v, str) and v.strip()):
@@ -235,7 +237,9 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
     brain = Brain(cfg2, out, FakeSTT(), FakeLLM(rec), tts, FakeCorpus(), clock=clock,
                   wall=lambda: wall0 + (clock.t - t0), mic=FakeIn(rec), graph=graph, threaded=False,
                   start_state=start_state)
+    brain.rng.seed(0)                                     # say_random: same inputs, same trace
     marks.extend((e, 0, -1) for e in brain.journal)       # chains fired by the boot entry itself (emit in on_enter)
+    step_vars = {}                                        # step -> variable values after it (lot L1)
     brain.journal_hook = lambda e: marks.append((e, len(rec.events), cur["step"]))
 
     def tick_for(seconds):
@@ -246,6 +250,7 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
 
     try:
         brain.pump()
+        step_vars[-1] = brain.var_snapshot()
         for i, st in enumerate(steps):
             cur["step"] = i
             (k, v), = st.items()
@@ -259,18 +264,21 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
                 tick_for(v)
             else:
                 brain.pump()
+            step_vars[i] = brain.var_snapshot()
     except RuntimeError as e:
         raise SimError([{"step": cur["step"], "message": str(e)}])
 
     trace = [{"step": -1, "t": 0.0, "event": None, "from": None, "to": start_state, "moved": False, "reason": "start",
               "chain": start_state + "/enter", "actions": [c.label() for c in graph.states[start_state].on_enter],
-              "effects": [x for x in map(_effect, rec.events[:marks[0][1] if marks else len(rec.events)]) if x]}]
+              "effects": [x for x in map(_effect, rec.events[:marks[0][1] if marks else len(rec.events)]) if x],
+              "vars": step_vars.get(-1)}]
     for n, (e, at, step) in enumerate(marks):
         end = marks[n + 1][1] if n + 1 < len(marks) else len(rec.events)
         trace.append({"step": step, "t": round(e["mono"] - t0, 2), "event": e["event"], "from": e["from"],
                       "to": e["to"], "moved": e["moved"], "reason": e["reason"], "chain": e["chain"],
                       "actions": list(e["actions"]), **({"conflict": True} if e.get("conflict") else {}),
-                      "effects": [x for x in map(_effect, rec.events[at:end]) if x]})
+                      "effects": [x for x in map(_effect, rec.events[at:end]) if x], "vars": step_vars.get(step)})
     snap = brain.snapshot()
     return {"trace": trace, "final": {"state": brain.state, "turns": brain.turns,
-                                      "expression": snap["expression"], "gaze_mode": snap["gaze_mode"]}}
+                                      "expression": snap["expression"], "gaze_mode": snap["gaze_mode"],
+                                      "vars": brain.var_snapshot()}}

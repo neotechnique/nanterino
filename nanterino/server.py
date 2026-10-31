@@ -3,6 +3,8 @@
 logging: robotlog via nanterino.log. Run: python -m nanterino.server (systemd user service).
 Access control: only localhost, Tailscale (100.64/10) and the USB-C link may connect; the robot
 is not exposed to the venue Wi-Fi.
+Graph editor routes follow Notes/graph-visual-format.md; lot L1 (2026-10-31) adds GET /api/graph/vars (live values
+of the graph variables, read from Brain.var_snapshot()).
 """
 import asyncio
 import ipaddress
@@ -178,6 +180,12 @@ def editor():
 def graph_vocab():
     """Palette of the visual editor: events, actions (with argument schema), guards, delays, states, intents."""
     return graph_mod.vocabulary(brain.cfg, brain.engine.graph)
+
+
+@app.get("/api/graph/vars")
+def graph_vars():
+    """Live values of the graph variables (system ones included) and lists, for the editor and its Tester."""
+    return brain.var_snapshot()
 
 
 @app.get("/api/graph/visual")

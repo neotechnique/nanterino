@@ -229,3 +229,25 @@ intents:
     regex: "\\b(chante[rsz]?|chantons|chanson)\\b"
     description: "Demande de chanson, mots entiers seulement (« enchanté » ne compte pas)."
   # Aucune correspondance : événement intent.question (une vraie question à traiter).
+
+# Variables (gestionnaire de variables de l'éditeur, façon Game Creator 2).
+#   names : variables nom, typées (bool, number, string, choice, duration) ; `value` = valeur au chargement du graphe
+#           (en mémoire, remise à cette valeur à chaque rechargement).
+#   lists : variables liste (string, number, bool) ; `from:` = liée à une clé de config.json, `intent:` = les mots d'une
+#           intention (ces deux sortes sont en lecture seule) ; `items:` = liste modifiable par les actions.
+# Variables système, toujours présentes et en lecture seule : etat, tours, max_tours, reparations, max_reparations.
+variables:
+  names: {}
+  lists:
+    mots_refus:
+      type: string
+      from: refusal_words
+      description: "Mots qui font partir le visiteur (clé refusal_words de config.json, intention au_revoir)."
+    mots_appel:
+      type: string
+      intent: appel
+      description: "Mots qui réveillent le robot en veille (intention appel)."
+    salutations:
+      type: string
+      items: ["Bonjour !", "Bonjour, bienvenue !", "Bonjour, je suis Nanterino."]
+      description: "Exemple : phrases d'accueil pour l'action « Dire une phrase au hasard »."

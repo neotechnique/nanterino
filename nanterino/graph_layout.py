@@ -17,6 +17,10 @@ Hub drawing (L7): `hub_layout()` puts the state hubs on the TOP row, left to rig
     `hub_frames()` gives one automatic translucent frame per column. Wires back to the hubs are not optimised:
     the editor draws them faded with a "→ État" badge. (`auto_layout(hub=True)` = the L6 row-band form, unused.)
 
+Variables drawing (lot L1): `var_layout()` = the hub columns without hubs and badges (one column per state group,
+    `global` last, rows wrapped); `hub_frames(..., badge=0)` frames them. `node_height` knows the etat condition and
+    the set_var / var_changed nodes.
+
 Invariants
     - One band per state group, stacked top to bottom in the order the groups first appear in `nodes`.
     - Inside a band: columns left to right (trigger, conditions, actions, targets); all targets (goto/end)
@@ -87,11 +91,16 @@ def node_height(n) -> int:
         summ = "x" * max(27, len(str(p.get("action") or "")) + 14) + "".join(" %s=%s" % kv for kv in (p.get("args") or {}).items())
     elif k == "goto":
         summ = "→ %s %s" % (p.get("state", ""), "(%s)" % p["reason"] if p.get("reason") else "")
+    elif k == "condition" and p.get("args"):   # lot L1: guard with arguments, e.g. "etat ∈ reponse, accueil, relance"
+        txt = " ".join(", ".join(map(str, v)) if isinstance(v, list) else str(v) for v in p["args"].values())
+        summ = "x" * max(27, len(txt) + 10)
     elif k == "condition":
         summ = ("Pas dans : " + ", ".join(str(x) + "xx" for x in p.get("states") or [])
                 if p.get("type") == "state" else "x" * max(27, len(str(p.get("guard") or "")) + 8))
     elif k == "trigger":
         summ = "Après 99 secondes depuis la parole" if p.get("type") == "after" else str(p.get("event") or p.get("state") or "") + " xxxxxxxx"
+        if p.get("event") == "var_changed":   # "Quand etat devient reponse"
+            summ = "Quand %s devient %s" % (p.get("name"), p.get("value", "xxxxxx"))
     else:
         summ = "Fin de chaîne" if k == "end" else "État de départ : veille"
     # calibrated on the rendered editor (Firefox, 2026-10-31): bare node 54 px, +18 per extra summary line,
@@ -135,7 +144,15 @@ def hub_groups(nodes) -> list:
     return out
 
 
-def hub_layout(nodes, links, y0: int = TOP) -> dict:
+def var_layout(nodes, links, y0: int = TOP) -> dict:
+    """Columns layout of the variables drawing (lot L1): no state node, one column per state group in order of first
+    appearance (the state order of the graph), `global` last, columns wrapped into rows like hub_layout. Every link of
+    this drawing stays inside its column (shared nodes only join chains of one group), so the only crossings are the
+    ones the band algorithm leaves inside a column; no room is kept for "→ État" badges and layers use COLW."""
+    return hub_layout(nodes, links, y0, badge=0, pitch=COLW, stack=True)
+
+
+def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False) -> dict:
     """Columns layout of the state-node (hub) drawing (L7, 2026-10-31; fix round: columns wrapped into rows).
 
     Fix round: the columns (flow order kept) are wrapped into 1..4 rows chosen by `_wrap_rows()` for an
@@ -152,7 +169,7 @@ def hub_layout(nodes, links, y0: int = TOP) -> dict:
     # L7 fix round: the columns are built at the origin, then wrapped into rows (see _wrap_rows)
     hub_h = max([node_height(n) for n in nodes if n.get("kind") == "state"] + [0])
     chain_top = hub_h + HUB_GAP if hub_h else 0
-    cols = [_hub_column(g, nodes, links, chain_top) for g in hub_groups(nodes)]
+    cols = [_hub_column(g, nodes, links, chain_top, badge, pitch, stack) for g in hub_groups(nodes)]
     pos = {}
     for row in _wrap_rows(cols):
         x = 0
@@ -188,13 +205,13 @@ def _components(mine, links) -> list:
     return out
 
 
-def _band(sub, links, top) -> dict:
-    """auto_layout of one sub-band, x converted from COLW layers to HUB_PITCH layers, starting at x = 0."""
+def _band(sub, links, top, pitch: int = HUB_PITCH) -> dict:
+    """auto_layout of one sub-band, x converted from COLW layers to `pitch` layers, starting at x = 0."""
     band = auto_layout(sub, links, top)
-    return {i: ((bx // COLW) * HUB_PITCH, by) for i, (bx, by) in band.items()}
+    return {i: ((bx // COLW) * pitch, by) for i, (bx, by) in band.items()}
 
 
-def _hub_column(g, nodes, links, chain_top):
+def _hub_column(g, nodes, links, chain_top, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False):
     """({id: (x, y)} relative to the column's top-left, width, height) of one state column.
 
     Hub at (0, 0); chains one layer to the right, from `chain_top` down. A column with more than SUBCOL_CHAINS
@@ -205,7 +222,7 @@ def _hub_column(g, nodes, links, chain_top):
     mine = [n for n in nodes if n.get("group") == g and n.get("kind") != "state"]
     width, height = NODE_W, max([node_height(by_id[i]) for i in rel] + [0])
     if mine:
-        x0 = HUB_PITCH if rel else 0
+        x0 = pitch if rel else 0
         comps = _components(mine, links)
         parts = [comps]
         if len(comps) > SUBCOL_CHAINS:
@@ -216,12 +233,19 @@ def _hub_column(g, nodes, links, chain_top):
                 k += 1
             parts = [comps[:k], comps[k:]] if 0 < k < len(comps) else [comps]
         for part in parts:
-            sub_ids = {i for c in part for i in c}
-            band = _band([n for n in mine if n["id"] in sub_ids], links, chain_top)
+            if stack:   # lot L1: every chain tree gets its own rows, so wires of two trees can never cross
+                band, top = {}, chain_top
+                for c in part:
+                    cb = _band([n for n in mine if n["id"] in set(c)], links, top, pitch)
+                    band.update(cb)
+                    top = max(cb[i][1] + node_height(by_id[i]) for i in cb) + GAP_Y * 2
+            else:
+                sub_ids = {i for c in part for i in c}
+                band = _band([n for n in mine if n["id"] in sub_ids], links, chain_top, pitch)
             for i, (bx, by) in band.items():
                 rel[i] = (x0 + bx, by)
-            x0 = max(rel[i][0] for i in band) + NODE_W + BADGE_ROOM + SUBCOL_GAP
-        width = max(rel[i][0] for i in rel) + NODE_W + BADGE_ROOM
+            x0 = max(rel[i][0] for i in band) + NODE_W + badge + SUBCOL_GAP
+        width = max(rel[i][0] for i in rel) + NODE_W + badge
         height = max(rel[i][1] + node_height(by_id[i]) for i in rel)
     return rel, width, height
 
@@ -376,7 +400,7 @@ def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:
     return pos
 
 
-def hub_frames(nodes, pos, colors=None) -> list:
+def hub_frames(nodes, pos, colors=None, badge: int = BADGE_ROOM) -> list:
     """Automatic column frames of the hub drawing: one per column, in a muted copy of the state colour.
 
     Marked `auto: True` so the editor draws them translucent and distinct from user frames; they reach
@@ -388,7 +412,7 @@ def hub_frames(nodes, pos, colors=None) -> list:
             continue
         x0 = min(pos[n["id"]][0] for n in mine) - 28
         y0 = min(pos[n["id"]][1] for n in mine) - 56
-        x1 = max(pos[n["id"]][0] + NODE_W for n in mine) + 28 + (BADGE_ROOM if any(n.get("kind") != "state" for n in mine) else 0)
+        x1 = max(pos[n["id"]][0] + NODE_W for n in mine) + 28 + (badge if any(n.get("kind") != "state" for n in mine) else 0)
         y1 = max(pos[n["id"]][1] + node_height(n) for n in mine) + 28
         colour = (colors or {}).get(g) or ("#e0504d" if g == "global" else "#8b949e")
         out.append({"id": "auto-" + str(g), "title": STATE_LABELS.get(g, str(g).capitalize()), "color": colour,

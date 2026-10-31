@@ -101,10 +101,16 @@ def test_roundtrip_default():
     # count only by coincidence: shared triggers vs the enter triggers); a global rule limited to some states now
     # keeps its trigger apart from a same-event rule limited to others (the links make them different triggers).
     assert sorted(doc["order"]) == sorted(n["id"] for n in doc["nodes"] if n["kind"] == "trigger")
+    # CHANGED (lot L1): the default drawing has no state hub and no go-to node; every chain ends on its last action
     kinds = {n["kind"] for n in doc["nodes"]}
-    assert kinds == {"start", "trigger", "condition", "action", "state", "end"}, kinds   # no go-to node any more
-    # exactly one state node per state, in state order, right after Start
-    assert [n["params"]["state"] for n in doc["nodes"] if n["kind"] == "state"] == list(raw["states"])
+    assert kinds == {"start", "trigger", "condition", "action"}, kinds
+    assert not [n for n in doc["nodes"] if n["kind"] in ("state", "goto")], "0 state / goto node"
+    trig_ids = {n["id"] for n in doc["nodes"] if n["kind"] == "trigger"}
+    assert not [l for l in doc["links"] if l["to"] in trig_ids], "a wire enters a trigger"
+    # the L6 hub drawing (one state node per state, in state order) still round-trips: migration of old documents
+    hub = to_json_and_back(V.to_visual(raw, form="hub"))
+    assert [n["params"]["state"] for n in hub["nodes"] if n["kind"] == "state"] == list(raw["states"])
+    assert semantic(compile_ok(hub)[0], nofan=True) == a, "hub drawing changed the graph"
     # the legacy drawing (go-to nodes) still round-trips to the same graph
     legacy = to_json_and_back(V.to_visual(raw, legacy=True))
     assert {n["kind"] for n in legacy["nodes"]} == {"start", "trigger", "condition", "action", "goto", "end"}
@@ -150,7 +156,13 @@ def test_vocabulary():
     g = G.load_graph(G.DEFAULT_PATH, CFG)
     v = G.vocabulary(CFG, g)
     counts = {k: len(x) for k, x in v.items()}
-    assert counts == {"events": 21, "actions": 23, "guards": 8, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6}, counts
+    # CHANGED (lot L1): + var_changed, 7 variable actions, 4 variable conditions, variable manager keys
+    assert counts == {"events": 22, "actions": 30, "guards": 12, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
+                      "var_types": 5, "list_types": 3, "ops": 6, "variables": 2}, counts
+    ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
+    assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])
+    assert [x["id"] for x in v["variables"]["names"][:5]] == list(G.SYSTEM_VARS)
+    assert {x["id"] for x in v["variables"]["lists"]} == {"mots_refus", "mots_appel", "salutations"}
     assert {a["id"] for a in v["actions"]} == set(G.ACTION_SPECS)
     assert {x["id"] for x in v["guards"]} == set(G.GUARDS)
     assert {e["id"] for e in v["events"]} == set(G.EVENTS) - set(G.INTERNAL_EVENTS)
@@ -175,13 +187,12 @@ def expect_error(doc, node, fragment):
 
 def test_error_cases():
     base = V.to_visual(default_raw(), compact=False, legacy=True)   # go-to nodes + explicit state conditions (legacy form still compiles)
-    # chain without target: cut the link into the final goto of the `visage` transition
+    # CHANGED (lot L1): an action whose output is unlinked ends its chain (implicit End); a trigger without any
+    # outgoing wire is still refused
     d = copy.deepcopy(base)
     trig = find(d, kind="trigger", event="stop")[0]
-    ids = chain_of(d, trig["id"])
-    d["links"] = [l for l in d["links"] if not (l["from"] == ids[-2] and l["to"] == ids[-1])]
-    d["nodes"] = [n for n in d["nodes"] if n["id"] != ids[-1]]
-    expect_error(d, ids[-2], "sans cible")
+    d["links"] = [l for l in d["links"] if l["from"] != trig["id"]]
+    expect_error(d, trig["id"], "sans suite")
     # unknown state in a goto
     d = copy.deepcopy(base)
     goto = find(d, kind="goto", state="accueil")[0]
@@ -341,7 +352,7 @@ def test_save_backups_and_reset():
     assert first.startswith("# Graphe de dialogue de Nanterino")
     # invalid document: nothing written, errors listed
     bad = copy.deepcopy(doc)
-    find(bad, kind="state", state="accueil")[0]["params"]["state"] = "atlantis"
+    next(n for n in bad["nodes"] if n["kind"] == "action" and n["params"]["action"] == "set_var")["params"]["args"]["value"] = "atlantis"
     ok, errs = V.save(bad, CFG, gp, lp)
     assert not ok and errs and open(gp, encoding="utf-8").read() == first
     # edit a delay 8 -> 10: the file changes, a backup appears; backups are capped at V.KEEP_BACKUPS (30)
@@ -376,10 +387,9 @@ def test_deferred_reload_applies_at_next_veille():
         trig = next(n for n in doc["nodes"] if n["kind"] == "trigger" and n["params"].get("event") == "start"
                     and n["group"] == "veille")
         ids = chain_of(doc, trig["id"])
-        ecoute = next(n for n in doc["nodes"] if n["kind"] == "state" and n["params"]["state"] == "ecoute")
-        for lk in doc["links"]:       # re-wire the last hop of the chain into the ecoute state node
-            if lk["from"] == ids[-2] and lk["to"] == ids[-1]:
-                lk["to"] = ecoute["id"]
+        # CHANGED (lot L1): the move is the action set_var(etat, accueil) at the end of the chain: retarget it
+        mv = next(n for n in doc["nodes"] if n["id"] in ids and n["kind"] == "action" and n["params"]["action"] == "set_var")
+        mv["params"]["args"]["value"] = "ecoute"
         assert V.save(doc, h.cfg, gp, lp)[0]
         assert h.brain.request_graph_reload() is False and h.brain.graph_pending is True
         assert h.brain.engine.graph.source != gp, "must not swap graphs mid-conversation"
@@ -478,8 +488,11 @@ def test_sharing_lighter_and_equivalent():
     assert len(comp["nodes"]) <= 0.76 * len(old["nodes"]) and len(comp["links"]) <= 0.80 * len(old["links"])
     assert len(comp["nodes"]) <= 0.76 * 182, "compact (default) drawing of the shipped graph"
     assert [(n["kind"], n["params"]) for n in V.to_visual(raw, legacy=True)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the legacy default"
-    hub = V.to_visual(raw)
+    hub = V.to_visual(raw, form="hub")      # CHANGED (lot L1): the hub drawing is no longer the default
     print("  hub drawing: nodes %d, links %d" % (len(hub["nodes"]), len(hub["links"])))
+    var = V.to_visual(raw)
+    print("  variables drawing (default): nodes %d, links %d" % (len(var["nodes"]), len(var["links"])))
+    assert semantic(compile_ok(to_json_and_back(var))[0], nofan=True) == semantic(raw, nofan=True)
     assert len(hub["nodes"]) <= len(comp["nodes"]) and not [n for n in hub["nodes"] if n["kind"] in ("goto",)]
     raw_h, _ = compile_ok(to_json_and_back(hub))
     assert semantic(raw_h, nofan=True) == semantic(raw, nofan=True)
@@ -515,8 +528,8 @@ def test_layout_no_overlap_and_few_crossings():
         # the whole canvas by nature); crossings inside the chains must still stay low
         x = GL.crossings(doc["nodes"], doc["links"], pos, chains_only=not kw.get("legacy"))
         assert x <= 12, (kw, x)
-        if not kw:
-            print("  hub drawing: %d crossings inside chains, %d with the returning wires" % (
+        if not kw:   # CHANGED (lot L1): the default is the variables drawing: no returning wire at all
+            print("  variables drawing: %d crossings inside chains, %d with all wires" % (
                 x, GL.crossings(doc["nodes"], doc["links"], pos)))
     # a long French description makes a tall node: the next row is pushed down, never overlapped
     long_raw = copy.deepcopy(raw)
@@ -544,9 +557,15 @@ def test_merged_fan_trigger_reloads_as_one_node():
     assert len(qs) == 2
     for t in qs:
         t["fan"] = "fan-x1"
-    doc = to_json_and_back(V.to_visual(raw))
+    doc = to_json_and_back(V.to_visual(raw, form="hub"))   # CHANGED (lot L1): the link count below is the hub form's
     trigs = _triggers(doc, "intent.question", "ecoute")
     assert len(trigs) == 1 and trigs[0]["params"]["fan"] == "fan-x1"
+    vdoc = to_json_and_back(V.to_visual(raw))              # variables form: trigger -> etat = ecoute -> the two branches
+    vt = _triggers(vdoc, "intent.question", "ecoute")
+    assert len(vt) == 1 and vt[0]["params"]["fan"] == "fan-x1"
+    (cond,) = [l["to"] for l in vdoc["links"] if l["from"] == vt[0]["id"]]
+    assert sum(1 for l in vdoc["links"] if l["from"] == cond) == 2
+    assert semantic(compile_ok(vdoc)[0], nofan=True) == semantic(compile_ok(doc)[0], nofan=True)   # fan ids follow node ids
     assert sum(1 for l in doc["links"] if l["from"] == trigs[0]["id"]) == 2       # compact: the two guard branches (turns_left / not)
     raw2, _ = compile_ok(doc)
     assert semantic(raw2, nofan=True) == semantic(raw, nofan=True), "branch order survives the reload"
@@ -646,7 +665,7 @@ def test_trigger_linked_from_several_states():
     raw, _ = compile_ok(flagged)
     assert raw["global"][0]["only_in"] == ["veille"] and not raw["states"]["veille"].get("transitions")
     # the drawing of such a rule comes back as ONE trigger linked from those states (no condition node)
-    doc = to_json_and_back(V.to_visual(raw))
+    doc = to_json_and_back(V.to_visual(raw, form="hub"))   # CHANGED (lot L1): hub form asked explicitly
     trig = [n for n in doc["nodes"] if n["kind"] == "trigger" and n["params"].get("event") == "stop"]
     assert len(trig) == 1 and trig[0]["params"].get("global") is True
     assert [l["from"] for l in doc["links"] if l["to"] == trig[0]["id"]] == [find(doc, kind="state", state="veille")[0]["id"]]
@@ -671,15 +690,15 @@ def test_state_node_link_rules():
     act = N("a", "action", action="cancel_all", args={}, phase="do")
     end = N("e", "end")
     # a trigger only accepts links from state nodes
-    expect_error(_hub_doc([trig, act, end, N("t3", "trigger", type="event", event="visage")],
-                          [L("sv", "t"), L("a", "t3"), L("t", "e")], ["t", "t3"]), "t3", "n'accepte de lien que depuis un nœud État")
+    expect_error(_hub_doc([trig, act, end, N("t3", "trigger", type="event", event="visage")],  # CHANGED (L1) message below
+                          [L("sv", "t"), L("a", "t3"), L("t", "e")], ["t", "t3"]), "t3", "n'a pas d'entrée")
     expect_error(_hub_doc([trig, N("t4", "trigger", type="event", event="visage"), end],
-                          [L("sv", "t"), L("t", "t4"), L("t4", "e")], ["t", "t4"]), "t4", "n'accepte de lien que depuis un nœud État")
+                          [L("sv", "t"), L("t", "t4"), L("t4", "e")], ["t", "t4"]), "t4", "n'a pas d'entrée")
     # a state node feeds triggers only
     expect_error(_hub_doc([trig, act, end], [L("sv", "a"), L("sv", "t"), L("t", "e"), L("a", "e")], ["t"]), "sv", "se relie seulement à un déclencheur")
     expect_error(_hub_doc([trig, end], [L("sv", "sa"), L("sv", "t"), L("t", "e")], ["t"]), "sv", "se relie seulement à un déclencheur")
     # Start only links to a state node
-    expect_error(_hub_doc([trig, end], [L("start", "e"), L("sv", "t"), L("t", "e")], ["t"]), "start", "se relie seulement à un nœud État")
+    expect_error(_hub_doc([trig, end], [L("start", "e"), L("sv", "t"), L("t", "e")], ["t"]), "start", "ne se relie à rien")   # CHANGED (L1)
     # one node per state, known states only
     expect_error(_hub_doc([N("sv2", "state", state="veille"), trig, end], [L("sv", "t"), L("t", "e")], ["t"]), "sv2", "un seul nœud État")
     expect_error(_hub_doc([N("sx", "state", state="atlantis"), trig, end], [L("sv", "t"), L("t", "e")], ["t"]), "sx", "atlantis")
@@ -697,7 +716,7 @@ def test_legacy_goto_documents_compile_identically():
         assert not [n for n in doc["nodes"] if n["kind"] == "state"] and [n for n in doc["nodes"] if n["kind"] == "goto"]
         assert semantic(compile_ok(doc)[0], nofan=True) == semantic(raw, nofan=True), kw
     # and a legacy `params.state` trigger plus a state link to the same state is the same single scope
-    doc = to_json_and_back(V.to_visual(raw))
+    doc = to_json_and_back(V.to_visual(raw, form="hub"))   # CHANGED (lot L1): hub form asked explicitly
     trig = next(n for n in doc["nodes"] if n["kind"] == "trigger" and n["params"].get("event") == "start"
                 and any(l["to"] == n["id"] and find(doc, kind="state", state="veille")[0]["id"] == l["from"] for l in doc["links"]))
     trig["params"]["state"] = "veille"
@@ -728,8 +747,8 @@ def test_notes_cosmetic_postits():
     back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
     assert [(n["id"], n["text"], n["x"], n["y"], n["w"], n["h"]) for n in back["notes"]] == [
         ("p1", "Penser à ajouter la phrase du soir.", 40, -20.5, 220, 140), ("p2", "", 40, -20.5, 220, 140)]
-    # the node positions of the state hubs are saved and restored too
-    assert any(k.startswith("state/") for k in V.load_layout(lp)["nodes"])
+    # CHANGED (lot L1): the layout written by the variables drawing says so (older files do not lend positions)
+    assert V.load_layout(lp).get("form") == "vars" and not any(k.startswith("state/") for k in V.load_layout(lp)["nodes"])
     # validation: each bad note is refused with its id, nothing written
     before = open(lp, encoding="utf-8").read()
     for patch in ({"text": "x" * 2001}, {"color": "yellow"}, {"x": "3"}, {"w": 0}, {"h": -1}, {"title": "t" * 61},
@@ -768,7 +787,7 @@ def test_notes_cosmetic_postits():
 
 
 def test_hub_layout_has_no_overlap_and_global_area():
-    doc = V.to_visual(default_raw())
+    doc = V.to_visual(default_raw(), form="hub")   # CHANGED (lot L1): the hub drawing is asked explicitly
     pos = {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}
     assert GL.overlaps(doc["nodes"], pos) == []
     groups = {}
@@ -801,7 +820,7 @@ def test_hub_layout_has_no_overlap_and_global_area():
     # an old layout file (no `state/` key) is ignored for positions but its frames stay
     old = {"nodes": {"veille/t0/0": {"x": 9999, "y": 9999}, "start": {"x": 5, "y": 5}}, "frames": [
         {"id": "f1", "title": "x", "color": "#112233", "x": 0, "y": 0, "w": 10, "h": 10}]}
-    d2 = V.to_visual(default_raw(), old)
+    d2 = V.to_visual(default_raw(), old, form="hub")
     assert all(n["x"] != 9999 for n in d2["nodes"]) and [f["id"] for f in d2["frames"]] == ["f1"]
 
 

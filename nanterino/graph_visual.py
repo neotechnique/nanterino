@@ -34,6 +34,18 @@ Lot L6 (2026-10-31, "nœuds État"): the default drawing has ONE `state` hub nod
     states, or flagged `params.global`, is a global `only_in` rule; no link = global). Post-it `notes` are cosmetic like
     `frames` (layout file only). `to_visual(legacy=True)` keeps the go-to drawing. See Notes/graph-visual-format.md.
 
+Lot L1 (2026-10-31, "variables et triggers sans entrée"): the default drawing (`form="vars"`) has NO `state` / `goto`
+    node. The state is the system variable `etat`: a state transition is Trigger -> Condition var_compare(etat = X) ->
+    ... ; a global `only_in` rule gets var_compare(etat in [..], `global: true`); a move is the action
+    set_var(etat, Y) (+ `params.reason`); on_enter X is the trigger var_changed(etat, X). A trigger has no input (a link
+    into a trigger is an error, except from a legacy state node); an action whose output is unlinked ends its chain
+    (implicit End, so chains carry no End node unless they have no action). A condition etat in [A, B] without
+    `global` compiles to one transition per state sharing a `fan` id. `form="hub"` / `legacy=True` still draw the L6
+    hub / go-to forms and every old document still compiles (migration). The layout is one column per state + one
+    for the global rules (`graph_layout.var_layout`); graph.layout.json written by this form carries "form": "vars",
+    older files only lend their user frames, colours, icons and post-its. `variables` rides on the document like
+    `intents`. See Notes/graph-visual-format.md, "Variables et triggers sans entrée".
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -74,7 +86,8 @@ ICON_NAME = re.compile(r"^[a-z0-9-]{1,40}$")        # Tabler icon file name; als
 KEEP_BACKUPS = 30                                    # graph.yaml.bak-* copies kept (was 10)
 BACKUP_ID = re.compile(r"^\d{8}-\d{6}(-\d+)?$")        # <stamp> of graph.yaml.bak-<stamp>
 KINDS = ("start", "trigger", "condition", "action", "goto", "end", "state")
-# `goto` is the legacy "go to state" terminal (still compiled); the current drawing ends chains on `state` nodes.
+# `goto` (go-to terminal) and `state` (L6 hub) are import-only since lot L1: the drawing ends chains on an action.
+END0 = "\x00end"   # pseudo node id of the implicit End after an action with no outgoing link (never in a document)
 PORTS = {"start": ("out",), "trigger": ("out",), "condition": ("true", "false"), "action": ("out",), "state": ("out",)}
 HEADER = (
     "# Graphe de dialogue de Nanterino, écrit par l'éditeur visuel (/editor).\n"
@@ -135,6 +148,13 @@ def _tsig(spec):
     return _sig("trigger", spec["trig"]) + "@" + ",".join(spec["scope"])
 
 
+def _gkey(g):
+    """Hashable (guard, negated) key of a raw `when:` item; a guard with arguments is keyed by its JSON text."""
+    neg = isinstance(g, dict) and set(g) == {"not"}
+    core = g["not"] if neg else g
+    return (core if isinstance(core, str) else json.dumps(core, sort_keys=True, ensure_ascii=False), neg)
+
+
 def _exclusive(a, b):
     """True when two transition specs can never match the same event: opposite guards or disjoint states."""
     if any((g, not neg) in b["guards"] for g, neg in a["guards"]):
@@ -164,8 +184,11 @@ def _joinable(cluster, head0_sig, spec):
 
 
 def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "veille", share: bool = True,
-              compact: bool = True, share_ends: bool = True, legacy: bool = False) -> dict:
+              compact: bool = True, share_ends: bool = True, legacy: bool = False, form: str = "vars") -> dict:
     """Editor document of a raw graph dict (as read from graph.yaml).
+
+    `form` (lot L1): "vars" (default, no state/goto node, see the module docstring), "hub" (L6 state nodes, described
+    just below) or "goto" (same as `legacy=True`).
 
     Default form (2026-10-31, "nœuds État"): ONE `state` node per state (hub); a chain starts at the state node
     (state.out -> trigger.in) and its last node links straight into the destination state node (many wires may
@@ -194,7 +217,12 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     """
     layout = layout or {}
     saved = layout.get("nodes") or {}
-    new = not legacy
+    form = "goto" if legacy else form
+    if form not in ("vars", "hub", "goto"):
+        raise ValueError("to_visual: unknown form %r" % (form,))
+    legacy = form == "goto"
+    new = form == "hub"           # L6 state-node (hub) drawing
+    vform = form == "vars"        # lot L1 drawing: etat conditions / set_var(etat) / var_changed(etat)
     nodes, links, order, chains, specs = [], [], [], [], []
     link_seen = set()
     state_nid = {}            # state id -> node id of its `state` hub (new form)
@@ -207,7 +235,29 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         nodes.append(n)
         return n["id"]
 
+    def etat_cond(op, value, glob=False):
+        c = {"type": "guard", "guard": "var_compare", "args": {"name": "etat", "op": op, "value": value}, "negate": False}
+        if glob:
+            c["global"] = True   # a global rule limited to these states (keeps the global evaluation order)
+        return c
+
+    def guard_cond(g):
+        neg = isinstance(g, dict) and set(g) == {"not"}
+        core = g["not"] if neg else g
+        c = {"type": "guard", "guard": core, "negate": neg}
+        if isinstance(core, dict):     # guard with arguments: {var_compare: {...}}
+            (c["guard"], args), = core.items()
+            c["args"] = dict(args or {})
+        return c
+
     def conds_for(t, state):
+        if vform:
+            conds = [etat_cond("=", state)] if state else []
+            if t.get("only_in") is not None:
+                conds.append(etat_cond("in", list(_aslist(t["only_in"])), glob=state is None))
+            if t.get("not_in") is not None:
+                conds.append(etat_cond("not_in", list(_aslist(t["not_in"]))))
+            return conds + [guard_cond(g) for g in _aslist(t.get("when"))]
         conds = [{"type": "state", "states": [state], "negate": False}] if state and not compact and not new else []
         for k, neg in (("only_in", False), ("not_in", True)):
             if new and k == "only_in" and state is None:
@@ -217,15 +267,12 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                 if state is None and not neg and len(c["states"]) == 1:
                     c["global"] = True  # keeps "global rule limited to one state" distinct from a state's own transition
                 conds.append(c)
-        for g in _aslist(t.get("when")):
-            if isinstance(g, dict):
-                conds.append({"type": "guard", "guard": g.get("not"), "negate": True})
-            else:
-                conds.append({"type": "guard", "guard": g, "negate": False})
-        return conds
+        return conds + [guard_cond(g) for g in _aslist(t.get("when"))]
 
     def spec_of(group, key, trig, desc, conds, do, then, to, reason, guards=frozenset(), states=None, scope=()):
         acts = [(n, a, "do") for n, a in do] + [(n, a, "then") for n, a in then]
+        if vform and to:   # the move is an action node between the `do` and the `then` actions
+            acts.insert(len(do), ("set_var", {"name": "etat", "value": to}, "do", reason))
         return {"group": group, "key": key, "trig": trig, "desc": desc, "conds": conds, "acts": acts, "to": to,
                 "reason": reason, "guards": guards, "states": states, "scope": list(scope),
                 "first": (acts[0][2], acts[0][0], json.dumps(acts[0][1], sort_keys=True)) if acts else None}
@@ -235,6 +282,10 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
             trig = {"type": "after", "delay": t["after"], "since": t.get("since") or "state"}
         else:
             trig = {"type": "event", "event": t.get("on")}
+            if t.get("on") == "var_changed":   # lot L1: the watched variable (and value) ride on the trigger
+                trig["name"] = t.get("var")
+                if "value" in t:
+                    trig["value"] = t["value"]
         trig["enabled"] = t.get("enabled", True) is not False   # False: kept in the file, ignored by the engine
         scope = []
         if new:   # the state links of the trigger carry the scope (state transition, or global rule limited to some states)
@@ -243,7 +294,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
             elif t.get("only_in") is not None:
                 scope = [s for s in dict.fromkeys(_aslist(t["only_in"]))]
                 trig["global"] = True   # evaluated with the global rules even when a single state is linked
-        elif compact and state:
+        elif compact and state and not vform:
             trig["state"] = state
         if t.get("fan"):
             trig["fan"] = t["fan"]   # keeps the branches of one trigger grouped across save/reload
@@ -252,7 +303,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
             allowed &= set(_aslist(t["only_in"]))
         if allowed is not None and t.get("not_in") is not None:
             allowed -= set(_aslist(t["not_in"]))
-        guards = frozenset(((g["not"], True) if isinstance(g, dict) else (g, False)) for g in _aslist(t.get("when")))
+        guards = frozenset(_gkey(g) for g in _aslist(t.get("when")))
         specs.append(spec_of(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
                              _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason"), guards, allowed, scope))
 
@@ -267,7 +318,9 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         spec = spec or {}
         enter = _calls(spec.get("on_enter"))
         if enter:
-            specs.append(spec_of(sname, sname + "/enter", {"type": "enter", "state": sname}, "", [], enter, [], None, None,
+            trig = ({"type": "event", "event": "var_changed", "name": "etat", "value": sname, "enabled": True} if vform   # "etat becomes X"
+                    else {"type": "enter", "state": sname})
+            specs.append(spec_of(sname, sname + "/enter", trig, "", [], enter, [], None, None,
                                  scope=[sname] if new else ()))
         for i, t in enumerate(spec.get("transitions") or []):
             transition(sname, "%s/t%d" % (sname, i), t, sname)
@@ -293,7 +346,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                 path.append((mk(kind, params, s["group"]), sig))
         s["head"] = path
         s["pre"] = [nid for nid, _sig_ in path] + [
-            mk("action", {"action": n, "args": a, "phase": ph}, s["group"]) for n, a, ph in s["acts"]]
+            mk("action", dict({"action": n, "args": a, "phase": ph[0]}, **({"reason": ph[1]} if len(ph) > 1 and ph[1] else {})),
+               s["group"]) for n, a, *ph in s["acts"]]
         prev = s
 
     # ---- terminals + descriptions: a node used by one spec only can carry that spec's description
@@ -307,12 +361,16 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         hub = new and bool(s["to"]) and s["to"] in state_nid
         can_share = share and (carrier is not None or not s["desc"]) and (bool(s["to"]) or share_ends)
         tkey = (s["group"], "goto", s["to"], s["reason"]) if s["to"] else (s["group"], "end")
+        if vform:
+            tkey = (s["group"], "end")
         if hub:
             tid = state_nid[s["to"]]     # the destination is the state node itself: no go-to node to draw
+        elif vform and s["acts"]:
+            tid = None                   # lot L1: the last action ends the chain (implicit End), no terminal node
         elif can_share and tkey in terminals:
             tid = terminals[tkey]
         else:
-            if s["to"]:
+            if s["to"] and not vform:
                 tid = mk("goto", dict({"state": s["to"]}, **({"reason": s["reason"]} if s["reason"] else {})), s["group"])
             else:
                 tid = mk("end", {}, s["group"])
@@ -326,7 +384,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                 hop["description"] = s["desc"]   # every node of the chain is shared: the hop is all that is its own
             else:
                 nodes[int((carrier or tid)[1:]) - 1]["description"] = s["desc"]
-        ids = s["pre"] + [tid]
+        ids = s["pre"] + ([tid] if tid else [])
         if ids[0] not in order:
             order.append(ids[0])
         for a, b in zip(ids, ids[1:]):
@@ -349,14 +407,19 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         chains.append({"key": s["key"], "group": s["group"], "ids": ids})
 
     # ---- layout: saved positions per node, the rest automatic (layered, see graph_layout)
-    auto = GL.hub_layout(nodes, links) if new else GL.auto_layout(nodes, links)
+    auto = GL.hub_layout(nodes, links) if new else (GL.var_layout(nodes, links) if vform else GL.auto_layout(nodes, links))
     pos = {nid: auto[nid] for nid in auto}
+    if vform:   # Start sits just left of the first node of its state's column (display only, never linked)
+        first = [auto[n["id"]] for n in nodes if n.get("group") == start_state and n["id"] in auto]
+        auto[start_id] = pos[start_id] = ((min(x for x, _y in first) - GL.COLW, min(y for _x, y in first)) if first
+                                          else (-GL.COLW, GL.TOP))
     if new and start_state in state_nid:   # Start sits just left of its state hub, on the same row
         sx, sy = auto[state_nid[start_state]]
         auto[start_id] = pos[start_id] = (sx - GL.COLW, sy)
     # An old layout file (written before the state nodes existed) has no `state/<id>` key: its node positions no
     # longer fit the new drawing, so they are ignored (frames, colours and icons of that file are still used).
-    usable = not new or any(k.startswith("state/") for k in saved)
+    # Lot L1: only a layout written by the variables form ("form": "vars") lends positions to it.
+    usable = (layout.get("form") == "vars") if vform else (not new or any(k.startswith("state/") for k in saved))
     saved_pos = {}
     for c in chains if usable else ():
         for j, nid in enumerate(c["ids"]):
@@ -391,8 +454,20 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         doc["description"] = str(graph_dict["description"])
     # cosmetic frames ("groupes"): only what passes validation is shown, a hand-edited layout never breaks the GET;
     # with no layout at all the default theme frames frame the automatic layout
-    if layout:
+    if graph_dict.get("variables") is not None:
+        doc["variables"] = json.loads(json.dumps(graph_dict["variables"]))   # carried like `intents`
+    if vform and layout and not usable:
+        # an older layout (hub / go-to drawing): its automatic column frames no longer fit, the user's frames stay
+        old = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None]
+        theme_ids = {t[0] for t in GL.THEMES}
+        auto_old = [f for f in old if f.get("auto") or f["id"] in theme_ids]   # automatic / theme frames of that drawing
+        user = [f for f in old if f not in auto_old]
+        fresh = GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}, badge=0) if auto_old else []
+        doc["frames"] = (user + fresh)[:MAX_FRAMES]
+    elif layout:
         doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
+    elif vform:   # one automatic column frame per state, the global rules last
+        doc["frames"] = GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}, badge=0)
     else:
         # hub drawing: one automatic column frame per state (muted state colour, `auto: True`), globals last
         doc["frames"] = (GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}) if new
@@ -538,9 +613,12 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         ka, kb = nodes[a]["kind"], nodes[b]["kind"]
         if kb == "start":
             err(b, "Le nœud Début ne peut pas recevoir de lien."); continue
+        if kb == "trigger" and ka != "state":   # lot L1: a trigger only STARTS a chain (legacy hub links excepted)
+            err(b, "Un déclencheur n'a pas d'entrée : il démarre la chaîne, aucun fil ne peut y entrer "
+                   "(fil venant de %s)." % a); continue
         if ka == "start":
             if kb != "state":
-                err(a, "Le nœud Début se relie seulement à un nœud État (état de démarrage, affichage)."); continue
+                err(a, "Le nœud Début ne se relie à rien : l'état de départ est fixé par le code."); continue
             continue            # Start -> state is display only: the start state is fixed by the code
         if ka == "state":
             if kb != "trigger":
@@ -549,8 +627,6 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             if a not in state_out[b]:
                 state_out[b].append(a)
             continue
-        if kb == "trigger":
-            err(b, "Un déclencheur n'accepte de lien que depuis un nœud État."); continue
         adj.setdefault((a, port), []).append(b)
         if kb == "state":      # the hop into a state node may carry the transition's reason / description
             hop = {}
@@ -581,6 +657,22 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         else:
             state_node_of[sid_] = nid_
     intent_names = set(doc.get("intents") or {}) | {"question"}
+    nodes[END0] = {"id": END0, "kind": "end", "params": {}, "description": ""}   # implicit End (see paths)
+    vdoc = doc.get("variables") if isinstance(doc.get("variables"), dict) else {}
+    var_types = {n: (v or {}).get("type") for n, v in ((vdoc.get("names") or {}).items() if isinstance(vdoc.get("names"), dict) else ())}
+    var_types.update({n: G.SYSTEM_VARS[n][0] for n in G.SYSTEM_VARS})
+    list_types = {n: (v or {}).get("type", "string") for n, v in ((vdoc.get("lists") or {}).items() if isinstance(vdoc.get("lists"), dict) else ())}
+
+    def coerce_args(name, args, spec):
+        """Editor text -> typed literals for the `value` / `number` arguments (type of the named variable / list)."""
+        out = dict(args)
+        vt = var_types.get(args.get("name")) if "name" in args else list_types.get(args.get("list"))
+        for k, kind in spec.items():
+            if k in out and kind in ("value", "listvalue") and vt:
+                out[k] = G.coerce_value(vt, out[k])
+            elif k in out and kind == "number":
+                out[k] = G.coerce_value("number", out[k])
+        return out
 
     # evaluation order of triggers: `order`, then the rest by (y, x)
     trig_ids = [i for i, n in nodes.items() if n["kind"] == "trigger"]
@@ -588,7 +680,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     ordered = list(dict.fromkeys(ordered))
     ordered += sorted((i for i in trig_ids if i not in ordered), key=lambda i: (nodes[i].get("y", 0), nodes[i].get("x", 0)))
 
-    reached = set(i for i in nodes if nodes[i]["kind"] in ("start", "trigger", "state"))
+    reached = set(i for i in nodes if nodes[i]["kind"] in ("start", "trigger", "state")) | {END0}
     states_raw = {s["id"]: {"description": str(s.get("description") or "")} for s in states_doc if isinstance(s, dict)}
     on_enter, transitions, globals_, where_map, node_pos = {}, {}, [], {}, {}
     fan_groups = {}
@@ -614,8 +706,10 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                     err(nid, "La condition n'a aucune suite : relier au moins une de ses sorties.")
                 return
             targets = adj.get((nid, "out"), [])
+            if not targets and k == "action":   # lot L1: an action with an unlinked output ends the chain
+                out.append(chain + [(nid, False), (END0, False)]); return
             if not targets:
-                err(nid, "Chaîne sans cible : ce nœud n'est relié ni à un changement d'état (goto) ni à une fin.")
+                err(nid, "Chaîne sans suite : relier ce déclencheur à une condition ou à une action.")
             for t in targets:
                 rec(t, chain + [(nid, False)])
         rec(tid, [])
@@ -626,8 +720,16 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         p = trig["params"]
         kind = p.get("type")
         n_err = len(errors)
+        if kind == "event" and p.get("event") == "var_changed" and p.get("name") == "etat":
+            # lot L1: "etat becomes X" is the on_enter of X (same rules as the legacy `enter` trigger)
+            if "value" not in p or p.get("value") in (None, ""):
+                err(tid, "« Quand etat change » : choisir l'état (la valeur) qui déclenche la chaîne.")
+            p = dict(p, type="enter", state=p.get("value"))
+            kind = "enter"
         if kind == "event":
             ev = p.get("event")
+            if ev == "var_changed" and not (isinstance(p.get("name"), str) and p.get("name")):
+                err(tid, "« Une variable change » : choisir la variable.")
             if not ((ev in G.EVENTS and ev != "tick") or (isinstance(ev, str) and ev.startswith("intent.") and ev[7:] in intent_names)):
                 err(tid, "Événement inconnu : %r." % (ev,))
         elif kind == "after":
@@ -663,6 +765,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             mid, term = path[1:-1], nodes[path[-1][0]]
             pos_sets, neg_sets, when, do, then = [], [], [], [], []
             force_global = False
+            dup_ok = True      # lot L1: etat conditions without `global` duplicate the chain under each state
             n_err = len(errors)
             seen_action = False
             hop = {}
@@ -674,14 +777,22 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 else:
                     pos_sets.append(list(scope))
                     force_global = bool(p.get("global")) or len(scope) > 1
-            for nid, inv in mid:
+                    dup_ok = False
+            to = reason = None
+            # a move (set_var etat) splits the actions by position: before = do, after = then (else the `phase` field)
+            moves_at = [k for k, (nid, _inv) in enumerate(mid) if nodes[nid]["kind"] == "action"
+                        and (nodes[nid]["params"].get("action") == "set_var")
+                        and ((nodes[nid]["params"].get("args") or {}).get("name") == "etat")]
+            for pos_k, (nid, inv) in enumerate(mid):
                 n = nodes[nid]
                 q = n["params"]
                 if n["kind"] == "condition":
                     if seen_action:
                         err(nid, "Une condition ne peut pas venir après une action (les conditions sont évaluées d'abord).")
                     neg = bool(q.get("negate")) != inv
+                    qargs = q.get("args") if isinstance(q.get("args"), dict) else {}
                     if q.get("type") == "state":
+                        dup_ok = False   # legacy state condition: several states = a global only_in rule, as before
                         sts = [s for s in _aslist(q.get("states"))]
                         if not sts:
                             err(nid, "Choisir au moins un état.")
@@ -690,10 +801,30 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                                 err(nid, "État inconnu : %r." % (s,))
                         (neg_sets if neg else pos_sets).append(sts)
                         force_global = force_global or (not neg and bool(q.get("global")))
+                    elif q.get("type") == "guard" and q.get("guard") == "var_compare" and qargs.get("name") == "etat":
+                        # lot L1: the state is the variable etat; its condition places the transition
+                        op, val = qargs.get("op"), qargs.get("value")
+                        if op not in ("=", "!=", "in", "not_in"):
+                            err(nid, "Sur « etat », l'opérateur est =, ≠, « parmi » (in) ou « hors de » (not_in).")
+                            continue
+                        sts = list(dict.fromkeys(_aslist(val))) if op in ("in", "not_in") else [val]
+                        if not sts or any(x in (None, "") for x in sts):
+                            err(nid, "Choisir au moins un état.")
+                        for s in sts:
+                            if s not in state_ids and s not in (None, ""):
+                                err(nid, "État inconnu : %r." % (s,))
+                        neg = neg != (op in ("!=", "not_in"))
+                        (neg_sets if neg else pos_sets).append(sts)
+                        force_global = force_global or (not neg and bool(q.get("global")))
                     elif q.get("type") == "guard":
-                        if q.get("guard") not in G.GUARDS:
-                            err(nid, "Condition inconnue : %r." % (q.get("guard"),))
-                        when.append({"not": q.get("guard")} if neg else q.get("guard"))
+                        g = q.get("guard")
+                        if g not in G.GUARDS:
+                            err(nid, "Condition inconnue : %r." % (g,)); continue
+                        spec = G.GUARD_SPECS[g]
+                        if spec and not qargs:
+                            err(nid, "Cette condition attend des réglages : %s." % ", ".join(spec)); continue
+                        core = {g: coerce_args(g, qargs, spec)} if spec else g
+                        when.append({"not": core} if neg else core)
                     else:
                         err(nid, "Type de condition inconnu : %r (state ou guard)." % (q.get("type"),))
                 elif n["kind"] == "action":
@@ -705,17 +836,34 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                         err(nid, "Les arguments de l'action doivent être un objet."); continue
                     if q.get("phase", "do") not in ("do", "then"):
                         err(nid, "La phase d'une action est « do » ou « then »."); continue
+                    if name == "set_var" and args.get("name") == "etat":   # lot L1: the move (`to:`)
+                        if kind == "enter":
+                            err(nid, "Une entrée dans l'état ne peut pas changer d'état.")
+                        elif len(moves_at) > 1:
+                            err(nid, "Un seul changement d'état par chaîne.")
+                        elif args.get("value") not in state_ids:
+                            err(nid, "État de destination inconnu : %r." % (args.get("value"),))
+                        else:
+                            to, reason = args["value"], (q.get("reason") or None)
+                        continue
+                    if name in ("set_var", "add_var", "toggle_var") and args.get("name") in G.SYSTEM_VARS:
+                        err(nid, "La variable système « %s » est en lecture seule." % args.get("name")); continue
                     args = {k: (_coerce_delay(v) if G.ACTION_SPECS[name].get(k) == "delay" else v) for k, v in args.items()}
-                    (then if q.get("phase") == "then" else do).append(_call_raw(name, args))
+                    args = coerce_args(name, args, G.ACTION_SPECS[name])
+                    is_then = (pos_k > moves_at[0]) if moves_at else q.get("phase") == "then"
+                    (then if is_then else do).append(_call_raw(name, args))
                 else:
                     err(nid, "Nœud inattendu au milieu d'une chaîne.")
-            to = reason = None
             if term["kind"] == "goto":
+                if to is not None:
+                    err(term["id"], "Un seul changement d'état par chaîne.")
                 to = term["params"].get("state")
                 if to not in state_ids:
                     err(term["id"], "État de destination inconnu : %r." % (to,))
                 reason = term["params"].get("reason") or None
             elif term["kind"] == "state":     # hub form: the destination state node ends the chain
+                if to is not None:
+                    err(term["id"], "Un seul changement d'état par chaîne.")
                 to = term["params"].get("state")
                 pid, pinv = path[-2]
                 port = ("false" if pinv else "true") if nodes[pid]["kind"] == "condition" else "out"
@@ -754,15 +902,24 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 if fan_id and kind != "enter":
                     t["fan"] = fan_id   # branches of one trigger: the engine runs their shared leading actions once
                 single = len(pos_sets) == 1 and len(pos_sets[0]) == 1 and not neg_sets and not force_global
+                places = None          # lot L1: states the chain is duplicated under (etat in [A, B] without `global`)
+                if not single and dup_ok and pos_sets and not neg_sets and not force_global:
+                    places = [s for s in pos_sets[0] if all(s in o for o in pos_sets[1:])]
+                    if not places:
+                        err(tid, "Les conditions d'état se contredisent (aucun état possible)."); continue
+                    if len(places) == 1:
+                        single, pos_sets, places = True, [places], None   # e.g. etat in [A, B] and etat = A
                 if single:
-                    container, label = transitions.setdefault(pos_sets[0][0], []), "state %s transition" % pos_sets[0][0]
-                    key = "%s/t%d" % (pos_sets[0][0], len(container))
+                    targets = [(transitions.setdefault(pos_sets[0][0], []), "state %s transition" % pos_sets[0][0], pos_sets[0][0])]
+                elif places:
+                    # one transition per state, sharing a fan id: only one of them can match (one current state)
+                    t["fan"] = fan_id or ("fan-" + tid)
+                    targets = [(transitions.setdefault(st, []), "state %s transition" % st, st) for st in places]
                 else:
                     if kind == "after":
-                        err(tid, "Un délai doit être rattaché à un seul état (une condition « état » non niée, avec un seul état).")
+                        err(tid, "Un délai doit être rattaché à un état (condition « etat = … » ou « etat parmi … », sans « global »).")
                         continue
-                    container, label = globals_, "global transition"
-                    key = "global/t%d" % len(container)
+                    targets = [(globals_, "global transition", "global")]
                     if pos_sets:
                         inter = [s for s in pos_sets[0] if all(s in o for o in pos_sets[1:])]
                         if not inter:
@@ -770,6 +927,10 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                         t["only_in"] = inter
                     if neg_sets:
                         t["not_in"] = list(dict.fromkeys(s for ss in neg_sets for s in ss))
+                if kind == "event" and p.get("event") == "var_changed":
+                    t["var"] = p.get("name")
+                    if "value" in p and p.get("value") not in (None, ""):
+                        t["value"] = p["value"]
                 if when:
                     t["when"] = when
                 if do:
@@ -781,19 +942,24 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 if then:
                     t["then"] = then
                 t["description"] = desc
-                container.append(t)
-                where_map["%s #%d" % (label, len(container))] = tid
+                key = None
+                for container, label, cname in targets:
+                    if key is None:   # positions are saved under the first copy's structural key
+                        key = "%s/t%d" % (cname, len(container))
+                    container.append(json.loads(json.dumps(t)))
+                    where_map["%s #%d" % (label, len(container))] = tid
                 if report is not None:
                     allowed = set(state_ids)
                     if pos_sets:
                         allowed = set.intersection(*[set(x) for x in pos_sets])
                     for x in neg_sets:
                         allowed -= set(x)
-                    emitted.append({"target": term["id"], "nodes": ids, "moves": bool(to), "global": container is globals_,
-                                    "states": allowed, "guards": {(g["not"], True) if isinstance(g, dict) else (g, False) for g in when}})
+                    emitted.append({"target": ids[-2] if term["id"] == END0 else term["id"], "nodes": [x for x in ids if x != END0],
+                                    "moves": bool(to), "global": targets[0][0] is globals_,
+                                    "states": allowed, "guards": {_gkey(g) for g in when}})
             # layout: every path records the position of each of its nodes (shared nodes repeat the same value)
             for j, nid in enumerate(ids):
-                if nodes[nid]["kind"] != "state":   # state nodes are saved once, under `state/<id>`
+                if nodes[nid]["kind"] != "state" and nid != END0:   # state nodes are saved once, under `state/<id>`
                     node_pos["%s/%d" % (key, j)] = {"x": nodes[nid].get("x", 0), "y": nodes[nid].get("y", 0)}
 
     if report is not None:
@@ -823,6 +989,11 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         raw["global"] = globals_
     if doc.get("intents"):
         raw["intents"] = json.loads(json.dumps(doc["intents"]))
+    if doc.get("variables") is not None:   # lot L1: the variable manager's data, validated by parse_graph below
+        if not isinstance(doc["variables"], dict):
+            err(None, "`variables` doit être un objet {names, lists}.")
+        else:
+            raw["variables"] = json.loads(json.dumps(doc["variables"]))
 
     if not errors:
         try:
@@ -833,10 +1004,14 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 nid = next((v for k, v in where_map.items() if where == k or where.startswith(k + " ")), None)
                 if where.startswith("intent "):   # the editor shows intent problems next to the intent, not a node
                     err(None, "%s : %s" % (where, msg), intent=where[7:])
+                elif where.startswith(("variable ", "list ", "variables")):   # shown in the variable manager
+                    err(None, "%s : %s" % (where, msg), variable=where.split(" ", 1)[1] if " " in where else None)
                 else:
                     err(nid, "%s : %s" % (where, msg) if where else msg)
 
     layout = {"nodes": node_pos, "states": {s["id"]: s["color"] for s in states_doc if isinstance(s, dict) and s.get("color")}}
+    if not any(n["kind"] in ("state", "goto") for n in nodes.values()):
+        layout["form"] = "vars"   # lot L1: these positions fit the variables drawing (older files are not reused)
     icons = {s["id"]: s["icon"] for s in states_doc
              if isinstance(s, dict) and isinstance(s.get("icon"), str) and ICON_NAME.match(s["icon"])
              and s["icon"] != G.state_icon(s["id"])}
@@ -934,6 +1109,9 @@ def dump_yaml(raw: dict) -> str:
             out[k] = [_tr(t) for t in v]
         elif k == "intents":
             out[k] = {n: {kk: (_flow(vv) if isinstance(vv, list) else vv) for kk, vv in spec.items()} for n, spec in v.items()}
+        elif k == "variables" and isinstance(v, dict):   # lot L1: one block per variable, short lists inline
+            out[k] = {part: {n: {kk: (_flow(vv) if isinstance(vv, list) else vv) for kk, vv in (spec or {}).items()}
+                             for n, spec in (v.get(part) or {}).items()} for part in ("names", "lists") if part in v}
         else:
             out[k] = v
     body = yaml.dump(out, Dumper=_Dumper, sort_keys=False, allow_unicode=True, default_flow_style=False, width=10 ** 6)
@@ -941,7 +1119,8 @@ def dump_yaml(raw: dict) -> str:
 
 
 def _tr(t: dict) -> dict:
-    order = ("on", "after", "since", "enabled", "fan", "when", "only_in", "not_in", "do", "to", "reason", "then", "description")
+    order = ("on", "var", "value", "after", "since", "enabled", "fan", "when", "only_in", "not_in", "do", "to", "reason", "then",
+             "description")
     return {k: (_flow(t[k]) if isinstance(t[k], list) else t[k]) for k in order if k in t}
 
 
