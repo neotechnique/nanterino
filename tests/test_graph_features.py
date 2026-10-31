@@ -145,7 +145,11 @@ def test_enabled_false_is_ignored_and_roundtrips():
     assert all(isinstance(n["params"]["enabled"], bool) for n in trig if n["params"]["type"] != "enter")
     assert sorted(n["group"] for n in trig if n["params"].get("enabled") is False) == ["ecoute", "relance"]
     raw2, _, errs = V.from_visual(doc, CFG)
-    assert not errs and G.parse_graph(copy.deepcopy(raw2), CFG, "<t>").to_dict()["states"] == g.to_dict()["states"]
+    sts = copy.deepcopy(G.parse_graph(copy.deepcopy(raw2), CFG, "<t>").to_dict()["states"])
+    for st in sts.values():   # shared exclusive branches come back tagged with a (no-op) fan id
+        for t in st["transitions"]:
+            t.pop("fan", None)
+    assert not errs and sts == g.to_dict()["states"]
     assert "enabled: false" in V.dump_yaml(raw2)
     # a non-boolean flag and a disabled `enter` trigger are refused
     bad = json.loads(json.dumps(doc))

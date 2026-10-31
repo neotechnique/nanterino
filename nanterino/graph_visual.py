@@ -23,6 +23,12 @@ Boundary
 Wave 2 (2026-10-31): trigger `params.enabled`, state icons (layout `icons`), intent errors that name the
     intent, 30 backups with their layout copy (`backup_pair`), `list_versions()` / `restore_version()`.
 
+Wave 3 (2026-10-31, "graphe optimisé"): `to_visual()` draws the graph lighter (shared trigger/condition tree for
+    consecutive transitions with the same trigger, one End and one go-to per group, see its docstring) and lays
+    it out with `nanterino.graph_layout` (layered, no overlap, default theme frames). Pure drawing: the compiled
+    graph is equivalent (only no-op `fan` tags appear on shared exclusive branches). `compact=True` (off) also
+    moves the state condition into `params.state` of the trigger.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -51,6 +57,7 @@ import time
 import yaml
 
 from . import graph as G
+from . import graph_layout as GL
 from .log import log
 
 COLW, ROWH, GROUP_GAP = 250, 120, 60            # layout grid (px): column width, band height, gap between state groups
@@ -112,16 +119,59 @@ def state_icon(sid: str, layout: dict | None = None) -> str:
 
 
 # ---------------------------------------------------------------- raw dict -> visual document
-def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "veille") -> dict:
+def _sig(kind, params):
+    """Stable text signature of a node (kind + params): equal signatures = interchangeable nodes."""
+    return json.dumps([kind, params], sort_keys=True, ensure_ascii=False)
+
+
+def _exclusive(a, b):
+    """True when two transition specs can never match the same event: opposite guards or disjoint states."""
+    if any((g, not neg) in b["guards"] for g, neg in a["guards"]):
+        return True
+    return a["states"] is not None and b["states"] is not None and not (a["states"] & b["states"])
+
+
+def _joinable(cluster, head0_sig, spec):
+    """May `spec` hang under the trigger node of `cluster` (the transitions already sharing it)?
+
+    Same trigger signature (event/after params, enabled flag, fan id) is required. Sharing a trigger makes the
+    compiler tag its branches with one `fan` id, and the engine then runs a leading action common to two
+    branches only once per event. So without an explicit fan id the join is allowed only when that dedupe can
+    never change anything: the first action of both branches differs (or one has none), or the two can never
+    match together (opposite guards / disjoint states).
+    """
+    if _sig("trigger", spec["trig"]) != head0_sig:
+        return False
+    if spec["trig"].get("fan"):
+        return True
+    return all(m["first"] is None or spec["first"] is None or m["first"] != spec["first"] or _exclusive(m, spec)
+               for m in cluster)
+
+
+def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "veille", share: bool = True,
+              compact: bool = False, share_ends: bool = True) -> dict:
     """Editor document of a raw graph dict (as read from graph.yaml).
 
-    `layout` is the content of graph.layout.json ({"nodes": {key: {"x","y"}}, "states": {id: color}});
-    chains whose every node has a saved position keep it, the others are stacked below the saved ones
-    with the automatic column layout (all chains automatic when nothing is saved).
+    `layout` is the content of graph.layout.json ({"nodes": {key: {"x","y"}}, "states": {id: color}, "frames": [...]});
+    nodes with a saved position keep it, the others are stacked below the saved ones with the automatic layout
+    (all automatic, plus default theme frames, when no layout is given).
+
+    `share=True` (default) draws the graph lighter without changing what it compiles to:
+      - consecutive transitions of one list with the same trigger share the trigger node, and the leading
+        conditions they have in common (a tree; only the most recent branch is extended, so the compiler's
+        depth-first order is the file order). A trigger shared by several branches is compiled with a `fan` id
+        (see _joinable for when that is allowed); the description of a branch then lives on its first node
+        that no other branch uses;
+      - one End per state group and one "go to state" node per (group, target, reason) reached by several
+        chains (fan-in), as long as each chain keeps a node of its own to carry its description.
+    `share=False` is the old one-chain-per-transition drawing (kept for measurements and tests).
+    `compact=True` also drops the per-chain "state" condition: the trigger carries `params.state` instead
+    (needs the compiler support below and an editor that mirrors it; off by default).
     """
     layout = layout or {}
     saved = layout.get("nodes") or {}
-    nodes, links, order, chains = [], [], [], []
+    nodes, links, order, chains, specs = [], [], [], [], []
+    link_seen = set()
 
     def mk(kind, params, group, desc=""):
         n = {"id": "n%d" % (len(nodes) + 1), "kind": kind, "x": 0, "y": 0, "description": desc, "params": params}
@@ -130,25 +180,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         nodes.append(n)
         return n["id"]
 
-    def kind_of(nid):
-        return nodes[int(nid[1:]) - 1]["kind"]
-
-    def chain(group, key, trig, desc, conds, do, then, to, reason):
-        ids = [mk("trigger", trig, group, desc)]
-        ids += [mk("condition", c, group) for c in conds]
-        ids += [mk("action", {"action": n, "args": a, "phase": "do"}, group) for n, a in do]
-        ids += [mk("action", {"action": n, "args": a, "phase": "then"}, group) for n, a in then]
-        if to:
-            ids.append(mk("goto", dict({"state": to}, **({"reason": reason} if reason else {})), group))
-        else:
-            ids.append(mk("end", {}, group))
-        for a, b in zip(ids, ids[1:]):
-            links.append({"from": a, "port": "true" if kind_of(a) == "condition" else "out", "to": b})
-        chains.append({"key": key, "group": group, "ids": ids})
-        return ids[0]
-
     def conds_for(t, state):
-        conds = [{"type": "state", "states": [state], "negate": False}] if state else []
+        conds = [{"type": "state", "states": [state], "negate": False}] if state and not compact else []
         for k, neg in (("only_in", False), ("not_in", True)):
             if t.get(k) is not None:
                 c = {"type": "state", "states": list(_aslist(t[k])), "negate": neg}
@@ -162,16 +195,30 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                 conds.append({"type": "guard", "guard": g, "negate": False})
         return conds
 
+    def spec_of(group, key, trig, desc, conds, do, then, to, reason, guards=frozenset(), states=None):
+        acts = [(n, a, "do") for n, a in do] + [(n, a, "then") for n, a in then]
+        return {"group": group, "key": key, "trig": trig, "desc": desc, "conds": conds, "acts": acts, "to": to,
+                "reason": reason, "guards": guards, "states": states,
+                "first": (acts[0][2], acts[0][0], json.dumps(acts[0][1], sort_keys=True)) if acts else None}
+
     def transition(group, key, t, state):
         if t.get("after") is not None:
             trig = {"type": "after", "delay": t["after"], "since": t.get("since") or "state"}
         else:
             trig = {"type": "event", "event": t.get("on")}
         trig["enabled"] = t.get("enabled", True) is not False   # False: kept in the file, ignored by the engine
+        if compact and state:
+            trig["state"] = state
         if t.get("fan"):
             trig["fan"] = t["fan"]   # keeps the branches of one trigger grouped across save/reload
-        order.append(chain(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
-                           _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason")))
+        allowed = {state} if state else (set(_aslist(t["only_in"])) if t.get("only_in") is not None else None)
+        if state and t.get("only_in") is not None:
+            allowed &= set(_aslist(t["only_in"]))
+        if allowed is not None and t.get("not_in") is not None:
+            allowed -= set(_aslist(t["not_in"]))
+        guards = frozenset(((g["not"], True) if isinstance(g, dict) else (g, False)) for g in _aslist(t.get("when")))
+        specs.append(spec_of(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
+                             _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason"), guards, allowed))
 
     start_id = mk("start", {"state": start_state}, None, "Démarrage")
     states_raw = graph_dict.get("states") or {}
@@ -179,33 +226,79 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         spec = spec or {}
         enter = _calls(spec.get("on_enter"))
         if enter:
-            chain(sname, sname + "/enter", {"type": "enter", "state": sname}, "", [], enter, [], None, None)
+            specs.append(spec_of(sname, sname + "/enter", {"type": "enter", "state": sname}, "", [], enter, [], None, None))
         for i, t in enumerate(spec.get("transitions") or []):
             transition(sname, "%s/t%d" % (sname, i), t, sname)
     for i, t in enumerate(graph_dict.get("global") or []):
         transition("global", "global/t%d" % i, t, None)
 
-    # ---- layout: one band (row) per chain, bands grouped by state, columns follow the chain
-    pos, row, gi, last_group = {}, 1, -1, object()
-    for c in chains:
-        if c["group"] != last_group:
-            gi, last_group = gi + 1, c["group"]
-        for j, nid in enumerate(c["ids"]):
-            pos[nid] = (j * COLW, row * ROWH + gi * GROUP_GAP)
-        row += 1
-    is_saved = lambda c: all("%s/%d" % (c["key"], j) in saved for j in range(len(c["ids"])))  # noqa: E731
-    if any(is_saved(c) for c in chains) or "start" in saved:
-        max_y = max([saved[k].get("y", 0) for k in saved] + [0])
-        extra = 0
-        for c in chains:
-            if is_saved(c):
-                for j, nid in enumerate(c["ids"]):
-                    p = saved["%s/%d" % (c["key"], j)]
-                    pos[nid] = (p.get("x", 0), p.get("y", 0))
+    # ---- trigger / condition tree: a spec may reuse the nodes of the PREVIOUS spec of its group (see docstring)
+    prev = None
+    for s in specs:
+        if prev is not None and prev["group"] != s["group"]:
+            prev = None
+        head = [("trigger", s["trig"])] + [("condition", c) for c in s["conds"]]
+        shared = bool(share and prev is not None and _joinable(prev["cluster"], prev["head"][0][1], s))
+        s["cluster"] = prev["cluster"] if shared else []
+        s["cluster"].append(s)
+        path = []
+        for d, (kind, params) in enumerate(head):
+            sig = _sig(kind, params)
+            if shared and d < len(prev["head"]) and prev["head"][d][1] == sig:
+                path.append(prev["head"][d])
             else:
-                extra += 1
-                for j, nid in enumerate(c["ids"]):
-                    pos[nid] = (j * COLW, max_y + extra * ROWH)
+                shared = False
+                path.append((mk(kind, params, s["group"]), sig))
+        s["head"] = path
+        s["pre"] = [nid for nid, _sig_ in path] + [
+            mk("action", {"action": n, "args": a, "phase": ph}, s["group"]) for n, a, ph in s["acts"]]
+        prev = s
+
+    # ---- terminals + descriptions: a node used by one spec only can carry that spec's description
+    uses = {}
+    for s in specs:
+        for nid in s["pre"]:
+            uses[nid] = uses.get(nid, 0) + 1
+    terminals = {}
+    for s in specs:
+        carrier = next((nid for nid in s["pre"] if uses[nid] == 1), None)
+        can_share = share and (carrier is not None or not s["desc"]) and (bool(s["to"]) or share_ends)
+        tkey = (s["group"], "goto", s["to"], s["reason"]) if s["to"] else (s["group"], "end")
+        if can_share and tkey in terminals:
+            tid = terminals[tkey]
+        else:
+            if s["to"]:
+                tid = mk("goto", dict({"state": s["to"]}, **({"reason": s["reason"]} if s["reason"] else {})), s["group"])
+            else:
+                tid = mk("end", {}, s["group"])
+            if can_share:
+                terminals[tkey] = tid
+        if s["desc"]:
+            nodes[int((carrier or tid)[1:]) - 1]["description"] = s["desc"]
+        ids = s["pre"] + [tid]
+        if ids[0] not in order:
+            order.append(ids[0])
+        for a, b in zip(ids, ids[1:]):
+            lk = {"from": a, "port": "true" if nodes[int(a[1:]) - 1]["kind"] == "condition" else "out", "to": b}
+            sig = (lk["from"], lk["port"], lk["to"])
+            if sig not in link_seen:
+                link_seen.add(sig)
+                links.append(lk)
+        chains.append({"key": s["key"], "group": s["group"], "ids": ids})
+
+    # ---- layout: saved positions per node, the rest automatic (layered, see graph_layout)
+    auto = GL.auto_layout(nodes, links)
+    pos = {nid: auto[nid] for nid in auto}
+    saved_pos = {}
+    for c in chains:
+        for j, nid in enumerate(c["ids"]):
+            p = saved.get("%s/%d" % (c["key"], j))
+            if isinstance(p, dict) and nid not in saved_pos:
+                saved_pos[nid] = (p.get("x", 0), p.get("y", 0))
+    if saved_pos or "start" in saved:
+        max_y = max([v.get("y", 0) for v in saved.values() if isinstance(v, dict)] + [0])
+        for nid in auto:
+            pos[nid] = saved_pos.get(nid) or (auto[nid][0], auto[nid][1] + max_y + 260)
         pos[start_id] = (saved["start"]["x"], saved["start"]["y"]) if "start" in saved else (0, 0)
     else:
         pos[start_id] = (0, 0)
@@ -222,8 +315,12 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     }
     if graph_dict.get("description"):
         doc["description"] = str(graph_dict["description"])
-    # cosmetic frames ("groupes"): only what passes validation is shown, a hand-edited layout never breaks the GET
-    doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
+    # cosmetic frames ("groupes"): only what passes validation is shown, a hand-edited layout never breaks the GET;
+    # with no layout at all the default theme frames frame the automatic layout
+    if layout:
+        doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
+    else:
+        doc["frames"] = GL.default_frames(nodes, pos)
     return doc
 
 
@@ -333,7 +430,6 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     reached = set(i for i in nodes if nodes[i]["kind"] in ("start", "trigger"))
     states_raw = {s["id"]: {"description": str(s.get("description") or "")} for s in states_doc if isinstance(s, dict)}
     on_enter, transitions, globals_, where_map, node_pos = {}, {}, [], {}, {}
-    recorded = set()
     fan_groups = {}
 
     def paths(tid):
@@ -402,6 +498,12 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             force_global = False
             n_err = len(errors)
             seen_action = False
+            if kind in ("event", "after") and p.get("state") is not None:
+                # compact drawing: the trigger itself says "in this state" (same as a non-negated state condition)
+                if p["state"] not in state_ids:
+                    err(tid, "État inconnu : %r." % (p["state"],))
+                else:
+                    pos_sets.append([p["state"]])
             for nid, inv in mid:
                 n = nodes[nid]
                 q = n["params"]
@@ -510,11 +612,9 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                         allowed -= set(x)
                     emitted.append({"target": term["id"], "nodes": ids, "moves": bool(to), "global": container is globals_,
                                     "states": allowed, "guards": {(g["not"], True) if isinstance(g, dict) else (g, False) for g in when}})
-            # layout: record a path only when none of its nodes was recorded by an earlier branch
-            if not recorded & set(ids):
-                recorded |= set(ids)
-                for j, nid in enumerate(ids):
-                    node_pos["%s/%d" % (key, j)] = {"x": nodes[nid].get("x", 0), "y": nodes[nid].get("y", 0)}
+            # layout: every path records the position of each of its nodes (shared nodes repeat the same value)
+            for j, nid in enumerate(ids):
+                node_pos["%s/%d" % (key, j)] = {"x": nodes[nid].get("x", 0), "y": nodes[nid].get("y", 0)}
 
     if report is not None:
         for grp in fan_groups.values():
