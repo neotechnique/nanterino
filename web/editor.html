@@ -20,7 +20,10 @@
   <button id="btnRedo" title="Refaire (Ctrl+Y)">↷ Refaire</button>
   <button id="btnGroup" title="Créer un groupe autour du nœud sélectionné (G)">▭ Groupe</button>
   <button id="btnNote" title="Ajouter un post-it (N)">🗒 Post-it</button>
-  <button id="btnFit" title="Tout voir">⤢ Ajuster</button>
+  <button id="btnFit" title="Tout voir (0)">⤢ Ajuster</button>
+  <button id="btnHand" class="navbtn" title="Outil main : glisser déplace la vue, rien n'est modifiable (H)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/hand-stop.svg')"></span></button>
+  <button id="btnLock" class="navbtn" title="Verrouiller : lecture seule (L)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/lock-open.svg')"></span></button>
+  <button id="btnHelp" class="navbtn" title="Commandes de navigation (?)"><span class="ico" style="--ic:url('/web/vendor/tabler/question-mark.svg')"></span></button>
   <button id="btnRet" title="Fils qui reviennent vers un état : discrets (fins, presque transparents) ou visibles">Fils de retour : discrets</button>
   <button id="btnValidate">✔ Valider</button>
   <button id="btnSave" class="primary">Enregistrer et appliquer</button>
@@ -39,6 +42,7 @@
     <button id="btnMsgs" class="msgtoggle" hidden></button>
     <div id="msgs" class="msgs" hidden></div>
     <div id="toasts"></div>
+    <div id="navBanner" class="navbanner" role="status" hidden></div>
   </section>
   <aside id="right">
     <nav class="tabs" id="tabs">

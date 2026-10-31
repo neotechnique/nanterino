@@ -366,3 +366,30 @@ body:not(.ret-visible) .drawflow svg.connection.ret .main-path:hover{opacity:.6;
 #minimap canvas{width:170px;height:110px}
 #drawflow.semzoom .frame.auto .fcard{overflow:hidden;padding:4%;box-sizing:border-box;text-align:center}
 #drawflow.semzoom .fcard .fcname,#drawflow.semzoom .fcard .fcstat{max-width:100%;overflow-wrap:anywhere}
+
+/* L8 safe navigation: hand tool / lock buttons, grab cursor (Space or hand tool), read-only banner, help popover */
+#bar .navbtn{padding:6px 8px;line-height:1}
+#bar .navbtn.on{background:#1f6feb;border-color:#58a6ff;color:#fff;box-shadow:inset 0 1px 3px #0008}
+#btnLock.on{background:#9e6a03;border-color:#e3b341}
+#drawflow:focus{outline:none}
+#drawflow:focus-visible{outline:2px solid #58a6ff55;outline-offset:-2px}
+body.nav-grab #drawflow,body.nav-grab #drawflow *{cursor:grab!important}
+body.nav-panning #drawflow,body.nav-panning #drawflow *{cursor:grabbing!important}
+body.nav-locked:not(.nav-grab) #drawflow .drawflow-node,body.nav-locked:not(.nav-grab) #drawflow .postit *{cursor:default!important}
+body.nav-grab #drawflow :is(#jumpbar,#minimap) *,body.nav-grab #drawflow .rbadge{cursor:pointer!important}
+body.nav-ro #btnUndo,body.nav-ro #btnRedo,body.nav-ro #btnGroup,body.nav-ro #btnNote,body.nav-ro #btnReset,body.nav-locked #btnSave{opacity:.4;pointer-events:none}
+body.nav-ro #palette{opacity:.75}
+.navbanner{position:absolute;left:50%;bottom:14px;transform:translateX(-50%);z-index:12;display:flex;gap:12px;align-items:center;
+  padding:6px 14px;border-radius:16px;background:#0d1117e6;border:1px solid var(--line);font-size:13px;pointer-events:none;white-space:nowrap}
+.navbanner[hidden]{display:none}
+.navbanner span{display:flex;gap:6px;align-items:center}
+.navbanner .nb-lock{color:#e3b341}.navbanner .nb-hand{color:#79c0ff}
+.navbanner small{color:var(--mut)}
+.navhelp{position:absolute;right:10px;top:44px;z-index:31;width:min(380px,calc(100% - 20px));max-height:calc(100% - 60px);overflow:auto;
+  background:var(--panel);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 24px #000a;padding:10px 12px;font-size:13px}
+.navhelp[hidden]{display:none}
+.navhelp .nhtitle{display:flex;align-items:center;gap:6px;font-weight:600;margin-bottom:6px}
+.navhelp .nhclose{margin-left:auto;padding:0 8px;line-height:1.4}
+.navhelp dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0}
+.navhelp dt{font-weight:600;color:#c9d1d9;white-space:nowrap}
+.navhelp dd{margin:0;color:var(--mut)}
