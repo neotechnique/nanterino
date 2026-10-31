@@ -29,6 +29,11 @@ Wave 3 (2026-10-31, "graphe optimisé"): `to_visual()` draws the graph lighter (
     graph is equivalent (only no-op `fan` tags appear on shared exclusive branches). `compact=True` (default) also
     moves the state condition into `params.state` of the trigger (now the default).
 
+Lot L6 (2026-10-31, "nœuds État"): the default drawing has ONE `state` hub node per state (chains start at it and end by
+    linking into the destination hub; `reason`/`description` ride on that last link; a trigger linked from several
+    states, or flagged `params.global`, is a global `only_in` rule; no link = global). Post-it `notes` are cosmetic like
+    `frames` (layout file only). `to_visual(legacy=True)` keeps the go-to drawing. See Notes/graph-visual-format.md.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -68,8 +73,9 @@ GLOBAL_COLOR = "#c0504d"
 ICON_NAME = re.compile(r"^[a-z0-9-]{1,40}$")        # Tabler icon file name; also what the server serves
 KEEP_BACKUPS = 30                                    # graph.yaml.bak-* copies kept (was 10)
 BACKUP_ID = re.compile(r"^\d{8}-\d{6}(-\d+)?$")        # <stamp> of graph.yaml.bak-<stamp>
-KINDS = ("start", "trigger", "condition", "action", "goto", "end")
-PORTS = {"start": ("out",), "trigger": ("out",), "condition": ("true", "false"), "action": ("out",)}
+KINDS = ("start", "trigger", "condition", "action", "goto", "end", "state")
+# `goto` is the legacy "go to state" terminal (still compiled); the current drawing ends chains on `state` nodes.
+PORTS = {"start": ("out",), "trigger": ("out",), "condition": ("true", "false"), "action": ("out",), "state": ("out",)}
 HEADER = (
     "# Graphe de dialogue de Nanterino, écrit par l'éditeur visuel (/editor).\n"
     "# L'éditeur réécrit ce fichier en entier : une copie datée est gardée à côté (graph.yaml.bak-<date>, 30 dernières).\n"
@@ -124,6 +130,11 @@ def _sig(kind, params):
     return json.dumps([kind, params], sort_keys=True, ensure_ascii=False)
 
 
+def _tsig(spec):
+    """Signature of the trigger node of a spec: its params plus the states it is linked from."""
+    return _sig("trigger", spec["trig"]) + "@" + ",".join(spec["scope"])
+
+
 def _exclusive(a, b):
     """True when two transition specs can never match the same event: opposite guards or disjoint states."""
     if any((g, not neg) in b["guards"] for g, neg in a["guards"]):
@@ -140,17 +151,29 @@ def _joinable(cluster, head0_sig, spec):
     never change anything: the first action of both branches differs (or one has none), or the two can never
     match together (opposite guards / disjoint states).
     """
-    if _sig("trigger", spec["trig"]) != head0_sig:
+    if _tsig(spec) != head0_sig:
         return False
     if spec["trig"].get("fan"):
         return True
+    # two bare chains (no action) with the same conditions and the same destination would need two parallel
+    # wires between the same two nodes, which the editor cannot draw: keep their triggers apart
+    if any(not m["acts"] and not spec["acts"] and m["to"] == spec["to"] and m["conds"] == spec["conds"] for m in cluster):
+        return False
     return all(m["first"] is None or spec["first"] is None or m["first"] != spec["first"] or _exclusive(m, spec)
                for m in cluster)
 
 
 def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "veille", share: bool = True,
-              compact: bool = True, share_ends: bool = True) -> dict:
+              compact: bool = True, share_ends: bool = True, legacy: bool = False) -> dict:
     """Editor document of a raw graph dict (as read from graph.yaml).
+
+    Default form (2026-10-31, "nœuds État"): ONE `state` node per state (hub); a chain starts at the state node
+    (state.out -> trigger.in) and its last node links straight into the destination state node (many wires may
+    arrive at one state node); an optional `reason`/`description` of that last hop rides on the link. A global
+    rule limited to some states (`only_in`) is a trigger linked from those states with `params.global`; a
+    trigger without state link is a global rule. There is no go-to node and no state band any more.
+    `legacy=True` draws the previous form (go-to nodes, `compact` / explicit state conditions, band layout):
+    kept so the old drawing can still be produced and compiled (tests, migrations).
 
     `layout` is the content of graph.layout.json ({"nodes": {key: {"x","y"}}, "states": {id: color}, "frames": [...]});
     nodes with a saved position keep it, the others are stacked below the saved ones with the automatic layout
@@ -171,8 +194,11 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     """
     layout = layout or {}
     saved = layout.get("nodes") or {}
+    new = not legacy
     nodes, links, order, chains, specs = [], [], [], [], []
     link_seen = set()
+    state_nid = {}            # state id -> node id of its `state` hub (new form)
+    link_meta = {}            # (from, port, to) -> {"reason", "description"} carried by the hop into a state node
 
     def mk(kind, params, group, desc=""):
         n = {"id": "n%d" % (len(nodes) + 1), "kind": kind, "x": 0, "y": 0, "description": desc, "params": params}
@@ -182,8 +208,10 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         return n["id"]
 
     def conds_for(t, state):
-        conds = [{"type": "state", "states": [state], "negate": False}] if state and not compact else []
+        conds = [{"type": "state", "states": [state], "negate": False}] if state and not compact and not new else []
         for k, neg in (("only_in", False), ("not_in", True)):
+            if new and k == "only_in" and state is None:
+                continue   # a global rule limited to some states is drawn as links from those state nodes
             if t.get(k) is not None:
                 c = {"type": "state", "states": list(_aslist(t[k])), "negate": neg}
                 if state is None and not neg and len(c["states"]) == 1:
@@ -196,10 +224,10 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                 conds.append({"type": "guard", "guard": g, "negate": False})
         return conds
 
-    def spec_of(group, key, trig, desc, conds, do, then, to, reason, guards=frozenset(), states=None):
+    def spec_of(group, key, trig, desc, conds, do, then, to, reason, guards=frozenset(), states=None, scope=()):
         acts = [(n, a, "do") for n, a in do] + [(n, a, "then") for n, a in then]
         return {"group": group, "key": key, "trig": trig, "desc": desc, "conds": conds, "acts": acts, "to": to,
-                "reason": reason, "guards": guards, "states": states,
+                "reason": reason, "guards": guards, "states": states, "scope": list(scope),
                 "first": (acts[0][2], acts[0][0], json.dumps(acts[0][1], sort_keys=True)) if acts else None}
 
     def transition(group, key, t, state):
@@ -208,7 +236,14 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         else:
             trig = {"type": "event", "event": t.get("on")}
         trig["enabled"] = t.get("enabled", True) is not False   # False: kept in the file, ignored by the engine
-        if compact and state:
+        scope = []
+        if new:   # the state links of the trigger carry the scope (state transition, or global rule limited to some states)
+            if state:
+                scope = [state]
+            elif t.get("only_in") is not None:
+                scope = [s for s in dict.fromkeys(_aslist(t["only_in"]))]
+                trig["global"] = True   # evaluated with the global rules even when a single state is linked
+        elif compact and state:
             trig["state"] = state
         if t.get("fan"):
             trig["fan"] = t["fan"]   # keeps the branches of one trigger grouped across save/reload
@@ -219,15 +254,21 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
             allowed -= set(_aslist(t["not_in"]))
         guards = frozenset(((g["not"], True) if isinstance(g, dict) else (g, False)) for g in _aslist(t.get("when")))
         specs.append(spec_of(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
-                             _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason"), guards, allowed))
+                             _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason"), guards, allowed, scope))
 
     start_id = mk("start", {"state": start_state}, None, "Démarrage")
     states_raw = graph_dict.get("states") or {}
+    if new:   # one hub node per state, right after Start (Start -> initial state is display only)
+        for sname in states_raw:
+            state_nid[sname] = mk("state", {"state": sname}, sname)
+        if start_state in state_nid:
+            links.append({"from": start_id, "port": "out", "to": state_nid[start_state]})
     for sname, spec in states_raw.items():
         spec = spec or {}
         enter = _calls(spec.get("on_enter"))
         if enter:
-            specs.append(spec_of(sname, sname + "/enter", {"type": "enter", "state": sname}, "", [], enter, [], None, None))
+            specs.append(spec_of(sname, sname + "/enter", {"type": "enter", "state": sname}, "", [], enter, [], None, None,
+                                 scope=[sname] if new else ()))
         for i, t in enumerate(spec.get("transitions") or []):
             transition(sname, "%s/t%d" % (sname, i), t, sname)
     for i, t in enumerate(graph_dict.get("global") or []):
@@ -244,7 +285,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         s["cluster"].append(s)
         path = []
         for d, (kind, params) in enumerate(head):
-            sig = _sig(kind, params)
+            sig = _tsig(s) if d == 0 else _sig(kind, params)
             if shared and d < len(prev["head"]) and prev["head"][d][1] == sig:
                 path.append(prev["head"][d])
             else:
@@ -263,9 +304,12 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     terminals = {}
     for s in specs:
         carrier = next((nid for nid in s["pre"] if uses[nid] == 1), None)
+        hub = new and bool(s["to"]) and s["to"] in state_nid
         can_share = share and (carrier is not None or not s["desc"]) and (bool(s["to"]) or share_ends)
         tkey = (s["group"], "goto", s["to"], s["reason"]) if s["to"] else (s["group"], "end")
-        if can_share and tkey in terminals:
+        if hub:
+            tid = state_nid[s["to"]]     # the destination is the state node itself: no go-to node to draw
+        elif can_share and tkey in terminals:
             tid = terminals[tkey]
         else:
             if s["to"]:
@@ -274,35 +318,64 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                 tid = mk("end", {}, s["group"])
             if can_share:
                 terminals[tkey] = tid
+        hop = {}                          # reason / description riding on the last link (hub form)
+        if hub and s["reason"]:
+            hop["reason"] = s["reason"]
         if s["desc"]:
-            nodes[int((carrier or tid)[1:]) - 1]["description"] = s["desc"]
+            if hub and carrier is None:
+                hop["description"] = s["desc"]   # every node of the chain is shared: the hop is all that is its own
+            else:
+                nodes[int((carrier or tid)[1:]) - 1]["description"] = s["desc"]
         ids = s["pre"] + [tid]
         if ids[0] not in order:
             order.append(ids[0])
         for a, b in zip(ids, ids[1:]):
             lk = {"from": a, "port": "true" if nodes[int(a[1:]) - 1]["kind"] == "condition" else "out", "to": b}
             sig = (lk["from"], lk["port"], lk["to"])
+            if hub and b == tid:
+                lk.update(hop)
             if sig not in link_seen:
                 link_seen.add(sig)
                 links.append(lk)
+                if hub and b == tid and hop:
+                    link_meta[sig] = hop
+        if new and s["scope"]:            # state -> trigger links: where the chain starts
+            for st in s["scope"]:
+                if st in state_nid:
+                    sig = (state_nid[st], "out", ids[0])
+                    if sig not in link_seen:
+                        link_seen.add(sig)
+                        links.append({"from": sig[0], "port": "out", "to": sig[2]})
         chains.append({"key": s["key"], "group": s["group"], "ids": ids})
 
     # ---- layout: saved positions per node, the rest automatic (layered, see graph_layout)
-    auto = GL.auto_layout(nodes, links)
+    auto = GL.hub_layout(nodes, links) if new else GL.auto_layout(nodes, links)
     pos = {nid: auto[nid] for nid in auto}
+    if new and start_state in state_nid:   # Start sits just left of its state hub, on the same row
+        sx, sy = auto[state_nid[start_state]]
+        auto[start_id] = pos[start_id] = (sx - GL.COLW, sy)
+    # An old layout file (written before the state nodes existed) has no `state/<id>` key: its node positions no
+    # longer fit the new drawing, so they are ignored (frames, colours and icons of that file are still used).
+    usable = not new or any(k.startswith("state/") for k in saved)
     saved_pos = {}
-    for c in chains:
+    for c in chains if usable else ():
         for j, nid in enumerate(c["ids"]):
             p = saved.get("%s/%d" % (c["key"], j))
-            if isinstance(p, dict) and nid not in saved_pos:
+            if isinstance(p, dict) and nid not in saved_pos and nid not in state_nid.values():
                 saved_pos[nid] = (p.get("x", 0), p.get("y", 0))
-    if saved_pos or "start" in saved:
+    for sid, nid in state_nid.items():
+        p = saved.get("state/" + sid) if usable else None
+        if isinstance(p, dict):
+            saved_pos[nid] = (p.get("x", 0), p.get("y", 0))
+    if usable and (saved_pos or "start" in saved):
         max_y = max([v.get("y", 0) for v in saved.values() if isinstance(v, dict)] + [0])
         for nid in auto:
+            if nid == start_id:
+                continue
             pos[nid] = saved_pos.get(nid) or (auto[nid][0], auto[nid][1] + max_y + 260)
-        pos[start_id] = (saved["start"]["x"], saved["start"]["y"]) if "start" in saved else (0, 0)
+        pos[start_id] = (saved["start"]["x"], saved["start"]["y"]) if "start" in saved else auto.get(start_id, (0, 0))
     else:
-        pos[start_id] = (0, 0)
+        pos[start_id] = auto.get(start_id, (0, 0))
     for n in nodes:
         n["x"], n["y"] = pos[n["id"]]
 
@@ -322,11 +395,15 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
     else:
         doc["frames"] = GL.default_frames(nodes, pos)
+    # post-it notes: cosmetic like frames (layout file only, never compiled); invalid entries are not shown
+    doc["notes"] = [n for n in (layout.get("notes") or []) if isinstance(n, dict) and _note_problem(n) is None][:MAX_NOTES]
     return doc
 
 
 # ---------------------------------------------------------------- cosmetic frames
 MAX_FRAMES, MAX_FRAME_TITLE, MAX_FRAME_NOTE = 100, 60, 2000
+# post-it notes (2026-10-31): sticky notes drawn on the canvas, stored like frames in graph.layout.json
+MAX_NOTES, MAX_NOTE_TEXT, MAX_NOTE_TITLE = 200, 2000, 60
 FRAME_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 
@@ -374,6 +451,46 @@ def clean_frames(frames):
     return out, errors
 
 
+def _note_problem(n: dict):
+    """French message for the first problem of a post-it dict, or None when it is valid."""
+    if not isinstance(n.get("id"), str) or not n["id"] or len(n["id"]) > 64:
+        return "Identifiant de post-it invalide."
+    if not isinstance(n.get("text"), str) or len(n["text"]) > MAX_NOTE_TEXT:
+        return "Le texte du post-it doit faire %d caractères au plus." % MAX_NOTE_TEXT
+    if "title" in n and n["title"] is not None and (not isinstance(n["title"], str) or len(n["title"]) > MAX_NOTE_TITLE):
+        return "Le titre du post-it doit faire %d caractères au plus." % MAX_NOTE_TITLE
+    if not isinstance(n.get("color"), str) or not FRAME_COLOR.match(n["color"]):
+        return "La couleur du post-it doit être au format #rrggbb."
+    if not all(_num(n.get(k)) for k in ("x", "y", "w", "h")) or n["w"] <= 0 or n["h"] <= 0:
+        return "La position et la taille du post-it doivent être numériques (largeur et hauteur > 0)."
+    return None
+
+
+def clean_notes(notes):
+    """Validate the `notes` list of a document. Returns (clean_list, errors); each error carries `note` (id)."""
+    if notes is None:
+        return [], []
+    if not isinstance(notes, list):
+        return [], [{"node": None, "note": None, "message": "`notes` doit être une liste."}]
+    if len(notes) > MAX_NOTES:
+        return [], [{"node": None, "note": None, "message": "Trop de post-it (%d au plus)." % MAX_NOTES}]
+    out, errors, ids = [], [], set()
+    for n in notes:
+        nid = n.get("id") if isinstance(n, dict) and isinstance(n.get("id"), str) else None
+        msg = "Un post-it n'est pas un objet." if not isinstance(n, dict) else _note_problem(n)
+        if msg is None and n["id"] in ids:
+            msg = "Identifiant de post-it en double : %s." % n["id"]
+        if msg:
+            errors.append({"node": None, "note": nid, "message": msg}); continue
+        ids.add(n["id"])
+        c = {"id": n["id"], "text": n["text"], "color": n["color"].lower(),
+             "x": n["x"], "y": n["y"], "w": n["w"], "h": n["h"]}
+        if n.get("title"):
+            c["title"] = n["title"]
+        out.append(c)
+    return out, errors
+
+
 # ---------------------------------------------------------------- visual document -> raw dict
 def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     """Compile an editor document. Returns (raw_dict | None, layout dict, errors).
@@ -406,20 +523,59 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             n = dict(n, params={})
         nodes[n["id"]] = n
     adj = {}
+    state_out = {}             # trigger id -> [state node ids linked into it], in link order
+    link_meta = {}             # (from, port, to) -> {"reason", "description"} of a hop into a state node
     for lk in doc.get("links") or []:
         a, b, port = (lk.get("from"), lk.get("to"), lk.get("port")) if isinstance(lk, dict) else (None, None, None)
         if a not in nodes or b not in nodes:
             err(a if a in nodes else (b if b in nodes else None), "Lien vers un nœud inexistant (%s -> %s)." % (a, b)); continue
         if port not in PORTS.get(nodes[a]["kind"], ()):
             err(a, "Ce nœud (%s) n'a pas de sortie « %s »." % (nodes[a]["kind"], port)); continue
-        if nodes[b]["kind"] in ("start", "trigger"):
-            err(b, "Un déclencheur ne peut pas recevoir de lien."); continue
+        ka, kb = nodes[a]["kind"], nodes[b]["kind"]
+        if kb == "start":
+            err(b, "Le nœud Début ne peut pas recevoir de lien."); continue
+        if ka == "start":
+            if kb != "state":
+                err(a, "Le nœud Début se relie seulement à un nœud État (état de démarrage, affichage)."); continue
+            continue            # Start -> state is display only: the start state is fixed by the code
+        if ka == "state":
+            if kb != "trigger":
+                err(a, "La sortie d'un nœud État se relie seulement à un déclencheur."); continue
+            state_out.setdefault(b, [])
+            if a not in state_out[b]:
+                state_out[b].append(a)
+            continue
+        if kb == "trigger":
+            err(b, "Un déclencheur n'accepte de lien que depuis un nœud État."); continue
         adj.setdefault((a, port), []).append(b)
+        if kb == "state":      # the hop into a state node may carry the transition's reason / description
+            hop = {}
+            for k in ("reason", "description"):
+                v = lk.get(k)
+                if v is None or v == "":
+                    continue
+                if not isinstance(v, str) or len(v) > 500:
+                    err(a, "Le champ « %s » du lien doit être un texte." % k)
+                else:
+                    hop[k] = v
+            if hop:
+                link_meta[(a, port, b)] = hop
 
     states_doc = doc.get("states")
     if not isinstance(states_doc, list) or not states_doc:
         return None, {}, errors + [{"node": None, "message": "Document invalide : la liste `states` est absente ou vide."}]
     state_ids = [s.get("id") for s in states_doc if isinstance(s, dict)]
+    state_node_of = {}         # state id -> id of its state node
+    for nid_, n_ in nodes.items():
+        if n_["kind"] != "state":
+            continue
+        sid_ = n_["params"].get("state")
+        if sid_ not in state_ids:
+            err(nid_, "État inconnu : %r." % (sid_,))
+        elif sid_ in state_node_of:
+            err(nid_, "Il y a déjà un nœud pour l'état %s : un seul nœud État par état." % sid_)
+        else:
+            state_node_of[sid_] = nid_
     intent_names = set(doc.get("intents") or {}) | {"question"}
 
     # evaluation order of triggers: `order`, then the rest by (y, x)
@@ -428,7 +584,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     ordered = list(dict.fromkeys(ordered))
     ordered += sorted((i for i in trig_ids if i not in ordered), key=lambda i: (nodes[i].get("y", 0), nodes[i].get("x", 0)))
 
-    reached = set(i for i in nodes if nodes[i]["kind"] in ("start", "trigger"))
+    reached = set(i for i in nodes if nodes[i]["kind"] in ("start", "trigger", "state"))
     states_raw = {s["id"]: {"description": str(s.get("description") or "")} for s in states_doc if isinstance(s, dict)}
     on_enter, transitions, globals_, where_map, node_pos = {}, {}, [], {}, {}
     fan_groups = {}
@@ -442,7 +598,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 err(nid, "Boucle dans la chaîne : ce nœud revient sur lui-même."); return
             reached.add(nid)
             k = nodes[nid]["kind"]
-            if k in ("goto", "end"):
+            if k in ("goto", "end", "state"):   # terminals; a state node ends the path (its own outputs start OTHER chains)
                 out.append(chain + [(nid, False)]); return
             if k == "condition":
                 linked = False
@@ -486,6 +642,12 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             paths(tid)  # still walk it so its nodes count as reached
             continue
         plist = paths(tid)
+        # states this trigger is linked from (hub form); the legacy `params.state` scope adds to them
+        links_from = [nodes[s]["params"].get("state") for s in state_out.get(tid, []) if nodes[s]["params"].get("state") in state_ids]
+        if kind == "enter" and links_from and links_from != [p.get("state")]:
+            err(tid, "Un déclencheur « entrée dans l'état » ne se relie qu'au nœud de son propre état (%s)." % (p.get("state"),))
+            continue
+        scope = list(dict.fromkeys(links_from + ([p["state"]] if p.get("state") is not None else [])))
         fan_id = (p.get("fan") if isinstance(p.get("fan"), str) and p.get("fan").strip() else None) or ("fan-" + tid if len(plist) > 1 else None)
         # branches of triggers sharing a fan id (one editor trigger, or its copies after a reload) are analysed together
         grp = fan_groups.setdefault(fan_id or tid, {"tids": [], "emitted": []})
@@ -499,12 +661,15 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             force_global = False
             n_err = len(errors)
             seen_action = False
-            if kind in ("event", "after") and p.get("state") is not None:
-                # compact drawing: the trigger itself says "in this state" (same as a non-negated state condition)
-                if p["state"] not in state_ids:
+            hop = {}
+            if kind in ("event", "after") and scope:
+                # the states the trigger is linked from (and the legacy `params.state`) act as a non-negated state
+                # condition; several states, or `params.global`, make it a global rule limited to them (only_in)
+                if p.get("state") is not None and p["state"] not in state_ids:
                     err(tid, "État inconnu : %r." % (p["state"],))
                 else:
-                    pos_sets.append([p["state"]])
+                    pos_sets.append(list(scope))
+                    force_global = bool(p.get("global")) or len(scope) > 1
             for nid, inv in mid:
                 n = nodes[nid]
                 q = n["params"]
@@ -546,17 +711,26 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 if to not in state_ids:
                     err(term["id"], "État de destination inconnu : %r." % (to,))
                 reason = term["params"].get("reason") or None
+            elif term["kind"] == "state":     # hub form: the destination state node ends the chain
+                to = term["params"].get("state")
+                pid, pinv = path[-2]
+                port = ("false" if pinv else "true") if nodes[pid]["kind"] == "condition" else "out"
+                hop = link_meta.get((pid, port, term["id"]), {})
+                reason = hop.get("reason") or None
             if kind == "enter":
                 for nid, _inv in mid:
                     if nodes[nid]["kind"] == "condition":
                         err(nid, "Un déclencheur « entrée dans l'état » n'accepte pas de condition.")
-                if term["kind"] == "goto":
+                if term["kind"] in ("goto", "state"):
                     err(term["id"], "Une entrée dans l'état ne peut pas changer d'état : terminer par une fin.")
                 if then:
                     err(tid, "Une entrée dans l'état n'a pas de phase « then ».")
             if len(errors) > n_err:
                 continue
-            desc = trig.get("description") or next((nodes[i].get("description") for i in ids if nodes[i].get("description")), "")
+            # a state node's own text is not the chain's description; the hop into it may carry one
+            desc_ids = ids[:-1] if term["kind"] == "state" else ids
+            desc = (trig.get("description") or next((nodes[i].get("description") for i in desc_ids if nodes[i].get("description")), "")
+                    or hop.get("description") or "")
             if kind == "enter":
                 st = p["state"]
                 if st in on_enter:
@@ -615,7 +789,8 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                                     "states": allowed, "guards": {(g["not"], True) if isinstance(g, dict) else (g, False) for g in when}})
             # layout: every path records the position of each of its nodes (shared nodes repeat the same value)
             for j, nid in enumerate(ids):
-                node_pos["%s/%d" % (key, j)] = {"x": nodes[nid].get("x", 0), "y": nodes[nid].get("y", 0)}
+                if nodes[nid]["kind"] != "state":   # state nodes are saved once, under `state/<id>`
+                    node_pos["%s/%d" % (key, j)] = {"x": nodes[nid].get("x", 0), "y": nodes[nid].get("y", 0)}
 
     if report is not None:
         for grp in fan_groups.values():
@@ -666,10 +841,16 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     for nid, n in nodes.items():
         if n["kind"] == "start":
             layout["nodes"]["start"] = {"x": n.get("x", 0), "y": n.get("y", 0)}
+    for sid_, nid_ in state_node_of.items():
+        layout["nodes"]["state/" + sid_] = {"x": nodes[nid_].get("x", 0), "y": nodes[nid_].get("y", 0)}
     frames, ferrors = clean_frames(doc.get("frames"))
     errors.extend(ferrors)
     if frames:   # purely cosmetic: lives in the layout file only, never compiled into graph.yaml
         layout["frames"] = frames
+    notes, nerrors = clean_notes(doc.get("notes"))
+    errors.extend(nerrors)
+    if notes:    # post-it notes: same story as frames (layout only, never compiled)
+        layout["notes"] = notes
     return (None if errors else raw), layout, errors
 
 

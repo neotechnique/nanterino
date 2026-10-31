@@ -68,6 +68,8 @@ def chain_of(doc, trigger_id):
             return ids
         cur = nxt[(cur, port)]
         ids.append(cur)
+        if kinds[cur] == "state":   # a state node ends the chain (its own output starts other chains)
+            return ids
 
 
 def compile_ok(doc):
@@ -95,9 +97,18 @@ def test_roundtrip_default():
     assert text.startswith("# Graphe de dialogue de Nanterino") and "description:" in text
     import yaml
     assert semantic(yaml.load(text, Loader=G._Loader), nofan=True) == a
-    assert len(doc["order"]) == len(raw["global"]) + sum(len(s.get("transitions") or []) for s in raw["states"].values())
+    # CHANGED 2026-10-31 (state nodes): `order` lists every trigger node once (it used to equal the transition
+    # count only by coincidence: shared triggers vs the enter triggers); a global rule limited to some states now
+    # keeps its trigger apart from a same-event rule limited to others (the links make them different triggers).
+    assert sorted(doc["order"]) == sorted(n["id"] for n in doc["nodes"] if n["kind"] == "trigger")
     kinds = {n["kind"] for n in doc["nodes"]}
-    assert kinds == {"start", "trigger", "condition", "action", "goto", "end"}, kinds
+    assert kinds == {"start", "trigger", "condition", "action", "state", "end"}, kinds   # no go-to node any more
+    # exactly one state node per state, in state order, right after Start
+    assert [n["params"]["state"] for n in doc["nodes"] if n["kind"] == "state"] == list(raw["states"])
+    # the legacy drawing (go-to nodes) still round-trips to the same graph
+    legacy = to_json_and_back(V.to_visual(raw, legacy=True))
+    assert {n["kind"] for n in legacy["nodes"]} == {"start", "trigger", "condition", "action", "goto", "end"}
+    assert semantic(compile_ok(legacy)[0], nofan=True) == a, "legacy drawing changed the graph"
 
 
 def to_json_and_back(doc):
@@ -109,8 +120,14 @@ def test_layout_bands_and_persistence():
     pts = [(n["x"], n["y"]) for n in doc["nodes"]]
     assert len(set(pts)) == len(pts), "two nodes share a position"
     pos = {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}
+    kind = {n["id"]: n["kind"] for n in doc["nodes"]}
     for lk in doc["links"]:
+        if kind[lk["to"]] == "state":     # CHANGED: the wire back to a state hub runs right to left by design
+            continue
         assert pos[lk["to"]][0] > pos[lk["from"]][0], "a link does not run left to right: %r" % (lk,)
+    # state hubs form column 0, one per band, in state order from top to bottom
+    hubs = [n for n in doc["nodes"] if n["kind"] == "state"]
+    assert len({n["x"] for n in hubs}) == 1 and [n["y"] for n in hubs] == sorted(n["y"] for n in hubs)
     # bands of one state are contiguous and the state colours are distinct
     assert len({s["color"] for s in doc["states"]}) == len(doc["states"])
     # a moved node comes back where the user put it, through the structural layout keys
@@ -154,7 +171,7 @@ def expect_error(doc, node, fragment):
 
 
 def test_error_cases():
-    base = V.to_visual(default_raw(), compact=False)   # explicit state-condition nodes (the legacy form still compiles)
+    base = V.to_visual(default_raw(), compact=False, legacy=True)   # go-to nodes + explicit state conditions (legacy form still compiles)
     # chain without target: cut the link into the final goto of the `visage` transition
     d = copy.deepcopy(base)
     trig = find(d, kind="trigger", event="stop")[0]
@@ -321,7 +338,7 @@ def test_save_backups_and_reset():
     assert first.startswith("# Graphe de dialogue de Nanterino")
     # invalid document: nothing written, errors listed
     bad = copy.deepcopy(doc)
-    find(bad, kind="goto", state="accueil")[0]["params"]["state"] = "atlantis"
+    find(bad, kind="state", state="accueil")[0]["params"]["state"] = "atlantis"
     ok, errs = V.save(bad, CFG, gp, lp)
     assert not ok and errs and open(gp, encoding="utf-8").read() == first
     # edit a delay 8 -> 10: the file changes, a backup appears; backups are capped at V.KEEP_BACKUPS (30)
@@ -355,8 +372,11 @@ def test_deferred_reload_applies_at_next_veille():
         # variant: the dashboard `start` in veille now goes straight to ecoute
         trig = next(n for n in doc["nodes"] if n["kind"] == "trigger" and n["params"].get("event") == "start"
                     and n["group"] == "veille")
-        goto = next(n for n in doc["nodes"] if n["id"] == chain_of(doc, trig["id"])[-1])
-        goto["params"]["state"] = "ecoute"
+        ids = chain_of(doc, trig["id"])
+        ecoute = next(n for n in doc["nodes"] if n["kind"] == "state" and n["params"]["state"] == "ecoute")
+        for lk in doc["links"]:       # re-wire the last hop of the chain into the ecoute state node
+            if lk["from"] == ids[-2] and lk["to"] == ids[-1]:
+                lk["to"] = ecoute["id"]
         assert V.save(doc, h.cfg, gp, lp)[0]
         assert h.brain.request_graph_reload() is False and h.brain.graph_pending is True
         assert h.brain.engine.graph.source != gp, "must not swap graphs mid-conversation"
@@ -442,14 +462,22 @@ def _triggers(doc, event, group):
 def test_sharing_lighter_and_equivalent():
     """Sharing nodes is only a drawing: fewer nodes/links, same compiled graph (modulo no-op fan tags)."""
     raw = default_raw()
-    old, new, comp = V.to_visual(raw, share=False, compact=False), V.to_visual(raw, compact=False), V.to_visual(raw)
+    # CHANGED 2026-10-31: the measurements below are those of the legacy drawing (go-to nodes); the hub drawing has its
+    # own figures at the end of this test.
+    old, new, comp = (V.to_visual(raw, share=False, compact=False, legacy=True), V.to_visual(raw, compact=False, legacy=True),
+                      V.to_visual(raw, legacy=True))
     print("  nodes old/shared/compact = %d/%d/%d, links %d/%d/%d" % (
         len(old["nodes"]), len(new["nodes"]), len(comp["nodes"]), len(old["links"]), len(new["links"]), len(comp["links"])))
     # NOTE the brief asked for <= 70 %: not reachable without dropping the per-chain state condition (compact mode)
     assert len(new["nodes"]) <= 0.90 * len(old["nodes"]) and len(new["links"]) <= 0.97 * len(old["links"])
     assert len(comp["nodes"]) <= 0.76 * len(old["nodes"]) and len(comp["links"]) <= 0.80 * len(old["links"])
     assert len(comp["nodes"]) <= 0.76 * 182, "compact (default) drawing of the shipped graph"
-    assert [(n["kind"], n["params"]) for n in V.to_visual(raw)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the default"
+    assert [(n["kind"], n["params"]) for n in V.to_visual(raw, legacy=True)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the legacy default"
+    hub = V.to_visual(raw)
+    print("  hub drawing: nodes %d, links %d" % (len(hub["nodes"]), len(hub["links"])))
+    assert len(hub["nodes"]) <= len(comp["nodes"]) and not [n for n in hub["nodes"] if n["kind"] in ("goto",)]
+    raw_h, _ = compile_ok(to_json_and_back(hub))
+    assert semantic(raw_h, nofan=True) == semantic(raw, nofan=True)
     for doc in (new, comp):
         ends = {}
         for n in doc["nodes"]:
@@ -474,12 +502,17 @@ def test_sharing_lighter_and_equivalent():
 
 def test_layout_no_overlap_and_few_crossings():
     raw = default_raw()
-    for kw in ({}, {"compact": False}, {"share": False, "compact": False}):
+    for kw in ({}, {"legacy": True}, {"compact": False, "legacy": True}, {"share": False, "compact": False, "legacy": True}):
         doc = V.to_visual(raw, **kw)
         pos = {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}
         assert GL.overlaps(doc["nodes"], pos) == [], kw
-        x = GL.crossings(doc["nodes"], doc["links"], pos)
+        # CHANGED: in the hub drawing the wires that return to a state node are excluded from the bound (they cross
+        # the whole canvas by nature); crossings inside the chains must still stay low
+        x = GL.crossings(doc["nodes"], doc["links"], pos, chains_only=not kw.get("legacy"))
         assert x <= 12, (kw, x)
+        if not kw:
+            print("  hub drawing: %d crossings inside chains, %d with the returning wires" % (
+                x, GL.crossings(doc["nodes"], doc["links"], pos)))
     # a long French description makes a tall node: the next row is pushed down, never overlapped
     long_raw = copy.deepcopy(raw)
     for t in long_raw["states"]["ecoute"]["transitions"]:
@@ -492,7 +525,7 @@ def test_layout_no_overlap_and_few_crossings():
     # saved positions of a partly saved document stay, new nodes go below them
     d0 = V.to_visual(raw)
     _r, layout = compile_ok(d0)
-    layout["nodes"] = {k: v for k, v in layout["nodes"].items() if k.startswith("veille/") or k == "start"}
+    layout["nodes"] = {k: v for k, v in layout["nodes"].items() if k.startswith(("veille/", "state/")) or k == "start"}
     d1 = V.to_visual(raw, layout)
     kept = [n for n in d1["nodes"] if n.get("group") == "veille"]
     assert [(n["x"], n["y"]) for n in kept] == [(n["x"], n["y"]) for n in d0["nodes"] if n.get("group") == "veille"]
@@ -555,11 +588,206 @@ def test_sharing_keeps_independent_transitions_apart():
     assert descs == ["p", "q"], descs
 
 
+def _hub_doc(extra_nodes, extra_links, order):
+    """mini_doc plus one state node per state (ids sv / sa / se) - the 2026-10-31 drawing."""
+    sn = [N("sv", "state", state="veille"), N("sa", "state", state="accueil"), N("se", "state", state="eteint")]
+    return mini_doc(sn + extra_nodes, extra_links, order)
+
+
+def test_state_nodes_compile():
+    """State nodes: a chain starts at its state node, the last node links into the destination state node."""
+    doc = _hub_doc([
+        N("t", "trigger", type="event", event="visage", _d="accueil automatique"),
+        N("a", "action", action="cancel_all", args={}, phase="do"),
+        N("t2", "trigger", type="event", event="stop"),          # no state link: global rule
+        N("a2", "action", action="mic_on", args={}, phase="do"),
+        N("e2", "end"),
+    ], [L("start", "sv"), L("sv", "t"), L("t", "a"), L("a", "sa"), L("t2", "a2"), L("a2", "e2")], ["t", "t2"])
+    raw, layout = compile_ok(doc)
+    tr = raw["states"]["veille"]["transitions"][0]
+    assert tr["on"] == "visage" and tr["to"] == "accueil" and tr["do"] == ["cancel_all"] and tr["description"] == "accueil automatique", tr
+    assert "reason" not in tr
+    assert [(t["on"], "to" in t) for t in raw["global"]] == [("stop", False)], "trigger without state link = global rule"
+    assert "state/veille" in layout["nodes"] and "state/accueil" in layout["nodes"], layout["nodes"].keys()
+    # the reason of the transition rides on the last link; a description with no node of its own too
+    doc2 = copy.deepcopy(doc)
+    doc2["links"][3]["reason"] = "visage_vu"
+    raw2, _ = compile_ok(doc2)
+    assert raw2["states"]["veille"]["transitions"][0]["reason"] == "visage_vu"
+    # returning wires: a chain in `accueil` that goes back to veille compiles to `to: veille`
+    doc3 = _hub_doc([N("t", "trigger", type="event", event="stop")], [L("sa", "t"), L("t", "sv")], ["t"])
+    raw3, _ = compile_ok(doc3)
+    assert raw3["states"]["accueil"]["transitions"] == [{"on": "stop", "to": "veille", "description": ""}], raw3["states"]["accueil"]
+    # a bare chain (trigger -> state) round trips, description and reason included, through to_visual
+    back = to_json_and_back(V.to_visual(raw3))
+    assert semantic(compile_ok(back)[0]) == semantic(raw3)
+    raw3b = copy.deepcopy(raw3)
+    raw3b["states"]["accueil"]["transitions"][0].update(description="retour", reason="stop_bouton")
+    assert semantic(compile_ok(to_json_and_back(V.to_visual(raw3b)))[0]) == semantic(raw3b)
+
+
+def test_trigger_linked_from_several_states():
+    """One state link = a transition of that state; two or more (or `global`) = a global rule limited to them."""
+    base = [N("t", "trigger", type="event", event="stop"), N("a", "action", action="cancel_all", args={}, phase="do"),
+            N("e", "end")]
+    one = _hub_doc(base, [L("sv", "t"), L("t", "a"), L("a", "e")], ["t"])
+    raw, _ = compile_ok(one)
+    assert [t["on"] for t in raw["states"]["veille"]["transitions"]] == ["stop"] and "global" not in raw
+    two = _hub_doc(base, [L("sv", "t"), L("sa", "t"), L("t", "a"), L("a", "e")], ["t"])
+    raw, _ = compile_ok(two)
+    assert raw["global"][0]["only_in"] == ["veille", "accueil"] and not raw["states"]["veille"].get("transitions"), raw
+    flagged = copy.deepcopy(one)
+    next(n for n in flagged["nodes"] if n["id"] == "t")["params"]["global"] = True
+    raw, _ = compile_ok(flagged)
+    assert raw["global"][0]["only_in"] == ["veille"] and not raw["states"]["veille"].get("transitions")
+    # the drawing of such a rule comes back as ONE trigger linked from those states (no condition node)
+    doc = to_json_and_back(V.to_visual(raw))
+    trig = [n for n in doc["nodes"] if n["kind"] == "trigger" and n["params"].get("event") == "stop"]
+    assert len(trig) == 1 and trig[0]["params"].get("global") is True
+    assert [l["from"] for l in doc["links"] if l["to"] == trig[0]["id"]] == [find(doc, kind="state", state="veille")[0]["id"]]
+    assert semantic(compile_ok(doc)[0], nofan=True) == semantic(raw, nofan=True)
+    # a delay needs exactly one state
+    after = _hub_doc([N("t", "trigger", type="after", delay=5, since="state"), N("e", "end")],
+                     [L("sv", "t"), L("sa", "t"), L("t", "e")], ["t"])
+    expect_error(after, "t", "Un délai doit être rattaché")
+    # the enter trigger of a state is fed by that state's node
+    enter = _hub_doc([N("t", "trigger", type="enter", state="veille"), N("a", "action", action="mic_on", args={}, phase="do"),
+                      N("e", "end")], [L("sv", "t"), L("t", "a"), L("a", "e")], ["t"])
+    raw, _ = compile_ok(enter)
+    assert raw["states"]["veille"]["on_enter"] == ["mic_on"]
+    wrong = copy.deepcopy(enter)
+    wrong["links"][0] = L("sa", "t")
+    expect_error(wrong, "t", "propre état")
+
+
+def test_state_node_link_rules():
+    """Links into / out of state nodes are validated with the id of the offending node."""
+    trig = N("t", "trigger", type="event", event="stop")
+    act = N("a", "action", action="cancel_all", args={}, phase="do")
+    end = N("e", "end")
+    # a trigger only accepts links from state nodes
+    expect_error(_hub_doc([trig, act, end, N("t3", "trigger", type="event", event="visage")],
+                          [L("sv", "t"), L("a", "t3"), L("t", "e")], ["t", "t3"]), "t3", "n'accepte de lien que depuis un nœud État")
+    expect_error(_hub_doc([trig, N("t4", "trigger", type="event", event="visage"), end],
+                          [L("sv", "t"), L("t", "t4"), L("t4", "e")], ["t", "t4"]), "t4", "n'accepte de lien que depuis un nœud État")
+    # a state node feeds triggers only
+    expect_error(_hub_doc([trig, act, end], [L("sv", "a"), L("sv", "t"), L("t", "e"), L("a", "e")], ["t"]), "sv", "se relie seulement à un déclencheur")
+    expect_error(_hub_doc([trig, end], [L("sv", "sa"), L("sv", "t"), L("t", "e")], ["t"]), "sv", "se relie seulement à un déclencheur")
+    # Start only links to a state node
+    expect_error(_hub_doc([trig, end], [L("start", "e"), L("sv", "t"), L("t", "e")], ["t"]), "start", "se relie seulement à un nœud État")
+    # one node per state, known states only
+    expect_error(_hub_doc([N("sv2", "state", state="veille"), trig, end], [L("sv", "t"), L("t", "e")], ["t"]), "sv2", "un seul nœud État")
+    expect_error(_hub_doc([N("sx", "state", state="atlantis"), trig, end], [L("sv", "t"), L("t", "e")], ["t"]), "sx", "atlantis")
+    # a state node cannot be left without a way out: chain ending on it needs no further link, loops are cut
+    ok = _hub_doc([trig, act], [L("sv", "t"), L("t", "a"), L("a", "sv")], ["t"])      # veille -> veille is legal
+    raw, _ = compile_ok(ok)
+    assert raw["states"]["veille"]["transitions"][0]["to"] == "veille"
+
+
+def test_legacy_goto_documents_compile_identically():
+    """A document made of go-to nodes + state conditions + `params.state` still compiles to the same graph."""
+    raw = default_raw()
+    for kw in ({"legacy": True}, {"legacy": True, "compact": False}, {"legacy": True, "share": False, "compact": False}):
+        doc = to_json_and_back(V.to_visual(raw, **kw))
+        assert not [n for n in doc["nodes"] if n["kind"] == "state"] and [n for n in doc["nodes"] if n["kind"] == "goto"]
+        assert semantic(compile_ok(doc)[0], nofan=True) == semantic(raw, nofan=True), kw
+    # and a legacy `params.state` trigger plus a state link to the same state is the same single scope
+    doc = to_json_and_back(V.to_visual(raw))
+    trig = next(n for n in doc["nodes"] if n["kind"] == "trigger" and n["params"].get("event") == "start"
+                and any(l["to"] == n["id"] and find(doc, kind="state", state="veille")[0]["id"] == l["from"] for l in doc["links"]))
+    trig["params"]["state"] = "veille"
+    assert semantic(compile_ok(doc)[0], nofan=True) == semantic(raw, nofan=True)
+
+
+def _note(i=1, **kw):
+    n = {"id": "p%d" % i, "text": "Penser à ajouter la phrase du soir.", "color": "#FFF59D", "x": 40, "y": -20.5, "w": 220, "h": 140}
+    n.update(kw)
+    return n
+
+
+def test_notes_cosmetic_postits():
+    """Post-it notes: layout only (never compiled), validated, persisted, restored with versions."""
+    shutil.rmtree(TMP, ignore_errors=True)
+    os.makedirs(TMP)
+    gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
+    base = V.to_visual(default_raw())
+    assert base["notes"] == [] and "notes" in base
+    doc = copy.deepcopy(base)
+    doc["notes"] = [_note(1, title="À faire"), _note(2, text="", color="#a5d6a7")]
+    raw0, _ = compile_ok(base)
+    raw1, layout = compile_ok(doc)
+    assert semantic(raw0) == semantic(raw1) and "notes" not in V.dump_yaml(raw1), "notes must not change the compiled graph"
+    assert [n["id"] for n in layout["notes"]] == ["p1", "p2"] and layout["notes"][0]["color"] == "#fff59d"
+    assert layout["notes"][0]["title"] == "À faire" and "title" not in layout["notes"][1]
+    assert V.save(doc, CFG, gp, lp)[0]
+    back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert [(n["id"], n["text"], n["x"], n["y"], n["w"], n["h"]) for n in back["notes"]] == [
+        ("p1", "Penser à ajouter la phrase du soir.", 40, -20.5, 220, 140), ("p2", "", 40, -20.5, 220, 140)]
+    # the node positions of the state hubs are saved and restored too
+    assert any(k.startswith("state/") for k in V.load_layout(lp)["nodes"])
+    # validation: each bad note is refused with its id, nothing written
+    before = open(lp, encoding="utf-8").read()
+    for patch in ({"text": "x" * 2001}, {"color": "yellow"}, {"x": "3"}, {"w": 0}, {"h": -1}, {"title": "t" * 61},
+                  {"y": float("nan")}, {"text": 5}, {"id": ""}):
+        bad = copy.deepcopy(doc)
+        bad["notes"][1].update(patch)
+        ok, errs = V.save(bad, CFG, gp, lp)
+        assert not ok and any("post-it" in e["message"] for e in errs), (patch, errs)
+    dup = copy.deepcopy(doc)
+    dup["notes"][1]["id"] = "p1"
+    ok, errs = V.save(dup, CFG, gp, lp)
+    assert not ok and errs[0]["note"] == "p1"
+    assert V.from_visual(dict(base, notes="nope"), CFG)[2][0]["note"] is None
+    many = copy.deepcopy(base)
+    many["notes"] = [_note(i) for i in range(201)]
+    assert not V.save(many, CFG, gp, lp)[0]
+    many["notes"] = many["notes"][:200]
+    assert V.from_visual(many, CFG)[2] == []
+    ok_text = copy.deepcopy(base)
+    ok_text["notes"] = [_note(1, text="é" * 2000)]
+    assert V.from_visual(ok_text, CFG)[2] == []
+    assert open(lp, encoding="utf-8").read() == before
+    # versions: a later save without notes, then restoring the previous version brings them back
+    clean = copy.deepcopy(base)
+    clean["notes"] = []
+    assert V.save(clean, CFG, gp, lp)[0]
+    assert V.to_visual(V.load_raw(gp), V.load_layout(lp))["notes"] == []
+    ok, status, _msg = V.restore_version(V.list_versions(gp)[0]["id"], CFG, gp, lp)
+    assert ok and status == 200
+    assert [n["id"] for n in V.to_visual(V.load_raw(gp), V.load_layout(lp))["notes"]] == ["p1", "p2"]
+    # a hand-edited layout with a broken note never breaks the GET: the bad one is simply not shown
+    lay = V.load_layout(lp)
+    lay["notes"].append({"id": "zz", "text": 3})
+    assert [n["id"] for n in V.to_visual(V.load_raw(gp), lay)["notes"]] == ["p1", "p2"]
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
+def test_hub_layout_has_no_overlap_and_global_area():
+    doc = V.to_visual(default_raw())
+    pos = {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}
+    assert GL.overlaps(doc["nodes"], pos) == []
+    groups = {}
+    for n in doc["nodes"]:
+        if n.get("group"):
+            groups.setdefault(n["group"], []).append(pos[n["id"]][1])
+    order = list(default_raw()["states"]) + ["global"]
+    tops = [min(groups[g]) for g in order]
+    assert tops == sorted(tops), "bands run top to bottom in state order, globals last"
+    assert [f["title"] for f in doc["frames"]][-1] == "Règles globales"
+    # an old layout file (no `state/` key) is ignored for positions but its frames stay
+    old = {"nodes": {"veille/t0/0": {"x": 9999, "y": 9999}, "start": {"x": 5, "y": 5}}, "frames": [
+        {"id": "f1", "title": "x", "color": "#112233", "x": 0, "y": 0, "w": 10, "h": 10}]}
+    d2 = V.to_visual(default_raw(), old)
+    assert all(n["x"] != 9999 for n in d2["nodes"]) and [f["id"] for f in d2["frames"]] == ["f1"]
+
+
 FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabulary, test_error_cases,
         test_negated_guard_compiles_and_evaluates, test_false_port_and_order, test_save_backups_and_reset,
         test_deferred_reload_applies_at_next_veille, test_frames_cosmetic_groups,
         test_sharing_lighter_and_equivalent, test_layout_no_overlap_and_few_crossings,
-        test_merged_fan_trigger_reloads_as_one_node, test_sharing_keeps_independent_transitions_apart]
+        test_merged_fan_trigger_reloads_as_one_node, test_sharing_keeps_independent_transitions_apart,
+        test_state_nodes_compile, test_trigger_linked_from_several_states, test_state_node_link_rules,
+        test_legacy_goto_documents_compile_identically, test_notes_cosmetic_postits, test_hub_layout_has_no_overlap_and_global_area]
 
 
 def parity_on_compiled_graph():

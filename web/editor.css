@@ -239,3 +239,65 @@ body.nobands #bands{display:none}
 .hint.fannote{font-size:12px}
 .nscope{display:block;-webkit-line-clamp:1;font-size:12px;color:var(--mut)}
 .nscope .ico{width:14px;height:14px;vertical-align:-2px;margin-right:3px}
+
+/* ================= 2026-10-31 lot L6: state nodes, ports, gradient wires, post-it notes, context menu ================= */
+:root{--state:#a371f7}
+/* kind colour of every node, used by its ports */
+.drawflow .drawflow-node.node-start{--pc:var(--start)}.drawflow .drawflow-node.node-trigger{--pc:var(--trigger)}
+.drawflow .drawflow-node.node-condition{--pc:var(--cond)}.drawflow .drawflow-node.node-action{--pc:var(--action)}
+.drawflow .drawflow-node.node-end{--pc:var(--end)}.drawflow .drawflow-node.node-goto,.drawflow .drawflow-node.node-state{--pc:var(--state)}
+/* ports: filled circle in the kind colour, white 2px ring, soft halo on hover / drag, big invisible hit area for touch */
+.drawflow .drawflow-node .input,.drawflow .drawflow-node .output{width:16px;height:16px;border:2px solid #fff;background:var(--pc,#8b949e);
+  position:relative;box-shadow:0 0 0 0 transparent;transition:box-shadow .12s,transform .12s}
+.drawflow .drawflow-node .input::before,.drawflow .drawflow-node .output::before{content:'';position:absolute;inset:-11px;border-radius:50%}
+.drawflow .drawflow-node .input:hover,.drawflow .drawflow-node .output:hover{transform:scale(1.15);box-shadow:0 0 0 6px color-mix(in srgb,var(--pc,#8b949e) 38%,transparent)}
+.drawflow .drawflow-node .input{left:-24px}.drawflow .drawflow-node .output{right:-2px}
+/* discreet labels */
+.drawflow .drawflow-node .input::after,.drawflow .drawflow-node .output::after{position:absolute;top:-1px;font-size:10px;line-height:14px;font-weight:600;color:var(--mut);pointer-events:none;white-space:nowrap;opacity:.85}
+.drawflow .drawflow-node .input::after,.drawflow .drawflow-node .output::after{opacity:0;transition:opacity .12s;background:var(--panel);padding:0 4px;border-radius:4px}
+.drawflow .drawflow-node .input:hover::after,.drawflow .drawflow-node .output:hover::after{opacity:1}
+.drawflow .drawflow-node.node-condition .output::after{opacity:.95}
+.drawflow .drawflow-node .input::after{content:'Entrée';left:22px}
+.drawflow .drawflow-node.node-trigger .input::after{content:'État'}
+.drawflow .drawflow-node .output::after{content:'Sortie';right:22px}
+.drawflow .drawflow-node.node-condition .output.output_1::after{content:'Vrai'}
+.drawflow .drawflow-node.node-condition .output.output_2::after{content:'Faux'}
+.drawflow .drawflow-node.node-condition .output.output_1::after,.drawflow .drawflow-node.node-condition .output.output_2::after{right:22px;top:-1px;font-size:11px;line-height:14px}
+@media (pointer:coarse){.drawflow .drawflow-node .input,.drawflow .drawflow-node .output{width:22px;height:22px}.drawflow .drawflow-node .input::before,.drawflow .drawflow-node .output::before{inset:-14px}}
+/* wires: gradient stroke is set inline by paintWires(); here only shape and states */
+.drawflow .connection .main-path{stroke-width:4px;stroke-linecap:round;filter:drop-shadow(0 0 2px #0009);transition:stroke-width .1s}
+.drawflow .connection .main-path:hover{stroke-width:6px;filter:drop-shadow(0 0 4px #fffa) brightness(1.25)}
+.drawflow .connection .main-path.selected{stroke-width:6px;filter:drop-shadow(0 0 6px #fff) brightness(1.5)}
+/* state node = hub */
+.drawflow .drawflow-node.node-state{border-left:6px solid var(--state);background:color-mix(in srgb,var(--state) 13%,var(--panel))}
+.node-state .drawflow_content_node{height:80px;overflow:hidden}
+.nstate{font-size:21px;font-weight:700;line-height:1.15;margin:3px 0 1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-state .ndesc{-webkit-line-clamp:1;font-size:12px;color:var(--mut);margin-top:0}
+.drawflow .drawflow-node.node-state.live{box-shadow:0 0 0 3px #ffd54acc,0 0 16px 3px #ffd54a77;border-color:#ffd54a}
+.drawflow .drawflow-node.node-state.live .nstate::after{content:'  ● robot';font-size:12px;color:#ffd54a}
+.drawflow .drawflow-node.node-state.sim{outline:3px solid #f5d90a;outline-offset:2px}
+.drawflow .drawflow-node.node-state.sim .nstate::after{content:'  ▶ simulé';font-size:12px;color:#f5d90a}
+/* post-it notes */
+#notes{position:absolute;left:0;top:0;width:0;height:0;z-index:1;pointer-events:none}
+.postit{position:absolute;pointer-events:auto;background:var(--c);color:#1c1c1c;border-radius:3px;box-shadow:0 7px 14px #0008,0 1px 2px #0006;display:flex;flex-direction:column;overflow:hidden}
+.postit.sel{outline:3px solid #fff;outline-offset:2px}
+.postit .phead{flex:none;height:24px;cursor:move;display:flex;align-items:center;padding:0 3px 0 9px;font-weight:700;font-size:13px;background:color-mix(in srgb,#000 9%,var(--c));user-select:none;touch-action:none}
+.postit .ptitle{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.postit .pdel{border:0;background:transparent;color:#333;padding:0 7px;font-size:19px;line-height:1;cursor:pointer;border-radius:3px}
+.postit .pdel:hover{background:#0002;border:0}
+.postit .ptext{flex:1;min-height:0;width:100%;resize:none;border:0;background:transparent;color:#1c1c1c;padding:7px 9px;font:14px/1.35 system-ui,Segoe UI,sans-serif;border-radius:0;outline:0}
+.postit .ptext::placeholder{color:#0006}
+.postit .presize{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;background:linear-gradient(135deg,transparent 50%,#0005 50%);touch-action:none}
+@media (pointer:coarse){.postit .phead{height:34px}.postit .pdel{padding:0 12px}.postit .presize{width:30px;height:30px}}
+/* context menu (right click) */
+.ctx{position:fixed;z-index:300;min-width:220px;max-width:340px;max-height:82vh;overflow:auto;background:var(--panel);border:1px solid var(--line);
+  border-radius:9px;box-shadow:0 12px 34px #000c;padding:4px;font-size:13px;outline:0}
+.ctx .cit{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:5px;cursor:pointer;outline:0;white-space:nowrap}
+.ctx .cit:hover,.ctx .cit:focus{background:#2f3644}
+.ctx .cit.dis{opacity:.4;cursor:default}
+.ctx .clab{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.ctx .carr{color:var(--mut)}
+.ctx .ico-sp{display:inline-block;width:1.2em;flex:none}
+.ctx .csep{height:1px;background:var(--line);margin:4px 2px}
+.ctx .csearch{width:100%;margin:2px 0 4px;padding:5px 8px}
+@media (pointer:coarse){.ctx .cit{padding:11px 12px}}

@@ -12,6 +12,9 @@ Boundary
     - Node height is an ESTIMATE of the editor's rendering (214 px wide node, 13-14 px text that wraps the
       description): kept slightly generous so nodes never overlap even for long French descriptions.
 
+Hub drawing (L6): `hub_layout()` = `auto_layout(hub=True)`: state nodes in column 0 (one per band, centred on it), chains
+    one column to the right; wires back to the hubs are not part of the crossing minimisation.
+
 Invariants
     - One band per state group, stacked top to bottom in the order the groups first appear in `nodes`.
     - Inside a band: columns left to right (trigger, conditions, actions, targets); all targets (goto/end)
@@ -36,7 +39,7 @@ THEMES = [               # (frame id, title, colour, state groups) - cosmetic on
     ("t-accueil", "Accueil", "#4f8ef7", ("veille", "accueil")),
     ("t-conversation", "Conversation", "#2fb59a", ("ecoute", "reponse", "relance")),
     ("t-fin", "Fin de visite", "#a06cd5", ("cloture", "eteint")),
-    ("t-interruptions", "Interruptions (stop, tais-toi…)", "#e0504d", ("global",)),
+    ("t-interruptions", "Règles globales", "#e0504d", ("global",)),
 ]
 
 
@@ -75,6 +78,8 @@ def node_height(n) -> int:
     """Estimated rendered height (px) of an editor node: header + summary + wrapped description."""
     p = n.get("params") or {}
     k = n.get("kind")
+    if k == "state":
+        return 84        # hub card: header + state name + one line of description (fixed height in the editor CSS)
     if k == "action":
         # the editor shows the French label + " [après]" + args: two lines is the norm
         summ = "x" * max(27, len(str(p.get("action") or "")) + 14) + "".join(" %s=%s" % kv for kv in (p.get("args") or {}).items())
@@ -97,8 +102,20 @@ def node_height(n) -> int:
     return h
 
 
-def auto_layout(nodes, links, y0: int = TOP) -> dict:
-    """{node id: (x, y)} for every node that has a group; see the module docstring for the rules."""
+def hub_layout(nodes, links, y0: int = TOP) -> dict:
+    """Layout of the state-node (hub) drawing: see `auto_layout(..., hub=True)`."""
+    return auto_layout(nodes, links, y0, hub=True)
+
+
+def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:
+    """{node id: (x, y)} for every node that has a group; see the module docstring for the rules.
+
+    `hub=True` (state nodes): the `state` nodes form column 0, one per band, vertically centred on the band of
+    their own chains; the chains of a state start one column to the right (triggers) and end on a wire that
+    runs back to the destination state node. Only chain-internal links shape the rows (the wires into state
+    nodes are long by nature and are left out of the crossing minimisation). The group `global` has no hub
+    and gets the last band.
+    """
     by_id = {n["id"]: n for n in nodes}
     order_idx = {n["id"]: i for i, n in enumerate(nodes)}
     groups = []
@@ -107,8 +124,15 @@ def auto_layout(nodes, links, y0: int = TOP) -> dict:
         if g is not None and g not in groups:
             groups.append(g)
     pos, y_cursor = {}, y0
+    xoff = COLW if hub else 0
     for g in groups:
-        ids = [n["id"] for n in nodes if n.get("group") == g]
+        ids = [n["id"] for n in nodes if n.get("group") == g and not (hub and n.get("kind") == "state")]
+        hubs = [n["id"] for n in nodes if hub and n.get("group") == g and n.get("kind") == "state"]
+        if not ids:                              # a state without any chain: just its hub
+            for i in hubs:
+                pos[i] = (0, y_cursor)
+                y_cursor += node_height(by_id[i]) + GROUP_GAP
+            continue
         inb = set(ids)
         pred = {i: [] for i in ids}
         succ = {i: [] for i in ids}
@@ -199,8 +223,13 @@ def auto_layout(nodes, links, y0: int = TOP) -> dict:
                 break
         top = min(y.values())
         for i in ids:
-            pos[i] = (col[i] * COLW, int(round(y[i] - top + y_cursor)))
-        y_cursor = max(pos[i][1] + h[i] for i in ids) + GROUP_GAP
+            pos[i] = (col[i] * COLW + xoff, int(round(y[i] - top + y_cursor)))
+        bottom = max(pos[i][1] + h[i] for i in ids)
+        for i in hubs:                           # hub centred on its band (never above the band top)
+            hh = node_height(by_id[i])
+            pos[i] = (0, int(round(y_cursor + max(0, (bottom - y_cursor - hh) / 2))))
+            bottom = max(bottom, pos[i][1] + hh)
+        y_cursor = bottom + GROUP_GAP
     return pos
 
 
@@ -220,12 +249,18 @@ def default_frames(nodes, pos) -> list:
     return out
 
 
-def crossings(nodes, links, pos) -> int:
-    """Number of link pairs whose drawn segments (right edge -> left edge, node middle) intersect."""
+def crossings(nodes, links, pos, chains_only: bool = False) -> int:
+    """Number of link pairs whose drawn segments (right edge -> left edge, node middle) intersect.
+
+    `chains_only=True` ignores every link that touches a state node or Start (hub drawing): the wires that
+    return to a state hub are long by nature, the layout only optimises the links inside a chain.
+    """
     by_id = {n["id"]: n for n in nodes}
     segs = []
     for lk in links:
         a, b = lk["from"], lk["to"]
+        if chains_only and (by_id[a].get("kind") in ("state", "start") or by_id[b].get("kind") == "state"):
+            continue
         if a in pos and b in pos:
             pa, pb = pos[a], pos[b]
             segs.append((lk, (pa[0] + NODE_W, pa[1] + node_height(by_id[a]) / 2), (pb[0], pb[1] + node_height(by_id[b]) / 2)))
