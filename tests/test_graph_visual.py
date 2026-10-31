@@ -125,9 +125,9 @@ def test_layout_bands_and_persistence():
         if kind[lk["to"]] == "state":     # CHANGED: the wire back to a state hub runs right to left by design
             continue
         assert pos[lk["to"]][0] > pos[lk["from"]][0], "a link does not run left to right: %r" % (lk,)
-    # state hubs form column 0, one per band, in state order from top to bottom
+    # CHANGED (L7): state hubs form the top row, one per column, in state order from left to right
     hubs = [n for n in doc["nodes"] if n["kind"] == "state"]
-    assert len({n["x"] for n in hubs}) == 1 and [n["y"] for n in hubs] == sorted(n["y"] for n in hubs)
+    assert len({n["y"] for n in hubs}) == 1 and [n["x"] for n in hubs] == sorted(n["x"] for n in hubs)
     # bands of one state are contiguous and the state colours are distinct
     assert len({s["color"] for s in doc["states"]}) == len(doc["states"])
     # a moved node comes back where the user put it, through the structural layout keys
@@ -396,7 +396,9 @@ def test_frames_cosmetic_groups():
     os.makedirs(TMP)
     gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
     base = V.to_visual(default_raw())
-    assert [f["id"] for f in base["frames"]] == ["t-accueil", "t-conversation", "t-fin", "t-interruptions"]
+    # CHANGED (L7): the hub drawing gets one automatic frame per column; the legacy drawing keeps the theme frames
+    assert [f["id"] for f in base["frames"]] == ["auto-" + s for s in default_raw()["states"]] + ["auto-global"]
+    assert [f["id"] for f in V.to_visual(default_raw(), legacy=True)["frames"]] == ["t-accueil", "t-conversation", "t-fin", "t-interruptions"]
     assert V.to_visual(default_raw(), {"states": {}})["frames"] == [], "default frames only without any layout"
     f1 = {"id": "f1", "title": "Accueil", "color": "#F2C94C", "x": -20, "y": 10.5, "w": 400, "h": 220, "note": "chaine visage"}
     f2 = {"id": "f2", "title": "", "color": "#4f8ef7", "x": 500, "y": 0, "w": 100, "h": 80}
@@ -770,10 +772,26 @@ def test_hub_layout_has_no_overlap_and_global_area():
     for n in doc["nodes"]:
         if n.get("group"):
             groups.setdefault(n["group"], []).append(pos[n["id"]][1])
+    # CHANGED (L7): columns left to right in flow order, state hubs on the top row, globals in the last column
     order = list(default_raw()["states"]) + ["global"]
-    tops = [min(groups[g]) for g in order]
-    assert tops == sorted(tops), "bands run top to bottom in state order, globals last"
+    xs = {}
+    for n in doc["nodes"]:
+        if n.get("group"):
+            xs.setdefault(n["group"], []).append(pos[n["id"]][0])
+    lefts = [min(xs[g]) for g in order]
+    assert lefts == sorted(lefts), "columns run left to right in state order, globals last"
+    for g in order[:-1]:     # columns are disjoint: every node of a column is left of the next column
+        nxt = order[order.index(g) + 1]
+        assert max(xs[g]) + GL.NODE_W < min(xs[nxt]), (g, nxt)
+    hubs = [n for n in doc["nodes"] if n["kind"] == "state"]
+    assert len({pos[n["id"]][1] for n in hubs}) == 1, "all hubs on one row"
+    assert all(pos[n["id"]][1] <= min(groups[n["group"]]) for n in hubs), "hub heads its column"
     assert [f["title"] for f in doc["frames"]][-1] == "Règles globales"
+    assert all(f.get("auto") for f in doc["frames"]) and len(doc["frames"]) == len(order)
+    fr = doc["frames"]
+    assert all(fr[i]["x"] + fr[i]["w"] < fr[i + 1]["x"] for i in range(len(fr) - 1)), "auto frames never overlap"
+    print("  hub columns: %d crossings with all wires, %d without the faded returning wires" % (
+        GL.crossings(doc["nodes"], doc["links"], pos), GL.crossings(doc["nodes"], doc["links"], pos, returning=False)))
     # an old layout file (no `state/` key) is ignored for positions but its frames stay
     old = {"nodes": {"veille/t0/0": {"x": 9999, "y": 9999}, "start": {"x": 5, "y": 5}}, "frames": [
         {"id": "f1", "title": "x", "color": "#112233", "x": 0, "y": 0, "w": 10, "h": 10}]}

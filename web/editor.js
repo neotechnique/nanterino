@@ -451,6 +451,18 @@
       el.classList.toggle('lit-now', lit.now.has(id));
       el.classList.toggle('lit-past', lit.past.has(id) && !lit.now.has(id));
     }
+    // L7: while a simulation / journal entry is displayed, its wires glow too (now = cyan, past = blue) and
+    // everything else is dimmed (container class `simdim`); cleared with the lights (Réinitialiser).
+    const on = lit.now.size > 0 || lit.past.size > 0;
+    if (!editor.container) return;
+    editor.container.classList.toggle('simdim', on);
+    editor.container.querySelectorAll('svg.connection').forEach((svg) => {
+      const cl = svg.classList, a = data[cl[2] ? cl[2].slice(14) : ''], b = data[cl[1] ? cl[1].slice(13) : ''];
+      const ia = a && a.data.model.id, ib = b && b.data.model.id;
+      const now = on && lit.now.has(ia) && lit.now.has(ib);
+      cl.toggle('wlit-now', now);
+      cl.toggle('wlit-past', on && !now && (lit.past.has(ia) || lit.now.has(ia)) && (lit.past.has(ib) || lit.now.has(ib)));
+    });
   }
   function blinkChain(key) {
     const ids = liveChains.keys.get(key); if (!ids) return;
@@ -694,12 +706,89 @@
       stops[0].setAttribute('offset', '0'); stops[0].setAttribute('stop-color', KIND_HEX[a.data.model.kind] || '#8b949e');
       stops[1].setAttribute('offset', '1'); stops[1].setAttribute('stop-color', KIND_HEX[b.data.model.kind] || '#8b949e');
       path.style.stroke = `url(#${g.id})`;
+      // L7: "returning" wires (into a state hub, or from a hub to another column) are drawn faded by default
+      const am = a.data.model, bm = b.data.model;
+      cl.toggle('ret', (bm.kind === 'state' && am.kind !== 'start') || (am.kind === 'state' && am.group !== bm.group));
+      svg.dataset.src = am.id; svg.dataset.dst = bm.id;
       const idx = +cl[3].split('_')[1], port = a.data.model.kind === 'condition' ? (idx === 1 ? 'true' : 'false') : 'out';
       const mt = linkMeta.get(linkKey(a.data.model.id, port, b.data.model.id));
       let t = path.querySelector('title');
       if (mt && mt.reason) { if (!t) { t = document.createElementNS('http://www.w3.org/2000/svg', 'title'); path.append(t); } t.textContent = 'Raison : ' + mt.reason; }
       else if (t) t.remove();
     });
+    scheduleBadges();
+    applyRetFocus();
+  }
+
+  // ---------- returning wires: faded by default, "→ État" proxy badges, focus on hover / selection (L7) ----------
+  // A wire that ends in a state hub crosses the whole canvas (the hubs sit on the top row). It is drawn at ~12 %
+  // opacity (CSS `svg.connection.ret`, unless the toolbar toggle says "visibles"); each chain end gets a small
+  // badge "→ <État>" right of its last node instead (click = pan to the hub). Hovering or selecting a node, hub,
+  // wire or badge lights the related returning wires (class `rel`, full gradient) and fades the others
+  // (container class `retfocus`). Pure drawing: nothing here is saved.
+  let badgesEl = null, badgeRaf = 0, retHover = null;
+  const RET_KEY = 'nanterino.editor.retWires';
+  function retVisible() { try { return localStorage.getItem(RET_KEY) === 'visible'; } catch (e) { return false; } }
+  function setRetVisible(on) {
+    try { localStorage.setItem(RET_KEY, on ? 'visible' : 'discret'); } catch (e) { /* private window: per page only */ }
+    document.body.classList.toggle('ret-visible', on);
+    const b = $('#btnRet'); if (b) b.textContent = 'Fils de retour : ' + (on ? 'visibles' : 'discrets');
+  }
+  function scheduleBadges() { if (!badgeRaf) badgeRaf = requestAnimationFrame(() => { badgeRaf = 0; drawBadges(); }); }
+  function drawBadges() {
+    if (!editor || !editor.precanvas) return;
+    if (!badgesEl || !badgesEl.isConnected) { badgesEl = h('div', { id: 'rbadges' }); editor.precanvas.append(badgesEl); }
+    badgesEl.innerHTML = '';
+    const stack = new Map();
+    editor.container.querySelectorAll('svg.connection.ret').forEach((svg) => {
+      const src = svg.dataset.src, dst = svg.dataset.dst, sd = nidToDf.get(src), dd = nidToDf.get(dst);
+      if (sd == null || dd == null) return;
+      const dm = model(dd), sm = model(sd);
+      if (!dm || dm.kind !== 'state' || !sm || sm.kind === 'state' || sm.kind === 'start') return;   // badge only for a chain end -> hub
+      const b = nodeBox(sd), k = stack.get(src) || 0; stack.set(src, k + 1);
+      const st = dm.params.state;
+      const el = h('div', { class: 'rbadge', 'data-src': src, 'data-dst': dst, title: 'Retour vers l’état « ' + stateLabel(st) + ' » (clic : y aller)',
+        style: `left:${b.x1 + 14}px;top:${(b.y0 + b.y1) / 2 - 12 + k * 28}px;--c:${stateColor(st)}` }, ico(stateIcon(st), stateColor(st)), h('span', {}, '→ ' + stateLabel(st)));
+      el.addEventListener('mousedown', (e) => e.stopPropagation());   // no canvas pan from a badge
+      el.addEventListener('click', (e) => { e.stopPropagation(); panTo(dst, 0.5); const he = nodeEl(dd); if (he) { he.classList.remove('blink'); void he.offsetWidth; he.classList.add('blink'); setTimeout(() => he.classList.remove('blink'), 2000); } });
+      badgesEl.append(el);
+    });
+  }
+  // Model ids of the chains that contain `nid` (from the analysed document), plus nid itself.
+  function chainIdsOf(nid) {
+    const out = new Set([nid]);
+    try { const ch = computeChains(serialize()); ch.keys.forEach((ids) => { if (ids.includes(nid)) ids.forEach((x) => out.add(x)); }); } catch (e) { /* half-built doc */ }
+    return out;
+  }
+  // Focus source: hovered thing first, else the selected node / wire. Returns a predicate on (src, dst) or null.
+  function retFocusPred() {
+    let f = retHover;
+    if (!f && selDf != null && model(selDf)) f = { node: model(selDf).id };
+    if (!f && editor && editor.connection_selected) { const svg = editor.connection_selected.closest && editor.connection_selected.closest('svg.connection'); if (svg && svg.dataset.src) f = { wire: [svg.dataset.src, svg.dataset.dst] }; }
+    if (!f) return null;
+    const kindOf = (id) => { const d = nidToDf.get(id); const m = d == null ? null : model(d); return m ? m.kind : null; };
+    if (f.node && kindOf(f.node) === 'state') { const s = f.node; return (a, b) => a === s || b === s; }
+    const seed = f.node || (kindOf(f.wire[0]) === 'state' ? f.wire[1] : f.wire[0]);
+    const R = chainIdsOf(seed);
+    return (a, b) => (f.wire && a === f.wire[0] && b === f.wire[1]) || (R.has(a) && kindOf(a) !== 'state') || (R.has(b) && kindOf(b) !== 'state');
+  }
+  function applyRetFocus() {
+    if (!editor || !editor.container) return;
+    const pred = retFocusPred();
+    editor.container.classList.toggle('retfocus', !!pred);
+    editor.container.querySelectorAll('svg.connection').forEach((svg) => svg.classList.toggle('rel', !!pred && svg.classList.contains('ret') && pred(svg.dataset.src, svg.dataset.dst)));
+    if (badgesEl) badgesEl.querySelectorAll('.rbadge').forEach((el) => el.classList.toggle('rel', !!pred && pred(el.dataset.src, el.dataset.dst)));
+  }
+  function installRetHover() {
+    const root = editor.container;
+    root.addEventListener('mouseover', (e) => {
+      const t = e.target, bd = t.closest && t.closest('.rbadge'), nd = !bd && t.closest && t.closest('.drawflow-node'), w = !bd && !nd && t.closest && t.closest('svg.connection');
+      const next = bd ? { wire: [bd.dataset.src, bd.dataset.dst] } : nd ? { node: nidOf(nd.id.replace('node-', '')) } : w && w.dataset.src ? { wire: [w.dataset.src, w.dataset.dst] } : null;
+      if (JSON.stringify(next) !== JSON.stringify(retHover)) { retHover = next; applyRetFocus(); }
+    });
+    root.addEventListener('mouseleave', () => { if (retHover) { retHover = null; applyRetFocus(); } });
+    // selection changes arrive through Drawflow's own click handling: re-evaluate just after it
+    editor.container.addEventListener('mouseup', () => setTimeout(applyRetFocus, 0));
   }
   // ---------- groups (cosmetic frames, "Groupe") ----------
   // meta.frames = [{id, title, color, x, y, w, h, note?}] lives in the document (serialize() copies meta), so undo/redo,
@@ -735,7 +824,7 @@
       if (!f.title) text.classList.add('empty');
       const title = h('div', { class: 'ftitle', title: 'Glisser pour déplacer le groupe et ses nœuds. Double-clic pour renommer.' }, ico('square'), text);
       const grip = h('div', { class: 'fresize', title: 'Redimensionner' });
-      const el = h('div', { class: 'frame' + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id }, title, grip);
+      const el = h('div', { class: 'frame' + (f.auto ? ' auto' : '') + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id }, title, grip);
       placeFrame(f, el);
       for (const part of [title, grip]) {
         part.addEventListener('mousedown', (e) => startFrameDrag(e, f, part === grip ? 'resize' : 'move'));
@@ -888,7 +977,8 @@
   function fitZoom() {
     const b = bbox(), c = $('#drawflow');
     if (!b) return 1;
-    return Math.max(0.05, Math.min(1, c.clientWidth / ((b.x1 - b.x0) * 1.1), c.clientHeight / ((b.y1 - b.y0) * 1.1)));
+    // L7: the column layout is wide (~14 000 px): allow a smaller zoom so "Ajuster" really shows everything
+    return Math.max(0.02, Math.min(1, c.clientWidth / ((b.x1 - b.x0) * 1.1), c.clientHeight / ((b.y1 - b.y0) * 1.1)));
   }
   // "Ajuster": whole graph, centred, ~5 % padding each side.
   function fit() {
@@ -915,7 +1005,12 @@
   function initialView() {
     if (fitZoom() >= 0.5) { fit(); return; }
     const st = Object.values(dfData()).find((d) => d.data.model.kind === 'start');
-    if (!focusBand((st && st.data.model.params.state) || 'veille', 0.9)) fit();   // 0.9: node text ~12 px on first load
+    // L7: the hubs sit on the top row (columns left to right): open on the top-left corner of the start state's
+    // column (Start + hub + first chains) at a readable zoom, so the hub row runs along the top of the screen
+    const r = bandRects()[(st && st.data.model.params.state) || 'veille'];
+    if (!r) { fit(); return; }
+    const x0 = st ? Math.min(r.x0, st.pos_x - 24) : r.x0, z = 0.75;
+    setView(z, 16 - x0 * z, 16 - (r.y0 - 30) * z);
   }
   function setView(z, cx, cy) {
     // Drawflow scales around the centre of its canvas (no transform-origin), so convert the wanted
@@ -962,17 +1057,16 @@
       ta.addEventListener('input', () => { n.text = ta.value; });
       ta.addEventListener('change', () => { n.text = ta.value; commitSoon(); if (selNote === n.id) renderInspector(); });
       ta.addEventListener('focus', () => selectNote(n.id, true));
-      const head = h('div', { class: 'phead', title: 'Glisser pour déplacer le post-it' }, h('span', { class: 'ptitle' }, n.title || ''),
+      const head = h('div', { class: 'phead', title: 'Glisser pour déplacer le post-it' }, ico('message'), h('span', { class: 'ptitle' + (n.title ? '' : ' empty') }, n.title || 'Post-it'),
         h('button', { type: 'button', class: 'pdel', title: 'Supprimer le post-it', 'aria-label': 'Supprimer le post-it',
           onclick: (e) => { e.stopPropagation(); deleteNote(n.id); } }, '×'));
       const grip = h('div', { class: 'presize', title: 'Redimensionner' });
       const el = h('div', { class: 'postit' + (n.id === selNote ? ' sel' : ''), 'data-nid': n.id }, head, ta, grip);
       placeNote(n, el);
       el.addEventListener('mousedown', (e) => { e.stopPropagation(); if (e.button === 0) selectNote(n.id, true); });   // no canvas pan from a note
-      for (const part of [head, grip]) {
-        part.addEventListener('mousedown', (e) => startNoteDrag(e, n, part === grip ? 'resize' : 'move'));
-        part.addEventListener('touchstart', (e) => startNoteDrag(e, n, part === grip ? 'resize' : 'move'), { passive: false });
-      }
+      // L7: pointer events + pointer capture (mouse, pen and touch alike): the drag keeps receiving its moves
+      // even when the pointer leaves the note, and one document-level pointermove/up pair (boot) drives it.
+      for (const part of [head, grip]) part.addEventListener('pointerdown', (e) => startNoteDrag(e, n, part === grip ? 'resize' : 'move'));
       head.addEventListener('dblclick', () => { selectNote(n.id); const t = $('#inspector input.ntitleinp'); if (t) t.focus(); });
       noteEls.set(n.id, el);
       root.append(el);
@@ -989,15 +1083,15 @@
   }
   function unselectNote() { if (selNote) { selNote = null; noteEls.forEach((el) => el.classList.remove('sel')); renderInspector(); } }
   function startNoteDrag(e, n, mode) {
-    if (e.button) return;                                   // left button / primary touch only
-    if (e.touches && e.touches.length > 1) return;
+    if (e.button || e.isPrimary === false) return;          // left button / primary touch only
+    if (e.target.closest && e.target.closest('.pdel')) return;   // the × button keeps its own click
     e.stopPropagation(); e.preventDefault();
     selectNote(n.id, true);
-    const p = evPoint(e);
-    noteDrag = { n, mode, cx: p.clientX, cy: p.clientY, ox: n.x, oy: n.y, ow: n.w, oh: n.h, moved: false };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event without a live pointer */ }
+    noteDrag = { n, mode, pid: e.pointerId, cx: e.clientX, cy: e.clientY, ox: n.x, oy: n.y, ow: n.w, oh: n.h, moved: false };
   }
   function moveNoteDrag(e) {
-    const d = noteDrag; if (!d) return;
+    const d = noteDrag; if (!d || (d.pid != null && e.pointerId !== d.pid)) return;
     if (e.cancelable) e.preventDefault();
     const p = evPoint(e), dx = (p.clientX - d.cx) / editor.zoom, dy = (p.clientY - d.cy) / editor.zoom;
     if (!d.moved && Math.hypot(p.clientX - d.cx, p.clientY - d.cy) < 3) return;
@@ -1006,16 +1100,39 @@
     else { d.n.x = Math.round(d.ox + dx); d.n.y = Math.round(d.oy + dy); }
     const el = noteEls.get(d.n.id); if (el) placeNote(d.n, el);
   }
-  function endNoteDrag() {
-    const d = noteDrag; if (!d) return;
+  function endNoteDrag(e) {
+    const d = noteDrag; if (!d || (e && d.pid != null && e.pointerId !== d.pid)) return;
     noteDrag = null;
-    if (d.moved) commitSoon();
+    if (!d.moved) return;
+    {                                 // a note never covers a node: moved or grown onto one, it slides to the nearest free spot
+      const p = noteSpot(d.n.x, d.n.y, d.n.w, d.n.h, d.n.id);
+      d.n.x = p.x; d.n.y = p.y;
+      const el = noteEls.get(d.n.id); if (el) placeNote(d.n, el);
+    }
+    commitSoon();
+  }
+  // Nearest position (spiral on a 40 px grid around x, y) where a w x h note touches no node, badge or other note.
+  function noteSpot(x, y, w, hh, selfId) {
+    const boxes = Object.keys(dfData()).map((id) => nodeBox(id));
+    notes().forEach((o) => { if (o.id !== selfId) boxes.push({ x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + o.h }); });
+    const M = 18, free = (px, py) => boxes.every((b) => px + w + M < b.x0 || px > b.x1 + M || py + hh + M < b.y0 || py > b.y1 + M);
+    if (free(x, y)) return { x: Math.round(x), y: Math.round(y) };
+    for (let r = 1; r <= 60; r++) {
+      let best = null;
+      for (let i = -r; i <= r; i++) for (let j = -r; j <= r; j++) {
+        if (Math.max(Math.abs(i), Math.abs(j)) !== r) continue;
+        const px = x + i * 40, py = y + j * 40, dd = Math.hypot(i, j);
+        if (free(px, py) && (!best || dd < best[2])) best = [px, py, dd];
+      }
+      if (best) return { x: Math.round(best[0]), y: Math.round(best[1]) };
+    }
+    return { x: Math.round(x), y: Math.round(y) };
   }
   function editNote(n, patch, rerender) {
     Object.assign(n, patch);
     if (!n.title) delete n.title;
     const el = noteEls.get(n.id);
-    if (el) { placeNote(n, el); el.querySelector('.ptitle').textContent = n.title || ''; const ta = el.querySelector('textarea'); if (ta.value !== (n.text || '')) ta.value = n.text || ''; }
+    if (el) { placeNote(n, el); const pt = el.querySelector('.ptitle'); pt.textContent = n.title || 'Post-it'; pt.classList.toggle('empty', !n.title); const ta = el.querySelector('textarea'); if (ta.value !== (n.text || '')) ta.value = n.text || ''; }
     renderPalette();
     if (rerender) renderInspector();
     commitSoon();
@@ -1032,7 +1149,8 @@
     if (!pt) { const st = $('#stage').getBoundingClientRect(); pt = canvasPoint(st.x + st.width / 2 - 110, st.y + st.height / 2 - 80); }
     const used = new Set(notes().map((n) => n.id));
     let k = 1; while (used.has('p' + k)) k++;
-    const n = { id: 'p' + k, text: '', color: NOTE_COLORS[0][1], x: Math.round(pt.x), y: Math.round(pt.y), w: 220, h: 160 };
+    const spot = noteSpot(pt.x, pt.y, 220, 160);      // L7: auto-placed where it covers no node
+    const n = { id: 'p' + k, text: '', color: NOTE_COLORS[0][1], x: spot.x, y: spot.y, w: 220, h: 160 };
     notes().push(n);
     selNote = null; drawNotes(); selectNote(n.id);
     renderPalette(); commitSoon();
@@ -1102,6 +1220,8 @@
     const first = root.querySelector('.cit:not(.dis)'); if (first) first.focus(); else root.focus();
   }
   function placeMenu(el, x, y) {
+    // L7: never taller than the viewport (the menu scrolls inside), so every entry stays reachable
+    el.style.maxHeight = Math.max(120, innerHeight - 8) + 'px';
     el.style.left = '0px'; el.style.top = '0px';
     const r = el.getBoundingClientRect(), W = innerWidth, H = innerHeight;
     el.style.left = Math.max(4, Math.min(x, W - r.width - 4)) + 'px';
@@ -1994,7 +2114,7 @@
     box.append(h('div', { class: 'sect' }, 'Visages vus par la caméra (facultatif)'),
       h('div', { class: 'rowbtns' }, fn, h('button', { type: 'button', onclick: () => { const n = Math.max(0, Math.min(20, parseInt(fn.value, 10) || 0)); addStep({ faces: n }); } }, ico('users'), 'Appliquer')));
     box.append(h('div', { class: 'rowbtns', style: 'margin-top:12px' },
-      h('button', { type: 'button', class: 'danger', onclick: () => { sim.steps = []; sim.note = ''; simRun(false); } }, ico('refresh'), 'Réinitialiser'),
+      h('button', { type: 'button', class: 'danger', onclick: async () => { sim.steps = []; sim.note = ''; await simRun(false); clearSimLights(); } }, ico('refresh'), 'Réinitialiser'),   // L7: no highlight after a reset
       h('button', { type: 'button', onclick: () => { sim.steps.pop(); sim.note = ''; simRun(false); }, disabled: !sim.steps.length }, ico('x'), 'Retirer le dernier pas')));
     renderSimTrace();
   }
@@ -2114,6 +2234,9 @@
     // Wires are repainted (gradient from the source kind colour to the target kind colour) whenever Drawflow redraws them.
     const origUpdate = editor.updateConnectionNodes.bind(editor);
     editor.updateConnectionNodes = (id) => { origUpdate(id); paintWires(id); };
+    installRetHover();
+    setRetVisible(retVisible());
+    $('#btnRet').onclick = () => setRetVisible(!document.body.classList.contains('ret-visible'));
     installButtonGuards();
 
     // Keys typed in inspector fields must never reach Drawflow (its Delete handler would remove the selected node).
@@ -2138,8 +2261,9 @@
     // Frame and note drags are tracked on the document so they survive the pointer leaving the title bar.
     document.addEventListener('mousemove', moveFrameDrag); document.addEventListener('mouseup', endFrameDrag);
     document.addEventListener('touchmove', moveFrameDrag, { passive: false }); document.addEventListener('touchend', endFrameDrag);
-    document.addEventListener('mousemove', moveNoteDrag); document.addEventListener('mouseup', endNoteDrag);
-    document.addEventListener('touchmove', moveNoteDrag, { passive: false }); document.addEventListener('touchend', endNoteDrag);
+    // notes: ONE pointer pair (captured pointer, see startNoteDrag)
+    document.addEventListener('pointermove', moveNoteDrag, { passive: false });
+    document.addEventListener('pointerup', endNoteDrag); document.addEventListener('pointercancel', endNoteDrag);
     // A press on the bare canvas or on a node unselects the frame / note (their own presses stop before here).
     dfEl.addEventListener('mousedown', (e) => { if (!e.target.closest('.drawflow-node')) { unselectFrame(); unselectNote(); } });
     dfEl.addEventListener('dragover', (e) => e.preventDefault());

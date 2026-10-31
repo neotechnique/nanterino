@@ -394,7 +394,9 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     if layout:
         doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
     else:
-        doc["frames"] = GL.default_frames(nodes, pos)
+        # hub drawing: one automatic column frame per state (muted state colour, `auto: True`), globals last
+        doc["frames"] = (GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}) if new
+                         else GL.default_frames(nodes, pos))
     # post-it notes: cosmetic like frames (layout file only, never compiled); invalid entries are not shown
     doc["notes"] = [n for n in (layout.get("notes") or []) if isinstance(n, dict) and _note_problem(n) is None][:MAX_NOTES]
     return doc
@@ -447,6 +449,8 @@ def clean_frames(frames):
              "x": f["x"], "y": f["y"], "w": f["w"], "h": f["h"]}
         if f.get("note"):
             c["note"] = f["note"]
+        if f.get("auto") is True:     # automatic column frame the user saved: keeps its muted drawing
+            c["auto"] = True
         out.append(c)
     return out, errors
 

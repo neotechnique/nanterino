@@ -12,8 +12,10 @@ Boundary
     - Node height is an ESTIMATE of the editor's rendering (214 px wide node, 13-14 px text that wraps the
       description): kept slightly generous so nodes never overlap even for long French descriptions.
 
-Hub drawing (L6): `hub_layout()` = `auto_layout(hub=True)`: state nodes in column 0 (one per band, centred on it), chains
-    one column to the right; wires back to the hubs are not part of the crossing minimisation.
+Hub drawing (L7): `hub_layout()` puts the state hubs on the TOP row, left to right in flow order, each heading a
+    column with its chains below (layered band layout, one layer right of the hub); `global` is the last column.
+    `hub_frames()` gives one automatic translucent frame per column. Wires back to the hubs are not optimised:
+    the editor draws them faded with a "→ État" badge. (`auto_layout(hub=True)` = the L6 row-band form, unused.)
 
 Invariants
     - One band per state group, stacked top to bottom in the order the groups first appear in `nodes`.
@@ -102,9 +104,57 @@ def node_height(n) -> int:
     return h
 
 
+HUB_PITCH = 320         # layer pitch inside a hub column: leaves ~100 px after a node for its "→ État" badge
+HUB_GAP = 70            # vertical space between the hub row and the first chain row of its column
+COL_GAP = 150           # free space between two hub columns (badge of the last layer + frame padding)
+BADGE_ROOM = 110        # width reserved right of the last layer for the "→ État" proxy badges
+STATE_LABELS = {"veille": "Veille", "accueil": "Accueil", "ecoute": "Écoute", "reponse": "Réponse",
+                "relance": "Relance", "cloture": "Clôture", "eteint": "Éteint", "global": "Règles globales"}
+
+
+def hub_groups(nodes) -> list:
+    """Column order of the hub drawing: states in flow order (order of their state nodes), then any other group,
+    `global` last."""
+    out = []
+    for n in nodes:
+        if n.get("kind") == "state" and n.get("group") not in out:
+            out.append(n.get("group"))
+    for n in nodes:
+        g = n.get("group")
+        if g is not None and g != "global" and g not in out:
+            out.append(g)
+    if any(n.get("group") == "global" for n in nodes):
+        out.append("global")
+    return out
+
+
 def hub_layout(nodes, links, y0: int = TOP) -> dict:
-    """Layout of the state-node (hub) drawing: see `auto_layout(..., hub=True)`."""
-    return auto_layout(nodes, links, y0, hub=True)
+    """Columns layout of the state-node (hub) drawing (L7, 2026-10-31).
+
+    Every state hub sits on the TOP row, left to right in flow order (veille ... eteint); it heads a column that
+    holds the chains starting in that state, laid out with the layered band algorithm of `auto_layout()` one
+    layer to the right of the hub and below its row (so the hub -> trigger wires fan out down-right). The
+    `global` group gets the last column (no hub). Columns are disjoint in x, so nodes never overlap between
+    columns; inside a column `auto_layout()` already guarantees no overlap. The wires that return to a state hub
+    are not optimised (the editor draws them faded with a "→ État" badge, see web/editor.js).
+    """
+    pos, x = {}, 0
+    hub_h = max([node_height(n) for n in nodes if n.get("kind") == "state"] + [0])
+    chain_top = y0 + (hub_h + HUB_GAP if hub_h else 0)
+    for g in hub_groups(nodes):
+        hubs = [n["id"] for n in nodes if n.get("group") == g and n.get("kind") == "state"]
+        mine = [n for n in nodes if n.get("group") == g and n.get("kind") != "state"]
+        for i in hubs:
+            pos[i] = (x, y0)
+        width = NODE_W
+        if mine:
+            cx = x + (HUB_PITCH if hubs else 0)
+            band = auto_layout(mine, links, chain_top)       # one band: x = layer * COLW, y from chain_top
+            for i, (bx, by) in band.items():
+                pos[i] = (cx + (bx // COLW) * HUB_PITCH, by)
+            width = max(pos[i][0] + NODE_W for i in band) - x + BADGE_ROOM
+        x += width + COL_GAP
+    return pos
 
 
 def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:
@@ -233,6 +283,27 @@ def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:
     return pos
 
 
+def hub_frames(nodes, pos, colors=None) -> list:
+    """Automatic column frames of the hub drawing: one per column, in a muted copy of the state colour.
+
+    Marked `auto: True` so the editor draws them translucent and distinct from user frames; they reach
+    graph.layout.json only if the user saves (like any frame of the document)."""
+    out = []
+    for g in hub_groups(nodes):
+        mine = [n for n in nodes if n.get("group") == g and n["id"] in pos]
+        if not mine:
+            continue
+        x0 = min(pos[n["id"]][0] for n in mine) - 28
+        y0 = min(pos[n["id"]][1] for n in mine) - 56
+        x1 = max(pos[n["id"]][0] + NODE_W for n in mine) + 28 + (BADGE_ROOM if any(n.get("kind") != "state" for n in mine) else 0)
+        y1 = max(pos[n["id"]][1] + node_height(n) for n in mine) + 28
+        colour = (colors or {}).get(g) or ("#e0504d" if g == "global" else "#8b949e")
+        out.append({"id": "auto-" + str(g), "title": STATE_LABELS.get(g, str(g).capitalize()), "color": colour,
+                    "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0, "auto": True,
+                    "note": "Colonne automatique (cosmétique) : renommer, déplacer ou supprimer librement."})
+    return out
+
+
 def default_frames(nodes, pos) -> list:
     """Cosmetic theme frames around the bands of `pos` (only themes whose states exist in the graph)."""
     out = []
@@ -249,11 +320,13 @@ def default_frames(nodes, pos) -> list:
     return out
 
 
-def crossings(nodes, links, pos, chains_only: bool = False) -> int:
+def crossings(nodes, links, pos, chains_only: bool = False, returning: bool = True) -> int:
     """Number of link pairs whose drawn segments (right edge -> left edge, node middle) intersect.
 
     `chains_only=True` ignores every link that touches a state node or Start (hub drawing): the wires that
     return to a state hub are long by nature, the layout only optimises the links inside a chain.
+    `returning=False` ignores the wires the editor draws faded: those that END in a state node, and those that
+    leave a hub for another column (a global rule limited to some states).
     """
     by_id = {n["id"]: n for n in nodes}
     segs = []
@@ -261,6 +334,9 @@ def crossings(nodes, links, pos, chains_only: bool = False) -> int:
         a, b = lk["from"], lk["to"]
         if chains_only and (by_id[a].get("kind") in ("state", "start") or by_id[b].get("kind") == "state"):
             continue
+        if not returning and (by_id[b].get("kind") == "state" or (
+                by_id[a].get("kind") == "state" and by_id[b].get("group") != by_id[a].get("group"))):
+            continue     # faded in the editor: returning wires + hub wires to another column (global only_in)
         if a in pos and b in pos:
             pa, pb = pos[a], pos[b]
             segs.append((lk, (pa[0] + NODE_W, pa[1] + node_height(by_id[a]) / 2), (pb[0], pb[1] + node_height(by_id[b]) / 2)))
