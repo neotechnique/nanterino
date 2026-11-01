@@ -22,6 +22,10 @@ Variables drawing (lot L1): `var_layout()` = the hub columns without hubs and ba
     `global` last, rows wrapped); `hub_frames(..., badge=0)` frames them. `node_height` knows the etat condition and
     the set_var / var_changed nodes.
 
+Sub-groups (lot L13): `var_layout(..., note_h=...)` groups the chain trees of each column into titled sub-groups
+    (rule table SUB_RULES / SUB_AFTER keyed by the trigger, see `sub_plan`), each a block with a short post-it;
+    `var_frames()` returns the column frames grown around them plus the sub-group frames (parent = the column).
+
 Invariants
     - One band per state group, stacked top to bottom in the order the groups first appear in `nodes`.
     - Inside a band: columns left to right (trigger, conditions, actions, targets); all targets (goto/end)
@@ -145,17 +149,162 @@ def hub_groups(nodes) -> list:
     return out
 
 
-def var_layout(nodes, links, y0: int = TOP, head: dict | None = None) -> dict:
+def var_layout(nodes, links, y0: int = TOP, head: dict | None = None, note_h=None, subs_out: list | None = None) -> dict:
     """Columns layout of the variables drawing (lot L1): no state node, one column per state group in order of first
     appearance (the state order of the graph), `global` last, columns wrapped into rows like hub_layout. Every link of
     this drawing stays inside its column (shared nodes only join chains of one group), so the only crossings are the
     ones the band algorithm leaves inside a column; no room is kept for "→ État" badges and layers use COLW.
-    `head` (lot L9): {group: px} of free room kept at the top of a column, above its first chain (default post-it)."""
-    return hub_layout(nodes, links, y0, badge=0, pitch=COLW, stack=True, head=head)
+    `head` (lot L9): {group: px} of free room kept at the top of a column, above its first chain (default post-it).
+    `note_h` (lot L13): callable(text) -> px height of a sub-group post-it; when given, the chains of each column are
+    grouped into titled sub-groups (see `sub_plan`) and their rectangles are appended to `subs_out` (see
+    `var_frames`). Without it the columns stay flat (pre-L13 drawing, kept for callers and tests)."""
+    return hub_layout(nodes, links, y0, badge=0, pitch=COLW, stack=True, head=head, note_h=note_h, subs_out=subs_out)
+
+
+# ---- lot L13 (2026-11-01): default sub-groups inside the state columns (variables drawing)
+# Every chain tree (connected chain component) of a column is classified by its TRIGGER with the rule table below, so
+# the grouping follows graph.yaml when it changes: SUB_RULES maps (column or None for any column, event) -> key; an
+# `after:` heartbeat is keyed by its delay parameter (SUB_AFTER); "etat devient <column>" is the column's « Entrée ».
+# A key with no rule -> « Autres » when the column has two such chains or more; a single unknown chain stays loose
+# (no frame, below the sub-groups). Sub-groups are ordered by SUB_ORDER (reading order), not by YAML order.
+# Cosmetic only: the sub-group frames / post-its live in graph.layout.json, the compiler never sees them.
+SUB_RULES = {
+    (None, "visage"): "reveil", (None, "intent.appel"): "reveil", ("veille", "start"): "reveil",
+    (None, "ask"): "question_tapee", (None, "greeting_done"): "fin_salutation",
+    (None, "intent.question"): "questions", (None, "not_understood"): "pas_compris",
+    (None, "intent.au_revoir"): "depart", (None, "visage_perdu"): "depart",
+    (None, "intent.chanson"): "chanson", (None, "sing"): "chanson",
+    (None, "answer_done"): "fin_reponse", (None, "barge_in"): "interruption",
+    (None, "relance_done"): "fin_relance", (None, "goodbye_done"): "au_revoir_termine",
+    (None, "cloture_done"): "retour_veille", ("eteint", "on"): "rallumer", ("eteint", "start"): "rallumer",
+    ("global", "stop"): "boutons", ("global", "off"): "boutons", ("global", "hush"): "tais_toi",
+}
+SUB_AFTER = {"silence_relance_s": "silence_relance", "silence_cloture_s": "silence_cloture"}
+SUB_ORDER = ["entree", "boutons", "tais_toi", "reveil", "fin_salutation", "questions", "pas_compris",
+             "silence_relance", "fin_reponse", "interruption", "fin_relance", "silence_cloture", "depart", "chanson",
+             "question_tapee", "au_revoir_termine", "retour_veille", "rallumer", "autres"]
+SUB_TITLES = {
+    "entree": "Entrée", "reveil": "Réveil", "question_tapee": "Question tapée", "fin_salutation": "Fin de salutation",
+    "questions": "Questions", "pas_compris": "Pas compris", "silence_relance": "Silence → relance",
+    "silence_cloture": "Silence → clôture", "depart": "Départ du visiteur", "chanson": "Chanson",
+    "fin_reponse": "Fin de réponse", "interruption": "Interruption", "fin_relance": "Fin de relance",
+    "au_revoir_termine": "Au revoir terminé", "retour_veille": "Retour en veille", "rallumer": "Rallumer",
+    "boutons": "Boutons", "tais_toi": "Tais-toi", "autres": "Autres",
+}
+# short French post-it text of a sub-group: (column, key) first, then the key alone
+SUB_TEXTS = {
+    ("veille", "entree"): "En veille : la conversation est oubliée et le micro se rouvre.",
+    ("accueil", "entree"): "Micro coupé, le robot dit sa salutation.",
+    ("ecoute", "entree"): "Sous-titre « j'écoute », compteur de silence remis à zéro, micro ouvert.",
+    ("relance", "entree"): "Micro coupé, le robot relance le visiteur.",
+    ("cloture", "entree"): "Micro coupé, historique effacé, le robot dit au revoir.",
+    ("eteint", "entree"): "Conversation oubliée, micro coupé : le robot n'écoute plus.",
+    "entree": "Ce que le robot fait en arrivant dans cet état.",
+    "reveil": "Un visage, le bouton Démarrer ou « Nanterino » : le robot salue.",
+    "question_tapee": "Question tapée au tableau de bord : traitée comme une phrase entendue.",
+    "fin_salutation": "Salutation finie : le robot écoute.",
+    "questions": "Une question reçoit une réponse ; après trop d'échanges, le robot conclut.",
+    "pas_compris": "Parole inexploitable : faire répéter (2 fois au plus), puis ne plus insister.",
+    "silence_relance": "Silence prolongé : relancer le visiteur.",
+    "silence_cloture": "Toujours rien après la relance : conclure.",
+    "depart": "Le visiteur part (au revoir, ou visage perdu si activé) : dire au revoir.",
+    "chanson": "Une chanson demandée : le robot chante.",
+    ("global", "chanson"): "Événement sing : couper le reste et chanter (sauf éteint).",
+    "fin_reponse": "Réponse finie : écouter la suite.",
+    "interruption": "Le visiteur coupe la parole (si activé) : se taire et écouter.",
+    "fin_relance": "Relance finie : rouvrir le micro et attendre la réponse.",
+    "au_revoir_termine": "Au revoir dit : courte pause avant la veille.",
+    "retour_veille": "Pause finie : retour en veille.",
+    "rallumer": "Bouton Allumer ou Démarrer : le robot se rallume.",
+    "boutons": "Boutons Stop et Éteindre du tableau de bord, valables partout.",
+    "tais_toi": "« Tais-toi » : se taire, selon l'état en cours (3 cas).",
+    ("global", "question_tapee"): "Question tapée hors veille : traitée comme une phrase entendue.",
+    "autres": "Chaînes sans sous-groupe connu.",
+}
+SUB_HEAD = 40           # sub-group frame top -> its post-it (the 32 px title bar of a user frame + 8)
+SUB_NOTE_GAP = 22       # post-it bottom -> first node of the sub-group
+SUB_PAD = 28            # free space between a sub-group frame and its nodes (left, right)
+SUB_PAD_B = 24          # ... and below its last node
+SUB_GAP = 36            # vertical space between two sub-groups of one column
+COL_PAD = 20            # column frame <-> its sub-groups (left, right, bottom)
+COL_PAD_T = 40          # column frame top -> first sub-group (room under the column post-it)
+
+
+def sub_key(group, trig: dict) -> str | None:
+    """Sub-group key of a chain from its trigger params (None = no rule)."""
+    if not trig:
+        return None
+    if trig.get("type") == "after":
+        return SUB_AFTER.get(str(trig.get("delay")))
+    ev = trig.get("event")
+    if ev == "var_changed" and trig.get("name") == "etat" and trig.get("value") == group:
+        return "entree"
+    return SUB_RULES.get((group, ev)) or SUB_RULES.get((None, ev))
+
+
+def sub_text(group, key) -> str:
+    return SUB_TEXTS.get((group, key)) or SUB_TEXTS.get(key) or ""
+
+
+def sub_plan(g, comps, by_id) -> list:
+    """[(key or None, [component, ...])] of one column, in SUB_ORDER, loose (None) last; see the rule table."""
+    keyed = {}
+    for c in comps:
+        trig = next((by_id[i].get("params") or {} for i in c if by_id[i].get("kind") == "trigger"), {})
+        keyed.setdefault(sub_key(g, trig) or "", []).append(c)
+    unknown = keyed.pop("", [])
+    if len(unknown) >= 2:
+        keyed.setdefault("autres", []).extend(unknown)
+        unknown = []
+    out = [(k, keyed[k]) for k in sorted(keyed, key=lambda k: (SUB_ORDER.index(k) if k in SUB_ORDER else len(SUB_ORDER), k))]
+    return out + ([(None, unknown)] if unknown else [])
+
+
+def _shade(colour: str, k: int) -> str:
+    """Colour of the k-th sub-group of a column: the column colour, then alternately lighter / darker variants
+    (harmonised with the column, neighbours still told apart)."""
+    try:
+        r, gg, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    except (TypeError, ValueError):
+        r, gg, b = 0x8b, 0x94, 0x9e
+    t = (0.0, 0.25, -0.22, 0.45, -0.38)[k % 5]
+    tgt = 255 if t > 0 else 0
+    return "#%02x%02x%02x" % tuple(int(round(v + (tgt - v) * abs(t))) for v in (r, gg, b))
+
+
+def var_frames(nodes, pos, subs, colors=None) -> list:
+    """Lot L13: automatic column frames (as `hub_frames(..., badge=0)`, grown to contain their sub-groups with
+    COL_PAD margins) followed by the sub-group frames of `subs` (from var_layout `subs_out`). A sub-group frame is a
+    plain user frame (no `auto`, so the editor lets the user edit it like any group) with `parent` = its column and
+    `gen: "sub:<column>:<key>"`; its post-it data rides on the private `_note` key (graph_visual.sub_notes pops it)."""
+    cols = hub_frames(nodes, pos, colors, badge=0)
+    by_g = {}
+    for s in subs:
+        by_g.setdefault(s["group"], []).append(s)
+    for f in cols:
+        mine = by_g.get(f["id"][5:])
+        if not mine:
+            continue
+        loose = [n for n in nodes if n.get("group") == f["id"][5:] and n["id"] in pos and not any(n["id"] in s["ids"] for s in mine)]
+        x0 = min([s["x"] - COL_PAD for s in mine] + [pos[n["id"]][0] - 28 for n in loose])
+        y0 = min([s["y"] - COL_PAD_T for s in mine] + [pos[n["id"]][1] - 56 for n in loose])
+        x1 = max([s["x"] + s["w"] + COL_PAD for s in mine] + [pos[n["id"]][0] + NODE_W + 28 for n in loose])
+        y1 = max([s["y"] + s["h"] + COL_PAD for s in mine] + [pos[n["id"]][1] + node_height(n) + 28 for n in loose])
+        f.update({"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0})
+    out = []
+    for f in cols:
+        g = f["id"][5:]
+        for k, s in enumerate(by_g.get(g, [])):
+            fid = "sub-%s-%s" % (g, s["key"])
+            out.append({"id": fid, "title": SUB_TITLES.get(s["key"], s["key"]), "color": _shade(f["color"], k),
+                        "x": s["x"], "y": s["y"], "w": s["w"], "h": s["h"], "parent": f["id"], "gen": "sub:%s:%s" % (g, s["key"]),
+                        "note": "Sous-groupe automatique (cosmétique) : renommer, déplacer ou supprimer librement.",
+                        "_note": {"text": s["text"], "x": s["x"] + 16, "y": s["y"] + SUB_HEAD, "h": s["nh"]}})
+    return cols + out
 
 
 def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False,
-               head: dict | None = None) -> dict:
+               head: dict | None = None, note_h=None, subs_out: list | None = None) -> dict:
     """Columns layout of the state-node (hub) drawing (L7, 2026-10-31; fix round: columns wrapped into rows).
 
     Fix round: the columns (flow order kept) are wrapped into 1..4 rows chosen by `_wrap_rows()` for an
@@ -172,13 +321,16 @@ def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int 
     # L7 fix round: the columns are built at the origin, then wrapped into rows (see _wrap_rows)
     hub_h = max([node_height(n) for n in nodes if n.get("kind") == "state"] + [0])
     chain_top = hub_h + HUB_GAP if hub_h else 0
-    cols = [_hub_column(g, nodes, links, chain_top + (head or {}).get(g, 0), badge, pitch, stack) for g in hub_groups(nodes)]
+    cols = [_hub_column(g, nodes, links, chain_top + (head or {}).get(g, 0), badge, pitch, stack, note_h)
+            for g in hub_groups(nodes)]
     pos = {}
     for row in _wrap_rows(cols):
         x = 0
-        for rel, w, _h in row["cols"]:
+        for rel, w, _h, subs in row["cols"]:
             for i, (rx, ry) in rel.items():
                 pos[i] = (x + rx, y0 + row["y"] + ry)
+            if subs_out is not None:      # lot L13: sub-group rectangles, moved with their column
+                subs_out.extend(dict(s, x=x + s["x"], y=y0 + row["y"] + s["y"]) for s in subs)
             x += w + COL_GAP
     return pos
 
@@ -214,16 +366,72 @@ def _band(sub, links, top, pitch: int = HUB_PITCH) -> dict:
     return {i: ((bx // COLW) * pitch, by) for i, (bx, by) in band.items()}
 
 
-def _hub_column(g, nodes, links, chain_top, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False):
-    """({id: (x, y)} relative to the column's top-left, width, height) of one state column.
+def _split_half(items, weight):
+    """Index k cutting `items` into two runs of about equal total weight (0 = no split)."""
+    half, acc, k = sum(weight) / 2, 0, 0
+    while k < len(items) - 1 and acc + weight[k] / 2 < half:
+        acc += weight[k]
+        k += 1
+    return k if 0 < k < len(items) else 0
+
+
+def _sub_column(g, mine, links, chain_top, by_id, note_h):
+    """Lot L13 form of a variables column: (rel, width, height, subs). The chain trees are grouped by `sub_plan`;
+    each sub-group is a block (frame top, 32 px title, post-it, its chains stacked like `stack=True`, bottom pad),
+    blocks stacked top to bottom with SUB_GAP; loose chains (no sub-group) follow the blocks. More than
+    SUBCOL_CHAINS chains: the BLOCKS (never a block) are split into two side-by-side sub-columns. All frames of one
+    sub-column get the same width. Coordinates start at COL_PAD so the grown column frame starts at x = 0."""
+    plan = sub_plan(g, _components(mine, links), by_id)
+    parts = [plan]
+    if sum(len(cs) for _k, cs in plan) > SUBCOL_CHAINS:
+        weight = [sum(node_height(by_id[i]) + GAP_Y * 2 for c in cs for i in c) + (SUB_HEAD + 60 if k else 0) for k, cs in plan]
+        cut = _split_half(plan, weight)
+        parts = [plan[:cut], plan[cut:]] if cut else [plan]
+    rel, subs, x0 = {}, [], COL_PAD
+    for part in parts:
+        top, mine_subs, right = chain_top, [], x0 + NODE_W + 2 * SUB_PAD
+        for key, cs in part:
+            text = sub_text(g, key) if key else ""
+            nh = note_h(text) if key else 0
+            ntop = top + SUB_HEAD + nh + SUB_NOTE_GAP if key else top
+            ids, cur = [], ntop
+            for c in cs:
+                cb = _band([n for n in mine if n["id"] in set(c)], links, cur, COLW)
+                for i, (bx, by) in cb.items():
+                    rel[i] = (x0 + SUB_PAD + bx, by)
+                    right = max(right, rel[i][0] + NODE_W + SUB_PAD)
+                ids += list(cb)
+                cur = max(cb[i][1] + node_height(by_id[i]) for i in cb) + GAP_Y * 2
+            bottom = max(rel[i][1] + node_height(by_id[i]) for i in ids)
+            if key:
+                mine_subs.append({"group": g, "key": key, "text": text, "nh": nh, "ids": ids,
+                                  "x": x0, "y": top, "h": bottom + SUB_PAD_B - top})
+                top = bottom + SUB_PAD_B + SUB_GAP
+            else:
+                top = bottom + GAP_Y * 2
+        for s in mine_subs:
+            s["w"] = right - x0
+        subs += mine_subs
+        x0 = right + SUBCOL_GAP
+    width = max([s["x"] + s["w"] for s in subs] + [rel[i][0] + NODE_W + SUB_PAD for i in rel]) + COL_PAD
+    height = max([s["y"] + s["h"] for s in subs] + [rel[i][1] + node_height(by_id[i]) for i in rel]) + COL_PAD
+    return rel, width, height, subs
+
+
+def _hub_column(g, nodes, links, chain_top, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False,
+                note_h=None):
+    """({id: (x, y)} relative to the column's top-left, width, height, sub-groups) of one state column.
 
     Hub at (0, 0); chains one layer to the right, from `chain_top` down. A column with more than SUBCOL_CHAINS
     chains (connected chain groups) is split into two side-by-side sub-columns of about equal height.
+    `note_h` (lot L13, variables drawing only): titled sub-groups, see `_sub_column`; otherwise sub-groups = [].
     """
     by_id = {n["id"]: n for n in nodes}
     rel = {n["id"]: (0, 0) for n in nodes if n.get("group") == g and n.get("kind") == "state"}
     mine = [n for n in nodes if n.get("group") == g and n.get("kind") != "state"]
     width, height = NODE_W, max([node_height(by_id[i]) for i in rel] + [0])
+    if mine and note_h is not None and stack and not rel:
+        return _sub_column(g, mine, links, chain_top, by_id, note_h)
     if mine:
         x0 = pitch if rel else 0
         comps = _components(mine, links)
@@ -250,7 +458,7 @@ def _hub_column(g, nodes, links, chain_top, badge: int = BADGE_ROOM, pitch: int 
             x0 = max(rel[i][0] for i in band) + NODE_W + badge + SUBCOL_GAP
         width = max(rel[i][0] for i in rel) + NODE_W + badge
         height = max(rel[i][1] + node_height(by_id[i]) for i in rel)
-    return rel, width, height
+    return rel, width, height, []
 
 
 def _wrap_rows(cols) -> list:

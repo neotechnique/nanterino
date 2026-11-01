@@ -286,7 +286,10 @@ def test_old_hub_layout_migrates():
     assert not [n for n in new["nodes"] if n["kind"] in ("state", "goto")]
     assert all((n["x"], n["y"]) != (7777, 7777) for n in new["nodes"]), "old positions do not fit the new drawing"
     ids = [f["id"] for f in new["frames"]]
-    assert ids[0] == "mine" and ids[1:] == ["auto-" + s for s in raw["states"]] + ["auto-global"], ids
+    # CHANGED (L13): the redrawn columns come with their default sub-groups (frames `sub-...`, after the columns)
+    cols = [i for i in ids[1:] if i.startswith("auto-")]
+    assert ids[0] == "mine" and cols == ["auto-" + s for s in raw["states"]] + ["auto-global"], ids
+    assert ids[1:] == cols + [i for i in ids[1:] if i.startswith("sub-")], ids
     a = G.parse_graph(V.load_raw(gp), CFG, "x").to_dict()
     raw2, layout2, errs = V.from_visual(json.loads(json.dumps(new)), CFG)
     assert not errs and layout2["form"] == "vars"

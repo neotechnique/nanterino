@@ -426,7 +426,9 @@ def test_frames_cosmetic_groups():
     gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
     base = V.to_visual(default_raw())
     # CHANGED (L7): the hub drawing gets one automatic frame per column; the legacy drawing keeps the theme frames
-    assert [f["id"] for f in base["frames"]] == ["auto-" + s for s in default_raw()["states"]] + ["auto-global"]
+    # CHANGED (L13): the column frames come first, then the default sub-groups (no `auto`, `gen` marker)
+    assert [f["id"] for f in base["frames"] if f.get("auto")] == ["auto-" + s for s in default_raw()["states"]] + ["auto-global"]
+    assert all(f.get("gen", "").startswith("sub:") for f in base["frames"] if not f.get("auto"))
     assert [f["id"] for f in V.to_visual(default_raw(), legacy=True)["frames"]] == ["t-accueil", "t-conversation", "t-fin", "t-interruptions"]
     assert V.to_visual(default_raw(), {"states": {}})["frames"] == [], "default frames only without any layout"
     f1 = {"id": "f1", "title": "Accueil", "color": "#F2C94C", "x": -20, "y": 10.5, "w": 400, "h": 220, "note": "chaine visage"}
@@ -924,8 +926,9 @@ def test_default_column_postits():
     raw = default_raw()
     base = V.to_visual(raw)
     cols = {f["id"]: f for f in base["frames"] if f.get("auto")}
-    notes = {n["parent"]: n for n in base["notes"]}
-    assert set(notes) == set(cols) and len(base["notes"]) == len(cols), (sorted(notes), sorted(cols))
+    # CHANGED (L13): the sub-group post-its (auto "sub:...") are checked by test_default_subgroups
+    notes = {n["parent"]: n for n in base["notes"] if n["auto"].startswith("state:")}
+    assert set(notes) == set(cols) and len(notes) == len(cols), (sorted(notes), sorted(cols))
     for cid, f in cols.items():
         n, g = notes[cid], cid[len("auto-"):]
         want = V.GLOBAL_NOTE if g == "global" else raw["states"][g]["description"]
@@ -956,7 +959,7 @@ def test_default_column_postits():
     assert V.save(doc, CFG, gp, lp)[0]
     again = V.to_visual(V.load_raw(gp), V.load_layout(lp))
     marks = {n["auto"]: n for n in again["notes"]}
-    assert "state:veille" not in marks and len(again["notes"]) == len(cols) - 1, sorted(marks)
+    assert "state:veille" not in marks and len([m for m in marks if m.startswith("state:")]) == len(cols) - 1, sorted(marks)
     assert marks["state:global"]["text"] == "Mon texte." and marks["state:global"]["display"] == "compact"
     # L9 explicit top level: `parent: null` on a user frame / note is kept (blocks the editor's geometry adoption)
     top = copy.deepcopy(again)
@@ -973,6 +976,107 @@ def test_default_column_postits():
     shutil.rmtree(TMP, ignore_errors=True)
 
 
+SUBGROUPS_WANTED = {   # lot L13: shipped graph -> sub-group titles per column (reading order)
+    "veille": ["Entrée", "Réveil", "Question tapée"],
+    "accueil": ["Entrée", "Fin de salutation"],
+    "ecoute": ["Entrée", "Questions", "Pas compris", "Silence → relance", "Départ du visiteur", "Chanson"],
+    "reponse": ["Fin de réponse", "Interruption"],
+    "relance": ["Entrée", "Questions", "Pas compris", "Fin de relance", "Silence → clôture", "Départ du visiteur", "Chanson"],
+    "cloture": ["Entrée", "Au revoir terminé", "Retour en veille"],
+    "eteint": ["Entrée", "Rallumer"],
+    "global": ["Boutons", "Tais-toi", "Chanson", "Question tapée"],
+}
+
+
+def _inside(box, f):
+    x, y, w, h = box
+    return f["x"] <= x and x + w <= f["x"] + f["w"] and f["y"] <= y and y + h <= f["y"] + f["h"]
+
+
+def _check_subgroups(doc, loose_ok=()):
+    """Geometry of the default sub-groups of `doc`; returns {column group: [sub-group titles]}."""
+    cols = {f["id"]: f for f in doc["frames"] if f.get("auto")}
+    subs = [f for f in doc["frames"] if not f.get("auto")]
+    out = {}
+    for s in subs:
+        assert s["parent"] in cols and s["gen"] == "sub:%s:%s" % (s["parent"][5:], s["id"].split("-", 2)[2]), s
+        assert _inside((s["x"], s["y"], s["w"], s["h"]), cols[s["parent"]]), (s["id"], "outside its column")
+        out.setdefault(s["parent"][5:], []).append(s["title"])
+    for a in subs:          # sub-groups never overlap each other
+        for b in subs:
+            if a is not b:
+                assert not (a["x"] < b["x"] + b["w"] and b["x"] < a["x"] + a["w"] and a["y"] < b["y"] + b["h"] and b["y"] < a["y"] + a["h"]), (a["id"], b["id"])
+    assert GL.overlaps(doc["nodes"], {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]}) == []
+    for n in doc["nodes"]:  # every node inside exactly one sub-group of its own column (or loose, when allowed)
+        box = (n["x"], n["y"], GL.NODE_W, GL.node_height(n))
+        home = [s for s in subs if _inside(box, s)]
+        assert _inside(box, cols["auto-" + n["group"]]), (n["id"], "outside its column")
+        if n["id"] in loose_ok:
+            assert not home, n["id"]
+            continue
+        assert len(home) == 1 and home[0]["parent"] == "auto-" + n["group"], (n["id"], n["group"], [s["id"] for s in home])
+    notes = {n["parent"]: n for n in doc["notes"] if n["auto"].startswith("sub:")}
+    assert set(notes) == {s["id"] for s in subs}, "one post-it per sub-group"
+    for s in subs:
+        p = notes[s["id"]]
+        assert p["auto"] == s["gen"] and p["text"] and _inside((p["x"], p["y"], p["w"], p["h"]), s), (p, s)
+        mine = [n for n in doc["nodes"] if _inside((n["x"], n["y"], GL.NODE_W, GL.node_height(n)), s)]
+        assert mine and all(n["y"] >= p["y"] + p["h"] + 16 for n in mine), (s["id"], "post-it over a node")
+        assert p["y"] - s["y"] >= 34, (s["id"], "post-it under the frame title bar")
+    return out
+
+
+def test_default_subgroups():
+    """Lot L13: the default variables drawing groups every chain of a column into one titled sub-group (rule table
+    keyed by the trigger), child of its column, with a post-it; deterministic; layout only; a saved layout is never
+    re-seeded (a deleted sub-group stays deleted); unknown chains go to « Autres » (2+) or stay loose (alone)."""
+    shutil.rmtree(TMP, ignore_errors=True)
+    os.makedirs(TMP)
+    gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
+    raw = default_raw()
+    base = V.to_visual(raw)
+    assert _check_subgroups(base) == SUBGROUPS_WANTED
+    assert json.dumps(V.to_visual(default_raw()), sort_keys=True) == json.dumps(base, sort_keys=True), "deterministic"
+    assert all("_note" not in f for f in base["frames"])
+    # layout only: same compiled graph without the sub-groups, no marker in the YAML
+    plain = copy.deepcopy(base)
+    plain["frames"] = [f for f in plain["frames"] if f.get("auto")]
+    plain["notes"] = [n for n in plain["notes"] if not n["auto"].startswith("sub:")]
+    raw0, _ = compile_ok(plain)
+    raw1, layout = compile_ok(base)
+    assert semantic(raw0) == semantic(raw1) and "sub:" not in V.dump_yaml(raw1)
+    assert [(f["id"], f.get("gen"), f.get("parent")) for f in layout["frames"]] == [(f["id"], f.get("gen"), f.get("parent")) for f in base["frames"]]
+    # save -> reload: same frames and notes, nothing re-seeded
+    assert V.save(base, CFG, gp, lp)[0]
+    back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert [f["id"] for f in back["frames"]] == [f["id"] for f in base["frames"]] and len(back["notes"]) == len(base["notes"])
+    # delete the « Réveil » sub-group and its post-it, save, reload: stays deleted
+    doc = copy.deepcopy(back)
+    doc["frames"] = [f for f in doc["frames"] if f["id"] != "sub-veille-reveil"]
+    doc["notes"] = [n for n in doc["notes"] if n.get("parent") != "sub-veille-reveil"]
+    assert V.save(doc, CFG, gp, lp)[0]
+    again = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert "sub-veille-reveil" not in {f["id"] for f in again["frames"]} and len(again["frames"]) == len(base["frames"]) - 1
+    assert "sub:veille:reveil" not in {n.get("auto") for n in again["notes"]} and len(again["notes"]) == len(base["notes"]) - 1
+    # a bad `gen` marker is dropped silently (cosmetic)
+    odd = copy.deepcopy(again)
+    odd["frames"][-1]["gen"] = "pwn:<b>"
+    assert "gen" not in compile_ok(odd)[1]["frames"][-1]
+    # unknown events: two chains -> « Autres », one chain -> loose (no frame), both still inside the column
+    for extra, want_autres in (([{"on": "zz_one", "do": "mic_on"}, {"on": "zz_two", "do": "mic_off"}], True),
+                               ([{"on": "zz_one", "do": "mic_on"}], False)):
+        r2 = copy.deepcopy(raw)
+        r2["states"]["veille"]["transitions"] = list(r2["states"]["veille"]["transitions"]) + extra
+        d2 = V.to_visual(r2)
+        trig = {n["id"] for n in d2["nodes"] if n["kind"] == "trigger" and (n["params"].get("event") or "").startswith("zz_")}
+        comps = GL._components([n for n in d2["nodes"] if n.get("group") == "veille"], d2["links"])
+        loose = set() if want_autres else {i for c in comps if trig & set(c) for i in c}
+        assert want_autres or len(loose) >= 2
+        got = _check_subgroups(d2, loose_ok=loose)
+        assert got["veille"] == SUBGROUPS_WANTED["veille"] + (["Autres"] if want_autres else []), got["veille"]
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
 FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabulary, test_error_cases,
         test_negated_guard_compiles_and_evaluates, test_false_port_and_order, test_save_backups_and_reset,
         test_deferred_reload_applies_at_next_veille, test_frames_cosmetic_groups,
@@ -980,7 +1084,7 @@ FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabula
         test_merged_fan_trigger_reloads_as_one_node, test_sharing_keeps_independent_transitions_apart,
         test_state_nodes_compile, test_trigger_linked_from_several_states, test_state_node_link_rules,
         test_legacy_goto_documents_compile_identically, test_notes_cosmetic_postits, test_hub_layout_has_no_overlap_and_global_area,
-        test_nested_groups_parent_links, test_default_column_postits]
+        test_nested_groups_parent_links, test_default_column_postits, test_default_subgroups]
 
 
 def parity_on_compiled_graph():

@@ -62,6 +62,12 @@ Lot L11 (2026-11-01, "variables v2"): the `variables` block rides on the documen
     `name` (timer) + `value` (seconds) like var_changed; dictionary values are coerced with the dictionary's type; the
     validator's non-blocking diagnostics (`out_of_bounds`) are added to report["warnings"] with the node they are about.
 
+Lot L13 (2026-11-01, "sous-groupes par défaut"): a layout the server draws (same cases as the L9 column post-its) also
+    groups the chains of each column into titled sub-groups (graph_layout rule table, keyed by the trigger): one frame
+    per sub-group (`parent` = its column, marker `gen: "sub:<col>:<key>"`, NOT `auto`, which the editor reserves for
+    columns) and one post-it inside it (`auto: "sub:<col>:<key>"`, see sub_notes). Never re-seeded once a vars layout is
+    saved, so user edits / deletions stay. Layout only: the compiled YAML is unchanged.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -442,8 +448,10 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     # ---- layout: saved positions per node, the rest automatic (layered, see graph_layout)
     # lot L9: the variables drawing reserves room at the top of each column for its default post-it (see column_notes)
     seed_text = column_note_texts(states_raw) if vform else {}
+    subs = []                     # lot L13: sub-group rectangles of the default variables drawing (see var_frames)
     auto = GL.hub_layout(nodes, links) if new else (
-        GL.var_layout(nodes, links, head={g: column_note_height(t) for g, t in seed_text.items()}) if vform else GL.auto_layout(nodes, links))
+        GL.var_layout(nodes, links, head={g: column_note_height(t) for g, t in seed_text.items()},
+                      note_h=column_note_height, subs_out=subs) if vform else GL.auto_layout(nodes, links))
     pos = {nid: auto[nid] for nid in auto}
     if new and start_state in state_nid:   # Start sits just left of its state hub, on the same row
         sx, sy = auto[state_nid[start_state]]
@@ -496,14 +504,14 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         theme_ids = {t[0] for t in GL.THEMES}
         auto_old = [f for f in old if f.get("auto") or f["id"] in theme_ids]   # automatic / theme frames of that drawing
         user = [f for f in old if f not in auto_old]
-        fresh = GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}, badge=0) if auto_old else []
+        fresh = GL.var_frames(nodes, pos, subs, {s["id"]: s["color"] for s in doc["states"]}) if auto_old else []
         doc["frames"] = (user + fresh)[:MAX_FRAMES]
         seed_frames = fresh       # lot L9: freshly drawn columns get their default post-it
     elif layout:
         doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
     elif vform:   # one automatic column frame per state, the global rules last
-        doc["frames"] = GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}, badge=0)
-        seed_frames = doc["frames"]   # lot L9: default layout -> one post-it per column
+        doc["frames"] = GL.var_frames(nodes, pos, subs, {s["id"]: s["color"] for s in doc["states"]})
+        seed_frames = doc["frames"]   # lot L9: default layout -> one post-it per column; L13: + its sub-groups
     else:
         # hub drawing: one automatic column frame per state (muted state colour, `auto: True`), globals last
         doc["frames"] = (GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}) if new
@@ -511,7 +519,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     # post-it notes: cosmetic like frames (layout file only, never compiled); invalid entries are not shown
     doc["notes"] = [n for n in (layout.get("notes") or []) if isinstance(n, dict) and _note_problem(n) is None][:MAX_NOTES]
     if vform and seed_frames:
-        doc["notes"] = (column_notes(seed_frames, seed_text, doc["notes"]) + doc["notes"])[:MAX_NOTES]
+        doc["notes"] = (column_notes(seed_frames, seed_text, doc["notes"]) + sub_notes(seed_frames, doc["notes"])
+                        + doc["notes"])[:MAX_NOTES]
     # lot L8: nested groups / post-its in groups; a link to a frame that is not shown (or a cycle) is dropped
     doc["frames"], doc["notes"] = clean_parents(doc["frames"], doc["notes"])
     return doc
@@ -538,7 +547,10 @@ GLOBAL_NOTE = ("Règles globales : chacune peut se déclencher quel que soit l'�
                "(ou seulement dans les états choisis sur son déclencheur).")
 COLUMN_NOTE_W = GL.NODE_W + 24     # fits inside every column frame (frame = nodes + 28 px each side)
 COLUMN_NOTE_COLOR = "#fff59d"      # web/editor.js NOTE_COLORS[0]
-AUTO_NOTE = re.compile(r"^state:[A-Za-z0-9_.-]{1,60}$")
+AUTO_NOTE = re.compile(r"^(state:[A-Za-z0-9_.-]{1,60}|sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40})$")
+# lot L13: marker of a default sub-group frame (`gen`, not `auto`: the editor treats a truthy `auto` as a column)
+GEN_FRAME = re.compile(r"^sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40}$")
+SUB_NOTE_TITLE = "En bref"
 
 
 def column_note_texts(states_raw) -> dict:
@@ -584,6 +596,26 @@ def column_notes(frames: list, texts: dict, existing: list) -> list:
         out.append({"id": "state-" + g, "title": str(f.get("title") or g)[:MAX_NOTE_TITLE], "text": texts[g],
                     "color": COLUMN_NOTE_COLOR, "x": f["x"] + 16, "y": f["y"] + 16, "w": COLUMN_NOTE_W, "h": hh,
                     "parent": f["id"], "auto": "state:" + g})
+    return out
+
+
+def sub_notes(frames: list, existing: list) -> list:
+    """Lot L13: the post-it of each default sub-group frame of `frames` (built by graph_layout.var_frames, which put
+    the post-it geometry on the private `_note` key; popped here so it never reaches the document). The note sits
+    under the frame's title bar, child of the sub-group (`parent`), full display, marked `auto: "sub:<col>:<key>"`.
+    Like column_notes, a marker or id already in `existing` is skipped. Mutates the frames, returns the new notes."""
+    have = {n.get("auto") for n in existing if isinstance(n, dict)}
+    used = {n.get("id") for n in existing if isinstance(n, dict)}
+    out = []
+    for f in frames:
+        spec = f.pop("_note", None)
+        if not spec or not spec["text"] or f.get("gen") in have:
+            continue
+        nid = "note-" + f["id"]
+        if nid in used:
+            continue
+        out.append({"id": nid, "title": SUB_NOTE_TITLE, "text": spec["text"][:MAX_NOTE_TEXT], "color": COLUMN_NOTE_COLOR,
+                    "x": spec["x"], "y": spec["y"], "w": COLUMN_NOTE_W, "h": spec["h"], "parent": f["id"], "auto": f["gen"]})
     return out
 
 
@@ -664,6 +696,8 @@ def clean_frames(frames):
             c["note"] = f["note"]
         if f.get("auto") is True:     # automatic column frame the user saved: keeps its muted drawing
             c["auto"] = True
+        if isinstance(f.get("gen"), str) and GEN_FRAME.match(f["gen"]):   # lot L13: default sub-group marker
+            c["gen"] = f["gen"]
         if "parent" in f:             # lot L8: enclosing group id (checked against the other frames by clean_parents);
             c["parent"] = f["parent"] or None   # L9: null = explicit top level (the editor's choice, kept)
         out.append(c)
