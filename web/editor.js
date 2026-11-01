@@ -574,6 +574,7 @@
     drawFrames();
     drawNotes();
     drawJumpbar(); zoomVars();
+    if (!keepView) clearJumpbar();   // L6: the jump bar exists only now: measure it and free the column titles
     renderPalette();
     renderInspector();
     renderIntents();
@@ -896,24 +897,44 @@
     drawBands();
     paintWires();
     renderMsgs();
+    scheduleMinimap();       // L6: minimap diagnostic dots follow the badges
   }
   // ---------- branch order (GC2-like: every branch without state change runs, one branch changes the state) ----------
   function scheduleCheck() {
     clearTimeout(checkTimer);
     checkTimer = setTimeout(runCheck, 500);
   }
+  // Resolves true when checkErrors / fanInfo describe the document as it is now (fresh or already current), false when
+  // the dry run could not answer (network / 5xx). A run already in flight for the same document is shared, and an answer
+  // for an older document never overwrites a newer one (L6: save awaits this instead of trusting stale badges).
+  let checkInflight = null, checkOkKey = '';
   async function runCheck() {
-    if (!editor || loading) return;
+    if (!editor || loading) return false;
     let doc;
-    try { doc = serialize(); } catch (e) { return; }
+    try { doc = serialize(); } catch (e) { return false; }
     const key = JSON.stringify(doc);
-    if (key === lastCheckKey) return;              // nothing changed since the last dry run: no loop through analyze()
+    if (checkInflight && checkInflight.key === key) return checkInflight.promise;
+    if (key === lastCheckKey) return key === checkOkKey;   // nothing changed since the last dry run: no loop through analyze()
     lastCheckKey = key;
-    const r = await postJson('/api/graph/check', doc);
-    if (!r.json || r.status >= 500) return;
-    fanInfo = { warnings: r.json.warnings || [], fans: r.json.fans || {} };
-    checkErrors = r.json.errors || [];             // lot L5: the dry-run compile errors become node badges too
-    analyze();
+    const promise = (async () => {
+      let r;
+      try { r = await postJson('/api/graph/check', doc); } catch (e) { r = {}; }
+      if (checkInflight && checkInflight.key === key) checkInflight = null;
+      if (!r.json || r.status >= 500) { if (lastCheckKey === key) lastCheckKey = ''; return false; }   // retry next time
+      if (lastCheckKey !== key) return false;      // the document changed meanwhile: a newer run owns the badges
+      fanInfo = { warnings: r.json.warnings || [], fans: r.json.fans || {} };
+      checkErrors = r.json.errors || [];           // lot L5: the dry-run compile errors become node badges too
+      checkOkKey = key;
+      analyze();
+      return true;
+    })();
+    checkInflight = { key, promise };
+    return promise;
+  }
+  // L6: run the debounced dry run now (cancel the pending timer) and wait for the answer about the current document.
+  async function freshCheck() {
+    clearTimeout(checkTimer); checkTimer = null;
+    return runCheck();
   }
   // A small numbered badge on each target of a node with several outgoing links = execution order.
   function paintOrderBadges() {
@@ -1253,8 +1274,41 @@
     const w = r.x1 - r.x0, hh = r.y1 - r.y0;
     const z = Math.max(0.6, Math.min(0.8, c.clientWidth / (w * 1.05), c.clientHeight / (hh * 1.05)));
     const cx = w * z <= c.clientWidth ? (c.clientWidth - w * z) / 2 - r.x0 * z : 20 - r.x0 * z;
-    setView(z, cx, 50 - r.y0 * z);          // 50: below the jump bar
+    setView(z, cx, 50 - r.y0 * z);          // 50: below the jump bar (estimate; clearJumpbar() measures)
+    clearJumpbar();
     return true;
+  }
+  // L6: an automatic column title (or any frame title) must never sit under the floating jump bar. The bar's height
+  // depends on fonts / chips, and the titles scale with --fts, so both are measured on screen, never hardcoded: every
+  // column title of a frame that shows on screen (or any title touching the bar) and starts above the bar's bottom is
+  // pushed below the bar by panning down. Frames entirely above or below the screen (other rows) never count.
+  // Returns the pan applied in screen px (0 when nothing overlapped).
+  const JUMP_GAP = 6;
+  function jumpbarBottom() {
+    if (!editor || !jumpEl || !jumpEl.isConnected) return null;
+    const jb = jumpEl.getBoundingClientRect();
+    return jb.height ? jb.bottom : null;
+  }
+  function clearJumpbar() {
+    const bottom = jumpbarBottom(); if (bottom == null) return 0;
+    const c = editor.container.getBoundingClientRect(), jb = jumpEl.getBoundingClientRect();
+    let top = Infinity;
+    editor.precanvas.querySelectorAll('.frame .ftitle').forEach((t) => {
+      const r = t.getBoundingClientRect();
+      if (!r.width || r.right <= c.left || r.left >= c.right || r.top >= bottom + JUMP_GAP) return;   // sideways / already clear
+      const fr = t.parentElement.getBoundingClientRect();
+      // a shown column whose title sits just above the screen edge counts; one scrolled far up (taller column of the row
+      // above) does not, or panning to it would push the wanted column off screen
+      const autoShown = t.parentElement.classList.contains('auto') && fr.bottom > bottom && fr.top < c.bottom && r.bottom > c.top - 2 * r.height;
+      const underBar = r.bottom > jb.top && r.right > jb.left && r.left < jb.right;
+      if (autoShown || underBar) top = Math.min(top, r.top);
+    });
+    const dy = top === Infinity ? 0 : bottom + JUMP_GAP - top;
+    if (dy <= 0) return 0;
+    editor.canvas_y += dy;
+    editor.precanvas.style.transform = `translate(${editor.canvas_x}px, ${editor.canvas_y}px) scale(${editor.zoom})`;
+    scheduleMinimap();
+    return dy;
   }
   function drawJumpbar() {
     if (!editor) return;
@@ -1296,9 +1350,29 @@
     ctx2.clearRect(0, 0, cv.width, cv.height);
     ctx2.fillStyle = '#0d1117cc'; ctx2.fillRect(0, 0, cv.width, cv.height);
     rects.forEach(([g, r]) => { ctx2.fillStyle = stateColor(g) + '88'; ctx2.fillRect((r.x0 - x0) * s, (r.y0 - y0) * s, (r.x1 - r.x0) * s, (r.y1 - r.y0) * s); });
+    // viewport frame first: the diagnostic dots are drawn on top of it
     const st = editor.container.getBoundingClientRect(), a = canvasPoint(st.x, st.y), c = canvasPoint(st.right, st.bottom);
     ctx2.strokeStyle = '#ffffff'; ctx2.lineWidth = 1.5;
     ctx2.strokeRect((a.x - x0) * s, (a.y - y0) * s, (c.x - a.x) * s, (c.y - a.y) * s);
+    // L6: one dot per node with a problem (same levels as the node badges): amber warnings first, red errors on top.
+    // miniEl._dots keeps their canvas positions (tests, debugging); data-err / data-warn hold the counts.
+    const dots = [];
+    issues.forEach((list, nid) => {
+      const df = nidToDf.get(nid); if (df == null || !nodeEl(df)) return;
+      const lvl = list.some((i) => i.level === 'err') ? 'err' : list.some((i) => i.level === 'warn') ? 'warn' : null;
+      if (!lvl) return;
+      const nb = nodeBox(df);
+      const cl = (v, max) => Math.max(4, Math.min(max - 4, v));   // a node on the graph's edge keeps a whole dot
+      dots.push({ nid, level: lvl, x: cl(((nb.x0 + nb.x1) / 2 - x0) * s, cv.width), y: cl(((nb.y0 + nb.y1) / 2 - y0) * s, cv.height) });
+    });
+    ['warn', 'err'].forEach((lvl) => dots.filter((d) => d.level === lvl).forEach((d) => {
+      ctx2.beginPath(); ctx2.arc(d.x, d.y, 3.5, 0, Math.PI * 2);
+      ctx2.fillStyle = lvl === 'err' ? '#ff3b30' : '#ffb020'; ctx2.fill();
+      ctx2.lineWidth = 1; ctx2.strokeStyle = '#0d1117'; ctx2.stroke();
+    }));
+    miniEl._dots = dots;
+    miniEl.dataset.err = String(dots.filter((d) => d.level === 'err').length);
+    miniEl.dataset.warn = String(dots.filter((d) => d.level === 'warn').length);
   }
   // Semantic-zoom card of an automatic frame: state name, chain count, wires in / out of the column.
   function frameCard(f) {
@@ -1524,9 +1598,13 @@
   function fit() {
     const b = bbox(), c = $('#drawflow');
     if (!b) return;
-    const w = b.x1 - b.x0, hh = b.y1 - b.y0, top = 44;   // L7 fix round: leave the jump bar row free
+    // L6: leave the measured jump bar row plus one column-title row (titles never draw smaller than ~14 px) free
+    const jbb = jumpbarBottom(), jbH = jbb == null ? 38 : jbb - c.getBoundingClientRect().top;
+    const t0 = editor.precanvas.querySelector('.frame.auto .ftitle'), titleH = t0 ? t0.offsetHeight * (14 / 13) : 22;
+    const w = b.x1 - b.x0, hh = b.y1 - b.y0, top = jbH + JUMP_GAP + titleH;
     const z = Math.min(fitZoom(), (c.clientHeight - top) / (hh * 1.08));
     setView(z, (c.clientWidth - w * z) / 2 - b.x0 * z, top + (c.clientHeight - top - hh * z) / 2 - b.y0 * z);
+    clearJumpbar();
   }
   // Jump to a state band: fit it to the canvas (or use a fixed readable zoom when given).
   function focusRect(r, zoom) {
@@ -1551,6 +1629,7 @@
     if (!r) { fit(); return; }
     const x0 = r.x0, z = 0.75;
     setView(z, 16 - x0 * z, 16 - (r.y0 - 30) * z);
+    clearJumpbar();
   }
   function setView(z, cx, cy) {
     // Drawflow scales around the centre of its canvas (no transform-origin), so convert the wanted
@@ -3166,8 +3245,17 @@
   }
   async function save() {
     if (navLocked) { toast('Verrouillé — lecture seule : enregistrement désactivé (L pour déverrouiller).', 'err'); return; }
-    if (validate(false)) { validate(true); return; }
-    await postDoc(serialize());
+    // L6: decide on a fresh dry run, not on badges up to 0.5 s old (debounce) or from an earlier refused save: a click
+    // right after a fix used to be blocked by the stale error. The server re-validates on POST anyway.
+    let doc = null;
+    for (let i = 0; i < 3 && !doc; i++) {
+      const ok = await freshCheck(), cur = serialize();
+      if (ok && JSON.stringify(cur) !== checkOkKey) continue;   // edited while waiting: check that version
+      if (ok) { serverErrors = []; simErrors = []; analyze(); }   // the fresh check supersedes older refusals
+      doc = cur;             // check unavailable (network / 5xx): fall back to the badges, the POST validates anyway
+    }
+    if (!doc || validate(false)) { validate(true); return; }
+    await postDoc(doc);
   }
   async function loadAll() {
     const [vocab, vis] = await Promise.all([api('/api/graph/vocab'), api('/api/graph/visual')]);
@@ -3656,7 +3744,7 @@
     meta: () => meta, journal: () => journal, renderVars, varsUi, varDefs, listDefs, varUses, noInputRefusals: () => noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
     nav: () => ({ locked: navLocked, hand: navHand, space: navSpace, zoom: editor.zoom, x: editor.canvas_x, y: editor.canvas_y }),
     setHand, setLock, toggleHelp, save,
-    menuTree, menuItems, issues: () => Object.fromEntries(issues), diagNodes, diagCycle, checkErrors: () => checkErrors, runCheck, setNoteDisplay, hideTip,
+    menuTree, menuItems, issues: () => Object.fromEntries(issues), diagNodes, diagCycle, checkErrors: () => checkErrors, runCheck, freshCheck, clearJumpbar, setNoteDisplay, hideTip,
     selDf: () => selDf, validate,
     // lot L5 test hook: merge `params` into a node's params (null value = delete the key), then redraw + re-analyse
     patchNode: (nid, params) => {

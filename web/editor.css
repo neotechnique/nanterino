@@ -487,3 +487,6 @@ select.varsel{font-family:ui-monospace,Consolas,monospace;font-size:13px}
 .postit .pmode{border:0;background:transparent;color:#333;padding:0 6px;font-size:14px;line-height:1;cursor:pointer;border-radius:3px}
 .postit .pmode:hover{background:#0002;border:0}
 @media (pointer:coarse){.postit .pmode{padding:0 11px}}
+
+/* L6: minimap diagnostic dots (red errors, amber warnings): the map stays opaque enough to read them while any exist */
+#minimap:is([data-err]:not([data-err="0"]),[data-warn]:not([data-warn="0"])){opacity:.85}
