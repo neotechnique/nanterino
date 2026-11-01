@@ -10,7 +10,7 @@
 </head>
 <body>
 <header id="bar">
-  <button id="btnLeft" class="icon only-narrow" title="Palette">☰</button>
+  <button id="btnLeft" class="icon only-narrow" title="Hiérarchie">☰</button>
   <strong class="brand">Éditeur visuel</strong>
   <span id="heart" class="heart" title="Battement du robot"></span>
   <span id="liveState" class="livestate" title="État courant du robot">…</span>
@@ -34,9 +34,11 @@
 </header>
 <div id="banner" hidden></div>
 <main id="main">
+  <!-- L10: the left column is the hierarchy (columns > groups > chains > post-its); nodes are added by right click -->
   <aside id="left">
-    <input id="search" type="search" placeholder="Rechercher un nœud…" autocomplete="off" aria-label="Rechercher un nœud dans les déclencheurs, actions et conditions">
-    <div id="palette"></div>
+    <div class="lhead">Hiérarchie</div>
+    <input id="treeFilter" type="search" placeholder="Filtrer la hiérarchie" autocomplete="off" aria-label="Filtrer la hiérarchie">
+    <div id="tree" role="tree" aria-label="Hiérarchie du graphe : colonnes, groupes, chaînes et post-it"></div>
   </aside>
   <section id="stage">
     <div id="drawflow"></div>
@@ -47,7 +49,7 @@
   </section>
   <aside id="right">
     <nav class="tabs" id="tabs">
-      <button data-tab="node" class="on">Nœud</button>
+      <button data-tab="node" class="on">Inspecteur</button>
       <button data-tab="intents">Intentions</button>
       <button data-tab="vars">Variables</button>
       <button data-tab="tester">Tester</button>

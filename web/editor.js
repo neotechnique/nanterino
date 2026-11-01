@@ -46,6 +46,17 @@
  *           a state column refuses to enter a group (red outline, back in place, toast); the first nesting choice
  *           writes an explicit `parent` (null = top level) on every user frame / post-it so adoptLegacy never reruns.
  *           Default column post-its (note.auto = "state:<group>") come from the server (graph_visual.column_notes).
+ *           L10 (2026-11-01): flat right-click menu: Déclencheurs ▸ / Actions ▸ / Conditions ▸ (Category > Theme > item),
+ *           Post-it, Groupe de nœuds, Copier la sélection / Couper / Coller; no search field (typing filters, ctxFilter);
+ *           no empty blocks; "Fin" and "Changer d'état → X" only under Actions › État; node / group / post-it menus start
+ *           with Copier, Couper, Dupliquer, Supprimer (+ Désactiver la chaîne), Ranger dans le groupe ▸. Fragment clipboard
+ *           (selection = node | chain picked in the hierarchy | group or column | post-it; internal links, sub-groups and
+ *           post-its kept; paste / cut / duplicate = one undo step through one rebuild). The left column is a Unity-style
+ *           hierarchy replacing the palette and the COLONNES / GROUPES lists (buildTree / renderTree: columns > nested
+ *           groups > chains > post-its, fold state per browser, diagnostics rolled up on folded rows, click = select +
+ *           centre, double-click = rename, drag a row onto a column / group row = moveInto with the canvas drop rules,
+ *           selection synced both ways). The first right tab is "Inspecteur": node, wire, group, column, post-it or a
+ *           whole chain (steps + diagnostics).
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -228,7 +239,7 @@
     { id: 'action', label: 'Actions', icon: 'player-play', tip: 'Ce que fait le robot, dans l’ordre de la chaîne.' },
     { id: 'condition', label: 'Conditions', icon: 'git-branch', tip: 'Ce qui est testé : la suite Vrai ou Faux en dépend.' },
   ];
-  const NODE_KINDS = ['trigger', 'condition', 'action', 'end'];   // "Blocs" section of the palette (L4: no Start)
+  const NODE_KINDS = ['trigger', 'condition', 'action', 'end'];   // kinds the canvas menu inserts (L4: no Start; L10: Fin = Actions › État)
   // Post-it palette (pastel), first = default.
   const NOTE_COLORS = [['Jaune', '#fff59d'], ['Rose', '#f8bbd0'], ['Vert', '#c8e6c9'], ['Bleu', '#bbdefb'], ['Orange', '#ffe0b2'], ['Violet', '#e1bee7']];
   // Link rules (mirror of graph_visual.from_visual; the server stays the judge): Start is display only (no link),
@@ -602,7 +613,7 @@
     editor.drag = false; editor.drag_point = false; editor.connection = false; editor.editor_selected = false;
     editor.ele_selected = null; editor.node_selected = null; editor.connection_selected = null; editor.connection_ele = null;
     editor.clear();
-    selDf = null; selConn = null;
+    selDf = null; selConn = null; selChain = null;   // L10: a hierarchy chain selection refers to the old nodes
     linkMeta = new Map();
     (doc.links || []).forEach((l) => {
       const mt = {};
@@ -639,7 +650,7 @@
     if (!keepView && adoptLegacy()) drawFrames();   // L8: old flat layout -> membership from geometry, once
     drawJumpbar(); zoomVars();
     if (!keepView) clearJumpbar();   // L6: the jump bar exists only now: measure it and free the column titles
-    renderPalette();
+    scheduleTree();
     renderInspector();
     renderIntents();
     if (curTab === 'vars') renderVars();
@@ -1097,6 +1108,7 @@
     b.setAttribute('aria-label', `${ne} erreur(s), ${nw} avertissement(s)`);
   }
   function renderMsgs() {
+    scheduleTree();                      // L10: hierarchy badges follow every diagnostics pass (debounced)
     const box = $('#msgs'), tg = $('#btnMsgs');
     const all = [];
     issues.forEach((list, nid) => list.forEach((i) => all.push({ ...i, nid })));
@@ -1698,6 +1710,7 @@
   function clearNodeSelection() {
     if (editor.node_selected) { editor.node_selected.classList.remove('selected'); editor.node_selected = null; }
     selDf = null;
+    clearChainSel();                     // L10: one selection at a time (node | chain | group | post-it)
   }
   function selectFrame(id) {
     if (selFrame === id) return;
@@ -1788,7 +1801,7 @@
     const fin = (ok) => {
       if (done) return; done = true;
       if (ok && inp.value !== f.title) { f.title = inp.value.slice(0, 60); commitSoon(); }
-      drawFrames(); renderInspector(); renderPalette();
+      drawFrames(); renderInspector(); scheduleTree();
     };
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') fin(true); else if (e.key === 'Escape') fin(false); });
     inp.addEventListener('blur', () => fin(true));
@@ -1797,7 +1810,7 @@
   function editFrame(f, patch, rerender) {
     Object.assign(f, patch);
     if (f.note === '' || f.note == null) delete f.note;
-    drawFrames(); renderPalette();
+    drawFrames(); scheduleTree();
     if (rerender) renderInspector();
     commitSoon();
   }
@@ -1808,7 +1821,7 @@
     frames().concat(notes()).forEach((it) => { if (it.parent === id) it.parent = up; });   // L9: null = explicit top level
     meta.frames = frames().filter((f) => f.id !== id);
     if (selFrame === id) selFrame = null;
-    drawFrames(); renderInspector(); renderPalette();
+    drawFrames(); renderInspector(); scheduleTree();
     commitSoon();
   }
   // "Groupe" / key G: a frame around the selected node's chain(s) (Drawflow selects one node at a time, so the
@@ -1840,7 +1853,7 @@
     const host = dropTarget(frameBox(f), null, { frame: true });
     if (host) { f.parent = host.id; frames().push(f); fitAncestors(host); } else frames().push(f);
     selFrame = null; selectFrame(f.id);
-    renderPalette(); commitSoon();
+    scheduleTree(); commitSoon();
   }
   function focusFrame(id) {
     const f = frameById(id); if (!f) return;
@@ -1848,7 +1861,15 @@
     selectFrame(id);
   }
   function renderFrameInspector(box, f) {
-    box.append(h('div', { class: 'insttitle' }, ico('square', f.color), 'Groupe', h('small', { class: 'hint' }, f.id)));
+    // L10: a column (auto frame of a state) says which state it holds, how many chains and problems it contains
+    const st = f.auto ? colState(f) : null;
+    box.append(h('div', { class: 'insttitle' }, ico(f.auto ? colIcon(st) : 'square', f.auto ? colColor(st) : f.color), f.auto ? 'Colonne' : 'Groupe', h('small', { class: 'hint' }, f.id)));
+    if (f.auto) {
+      const desc = st === 'global' ? 'Règles globales : valables dans tous les états, évaluées avant celles de l’état courant.' : stateDesc(st);
+      if (desc) box.append(h('p', { class: 'hint' }, desc));
+      const s = treeStats('col:' + f.id);
+      box.append(h('p', { class: 'hint colstat' }, s.chains + ' chaîne(s) · ✖ ' + s.err + ' · ⚠ ' + s.warn + ' (nœuds en erreur / avertissement)'));
+    }
     const name = textCtl(f.title, (v) => editFrame(f, { title: v.slice(0, 60) }));
     name.maxLength = 60;
     box.append(field('Nom', name));
@@ -2079,7 +2100,7 @@
     if (!n.title) delete n.title;
     const el = noteEls.get(n.id);
     if (el) { placeNote(n, el); const pt = el.querySelector('.ptitle'); pt.textContent = n.title || 'Post-it'; pt.classList.toggle('empty', !n.title); const ta = el.querySelector('textarea'); if (ta.value !== (n.text || '')) ta.value = n.text || ''; refreshNoteText(n, el); }
-    renderPalette();
+    scheduleTree();
     if (rerender) renderInspector();
     commitSoon();
   }
@@ -2087,7 +2108,7 @@
     if (editBlocked()) return;
     meta.notes = notes().filter((n) => n.id !== id);
     if (selNote === id) selNote = null;
-    drawNotes(); renderInspector(); renderPalette();
+    drawNotes(); renderInspector(); scheduleTree();
     commitSoon();
   }
   // New note at a canvas point (default: centre of the view). Returns the note.
@@ -2114,7 +2135,7 @@
     if (host) { fitAncestors(host); drawFrames(); }
     if (pan) focusRect({ x0: n.x, y0: n.y, x1: n.x + n.w, y1: n.y + n.h }, editor.zoom);   // same zoom, note centred
     selNote = null; drawNotes(); selectNote(n.id);
-    renderPalette(); commitSoon();
+    scheduleTree(); commitSoon();
     const ta = noteEls.get(n.id) && noteEls.get(n.id).querySelector('textarea'); if (ta) ta.focus();
     return n;
   }
@@ -2308,7 +2329,7 @@
     });
   }
   function readOnlyMenu(items) {
-    const keep = new Set(['Ajuster la vue', 'Copier']);
+    const keep = new Set(['Ajuster la vue', 'Copier', 'Copier la sélection']);   // copying never edits
     return [{ label: navLocked ? 'Verrouillé — lecture seule' : 'Outil main — lecture seule', icon: navLocked ? 'lock' : 'hand-stop', disabled: true }, { sep: true }]
       .concat(items.map((it) => (it.sep || (keep.has(it.label) && !it.disabled) ? it : { label: it.label, icon: it.icon, disabled: true })));
   }
@@ -2383,7 +2404,9 @@
 
   // ---------- context menu (right click) ----------
   // A floating menu at the cursor: French labels, icons, arrow keys / Enter / Esc, submenus on hover or Right arrow,
-  // kept inside the viewport. Items: [{label, icon, fn, sub, search, disabled, sep}] ; `sub` is a list or a function returning one.
+  // kept inside the viewport. Items: [{label, icon, fn, sub, search, disabled, sep, key, path, tip}] ; `sub` is a list or a
+  // function returning one; `key` = shortcut hint on the right. L10: openCtx(x, y, items, filter) - `filter` = flat rows
+  // [{label, hay, fn, ...}] that typing filters (ctxFilter), no visible search field until a key is typed.
   let ctx = null;
   function closeCtx() { if (ctx) { ctx.menus.forEach((m) => m.remove()); ctx.el.remove(); ctx = null; } }
   // Esc: close the innermost submenu (focus goes back to its parent row), else the whole menu.
@@ -2396,10 +2419,10 @@
       (open || rows[0] || parent).focus();
     } else closeCtx();
   }
-  function openCtx(x, y, items) {
+  function openCtx(x, y, items, filter) {
     closeCtx();
     const root = h('div', { class: 'ctx', role: 'menu', tabindex: '-1' });
-    ctx = { el: root, menus: [root] };
+    ctx = { el: root, menus: [root], base: items, filter: filter || null, q: '', x, y };
     document.body.append(root);
     fillMenu(root, items, 0);
     placeMenu(root, x, y);
@@ -2426,7 +2449,7 @@
       const row = h('div', { class: 'cit' + (it.disabled ? ' dis' : ''), role: 'menuitem', tabindex: '-1', 'aria-disabled': it.disabled ? 'true' : null,
         'aria-haspopup': it.sub ? 'menu' : null, 'data-tip': it.tip || null, 'data-tip-side': it.tip ? '1' : null },
         it.icon ? ico(it.icon, it.color) : h('span', { class: 'ico-sp' }), h('span', { class: 'clab' }, it.label), it.path ? h('span', { class: 'cpath' }, it.path) : null,
-        it.sub ? h('span', { class: 'carr' }, '▸') : null);
+        it.key ? h('span', { class: 'ckey' }, it.key) : null, it.sub ? h('span', { class: 'carr' }, '▸') : null);
       if (!it.disabled) {
         row.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -2443,6 +2466,23 @@
   function closeSubsFrom(depth) {
     if (!ctx) return;
     while (ctx.menus.length > depth + 1) ctx.menus.pop().remove();
+  }
+  // L10 type-to-filter: no search field is shown; the first printable key typed while a menu is open puts a filter line at
+  // the top of the ROOT menu and lists the matching node entries (with their "Catégorie › Thème" path) in place of its
+  // rows; Backspace edits the text, Esc clears it (a second Esc closes as usual), arrows / Enter pick a row.
+  function ctxFilter(q) {
+    if (!ctx || !ctx.filter) return;
+    ctx.q = q;
+    closeSubsFrom(0);
+    const root = ctx.menus[0];
+    if (!q) fillMenu(root, ctx.base, 0);
+    else {
+      const ql = q.toLowerCase(), hits = ctx.filter.filter((r) => (r.hay || r.label.toLowerCase()).includes(ql)).slice(0, 20);
+      fillMenu(root, hits.length ? hits : [{ label: 'Aucun nœud ne correspond', disabled: true }], 0);
+      root.prepend(h('div', { class: 'cfilter', 'aria-live': 'polite' }, ico('eye'), h('span', {}, 'Filtre : ' + q)));
+    }
+    placeMenu(root, ctx.x, ctx.y);
+    const first = root.querySelector('.cit:not(.dis)'); (first || root).focus();
   }
   function openSub(row, it, depth) {
     closeSubsFrom(depth);          // keep the menus up to this row's own level, drop any submenu already open under it
@@ -2468,7 +2508,12 @@
     if (!ctx) return false;
     const menu = ctx.menus[ctx.menus.length - 1];
     ctx.kbd = Date.now();
-    if (e.key === 'Escape') escMenu();
+    // L10: printable keys filter the node entries (a space only once some text is typed: alone it activates the row)
+    const plain = !e.ctrlKey && !e.metaKey && !e.altKey;
+    if (ctx.filter && plain && e.key.length === 1 && (e.key !== ' ' || ctx.q)) ctxFilter(ctx.q + e.key);
+    else if (ctx.q && e.key === 'Backspace') ctxFilter(ctx.q.slice(0, -1));
+    else if (ctx.q && e.key === 'Escape') ctxFilter('');
+    else if (e.key === 'Escape') escMenu();
     else if (e.key === 'ArrowDown') focusNext(menu, 1);
     else if (e.key === 'ArrowUp') focusNext(menu, -1);
     else if (e.key === 'ArrowRight') { const a = document.activeElement; if (a && a.classList.contains('cit') && a.querySelector('.carr')) a.click(); }
@@ -2501,61 +2546,173 @@
   // Vars L2 shortcut rows: "Changer d'état → X" = an action set_var(etat, X) (replaces the old "État : X" / "Aller à : X").
   const moveChoices = () => V.states.map((s) => ({ label: "Changer d'état → " + s.label, icon: stateIcon(s.id), kind: 'action',
     preset: { action: 'set_var', args: { name: 'etat', value: s.id } }, hay: "changer d'état " + s.label + ' ' + s.id }));
-  // Submenu content "insert a node" with a search field; `make(choice)` performs the insertion.
-  // Lot L5 (GC2-like): search field, then Catégorie ▸ Thème ▸ entrée (cascading submenus, arrow keys, kept in the
-  // viewport by openSub/placeMenu), then the empty blocks and the quick "Changer d'état → X" rows (also under Actions ›
-  // État). A search lists matching entries of every allowed category with their path.
-  function insertSub(kinds, make, opts) {
-    return (subEl, depth) => {
-      const base = nodeChoices(kinds);
-      const moves = !!(opts && opts.moves);
-      const tree = menuTree(kinds, { noMoves: !moves });
-      const vocab = tree.flatMap((c) => c.themes.flatMap((t) => t.items));
-      const stateRows = moves ? moveChoices() : [];
-      const toItem = (c) => ({ label: c.label, icon: c.icon, color: c.color, tip: c.help || null, path: c.path || null, fn: () => make(c) });
-      const catRows = tree.map(({ cat, themes }) => ({ label: cat.label, icon: cat.icon, color: KINDS[cat.id].color, tip: cat.tip,
-        sub: themes.map(({ theme, items }) => ({ label: theme.label, icon: theme.icon, tip: theme.help || null, sub: items.map(toItem) })) }));
-      const search = { search: { placeholder: 'Rechercher un nœud…', onInput: (q) => render(q) } };
-      const rowsFor = (q) => (q
-        ? vocab.filter((c) => c.hay.includes(q)).slice(0, 14).map((c) => toItem(Object.assign({}, c, { path: itemPath(c) })))
-          .concat(base.filter((c) => c.label.toLowerCase().includes(q)).map(toItem))
-        : catRows.concat(catRows.length ? [{ sep: true }] : [], base.map(toItem), stateRows.length ? [{ sep: true }].concat(stateRows.map(toItem)) : []));
-      const render = (q) => {
-        closeSubsFrom(depth);
-        fillMenu(subEl, [search].concat(rowsFor(q)), depth);
-        const s = subEl.querySelector('.csearch'); if (s && q) { s.value = q; s.focus(); }
-      };
-      return [search].concat(rowsFor(''));
-    };
+  // Lot L10: the node part of every menu = Catégorie ▸ Thème ▸ entrée only (no search field, no empty blocks, no
+  // "Changer d'état → X" rows at the root: they live with "Fin" in Actions › État). Typing while a menu is open filters
+  // (filterRows + ctxFilter). `make(choice)` performs the insertion.
+  function catRows(kinds, make) {
+    const toItem = (c) => ({ label: c.label, icon: c.icon, color: c.color, tip: c.help || null, fn: () => make(c) });
+    return menuTree(kinds).map(({ cat, themes }) => ({ label: cat.label, icon: cat.icon, color: KINDS[cat.id].color, tip: cat.tip,
+      sub: themes.map(({ theme, items }) => ({ label: theme.label, icon: theme.icon, tip: theme.help || null, sub: items.map(toItem) })) }));
   }
-  let clipboard = null;           // in-editor clipboard: a node model {kind, description, params}
-  function copyNode(dfid) {
-    const m = model(dfid); if (!m) return false;
-    if (m.kind === 'state' || m.kind === 'start') { toast('Un nœud ' + KINDS[m.kind].label + ' est unique : il ne se copie pas.', 'err'); return false; }
-    clipboard = { kind: m.kind, description: m.description || '', params: clone(m.params || {}), group: m.group };
+  // The same entries as flat rows for type-to-filter: each with its "Catégorie › Thème" path and its search text.
+  function filterRows(kinds, make) {
+    return menuTree(kinds).flatMap((c) => c.themes.flatMap((t) => t.items))
+      .map((c) => ({ label: c.label, icon: c.icon, color: c.color, tip: c.help || null, path: itemPath(c), hay: c.hay, fn: () => make(c) }));
+  }
+  const insertSub = (kinds, make) => () => catRows(kinds, make);
+
+  // ---------- selection and clipboard (lot L10) ----------
+  // The selection is ONE of: a node (selDf), a chain picked in the hierarchy (selChain: all its nodes, highlighted
+  // together), a group or a column (selFrame), a post-it (selNote). The clipboard holds a fragment {nodes, links, frames,
+  // notes} in canvas coordinates: links between copied nodes are kept, a group brings its sub-groups, the nodes whose
+  // centre is inside it and the post-its of its subtree (a column brings its content, never itself: columns are the
+  // server's). Paste = fresh ids, fragment top-left on the paste point, top-level items filed in the frame under that point.
+  // Paste, cut and duplicate are ONE undo step each: the document is edited as data, rebuilt once, then committed.
+  let clipboard = null;
+  let selChain = null;             // {tid, ids}: trigger id (null for a multi-node paste) + node ids, trigger first
+  const hasSelection = () => selDf != null || !!selChain || !!selFrame || !!selNote;
+  function paintChainSel() {
+    if (!editor) return;
+    const on = new Set(selChain ? selChain.ids : []);
+    for (const dfid in dfData()) { const el = nodeEl(dfid); if (el) el.classList.toggle('chainsel', on.has(nidOf(dfid))); }
+  }
+  function clearChainSel() { if (!selChain) return false; selChain = null; paintChainSel(); return true; }
+  const inFrame = (f, dfid) => { const b = nodeBox(dfid), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; return cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h; };
+  // What belongs to frame `f` for a copy or a move: the frame and its descendant frames, the nodes whose centre is inside
+  // it, the post-its of the whole subtree (same membership as a title-bar drag).
+  function frameMembers(f) {
+    const sub = [f].concat(descendantFrames(f)), ids = new Set(sub.map((g) => g.id));
+    return { frames: sub, dfids: Object.keys(dfData()).filter((dfid) => inFrame(f, dfid)), notes: notes().filter((n) => n.parent && ids.has(n.parent)) };
+  }
+  function selectionFragment() {
+    const nids = new Set(), fids = new Set(), pids = new Set();
+    if (selChain) selChain.ids.forEach((i) => nids.add(i));
+    else if (selDf != null && model(selDf)) nids.add(nidOf(selDf));
+    else if (selFrame && frameById(selFrame)) {
+      const mb = frameMembers(frameById(selFrame));
+      mb.frames.forEach((g) => { if (!g.auto) fids.add(g.id); });
+      mb.dfids.forEach((d) => nids.add(nidOf(d)));
+      mb.notes.forEach((n) => pids.add(n.id));
+    } else if (selNote && noteById(selNote)) pids.add(selNote);
+    const d = serialize();
+    const nodes = d.nodes.filter((n) => nids.has(n.id) && n.kind !== 'state' && n.kind !== 'start'), keep = new Set(nodes.map((n) => n.id));
+    const frag = { nodes, links: d.links.filter((l) => keep.has(l.from) && keep.has(l.to)),
+      frames: clone(frames().filter((f) => fids.has(f.id))), notes: clone(notes().filter((n) => pids.has(n.id))) };
+    return frag.nodes.length || frag.frames.length || frag.notes.length ? frag : null;
+  }
+  const fragSize = (c) => [c.nodes.length ? c.nodes.length + ' nœud(s)' : '', c.frames.length ? c.frames.length + ' groupe(s)' : '',
+    c.notes.length ? c.notes.length + ' post-it' : ''].filter(Boolean).join(', ');
+  function copySelection(quiet) {
+    const m = selDf != null ? model(selDf) : null;
+    if (m && (m.kind === 'state' || m.kind === 'start')) { toast('Un nœud ' + KINDS[m.kind].label + ' est unique : il ne se copie pas.', 'err'); return false; }
+    const frag = selectionFragment();
+    if (!frag) { if (!quiet) toast('Rien à copier : sélectionnez un nœud, une chaîne, un groupe ou un post-it.', 'err'); return false; }
+    clipboard = frag;
+    if (!quiet) toast('Copié : ' + fragSize(frag) + '.', 'ok');
     return true;
   }
-  function pasteNode(pt) {
-    if (!clipboard || editBlocked()) return;
-    const m = { id: nextNid(), kind: clipboard.kind, description: clipboard.description, params: clone(clipboard.params) };
-    if (clipboard.group) m.group = clipboard.group;
-    delete m.params.fan;                                    // a pasted trigger is a fresh one
+  // Remove a fragment's items from a serialized document (wires touching a removed node go too).
+  function dropFragment(doc, frag) {
+    const nids = new Set(frag.nodes.map((n) => n.id)), fids = new Set(frag.frames.map((f) => f.id)), pids = new Set(frag.notes.map((n) => n.id));
+    doc.nodes = doc.nodes.filter((n) => !nids.has(n.id));
+    doc.links = doc.links.filter((l) => !nids.has(l.from) && !nids.has(l.to));
+    doc.frames = (doc.frames || []).filter((f) => !fids.has(f.id));
+    doc.notes = (doc.notes || []).filter((n) => !pids.has(n.id));
+  }
+  const COL_NO_CUT = 'Une colonne d’état ne se coupe pas et ne se duplique pas : copiez-la, ou sélectionnez ses groupes et ses chaînes.';
+  function cutSelection() {
+    if (editBlocked()) return false;
+    if (selFrame && (frameById(selFrame) || {}).auto) { toast(COL_NO_CUT, 'err'); return false; }
+    if (!copySelection(true)) { toast('Rien à couper : sélectionnez un nœud, une chaîne, un groupe ou un post-it.', 'err'); return false; }
+    const doc = serialize();
+    dropFragment(doc, clipboard);
+    selFrame = null; selNote = null; selChain = null;
+    rebuild(doc, true); commit();
+    toast('Coupé : ' + fragSize(clipboard) + ' (Ctrl+V pour coller, Ctrl+Z pour annuler).', 'ok');
+    return true;
+  }
+  // A chain selected in the hierarchy: its nodes are deleted together (one undo step).
+  function deleteSelection() {
+    if (editBlocked() || !selChain) return false;
+    const frag = selectionFragment(); if (!frag) return false;
+    const doc = serialize();
+    dropFragment(doc, frag); selChain = null;
+    rebuild(doc, true); commit();
+    return true;
+  }
+  // Paste fragment `c` with its top-left at canvas point `pt` (default: centre of the view). Returns the new ids.
+  function pasteFragment(c, pt) {
+    if (!c || editBlocked()) return null;
     if (!pt) { const st = $('#stage').getBoundingClientRect(); pt = canvasPoint(st.x + st.width / 2 - 100, st.y + st.height / 2 - 40); }
-    freshIds.add(m.id);
-    const dfid = addNodeFromModel(m, Math.round(pt.x), Math.round(pt.y));
-    commitSoon(); selectDf(dfid); analyze();
+    const all = c.nodes.concat(c.frames, c.notes);
+    const dx = Math.round(pt.x - Math.min(...all.map((o) => o.x || 0))), dy = Math.round(pt.y - Math.min(...all.map((o) => o.y || 0)));
+    const host = dropTargetAt(pt);                       // the frame under the paste point owns the top-level pasted items
+    const doc = serialize(), nmap = {}, fmap = {}, out = { nodes: [], frames: [], notes: [] };
+    let k = idCounter;
+    doc.nodes.forEach((n) => { const mm = /^n(\d+)$/.exec(n.id); if (mm) k = Math.max(k, +mm[1]); });
+    c.nodes.forEach((n) => {
+      const m = clone(n); m.id = 'n' + (++k); nmap[n.id] = m.id; m.x = n.x + dx; m.y = n.y + dy;
+      if (m.kind === 'trigger' && m.params) delete m.params.fan;   // a pasted trigger is a fresh one
+      doc.nodes.push(m); freshIds.add(m.id); out.nodes.push(m.id);
+    });
+    idCounter = k;
+    c.links.forEach((l) => doc.links.push(Object.assign(clone(l), { from: nmap[l.from], to: nmap[l.to] })));
+    const usedF = new Set((doc.frames || []).map((f) => f.id)), usedP = new Set((doc.notes || []).map((n) => n.id));
+    const fresh = (used, p) => { let i = 1; while (used.has(p + i)) i++; used.add(p + i); return p + i; };
+    c.frames.forEach((f) => { fmap[f.id] = fresh(usedF, 'f'); });
+    const top = host ? host.id : null;
+    doc.frames = (doc.frames || []).concat(c.frames.map((f) => {
+      const g = Object.assign(clone(f), { id: fmap[f.id], x: f.x + dx, y: f.y + dy, parent: fmap[f.parent] || top }); delete g.auto;
+      out.frames.push(g.id); return g;
+    }));
+    doc.notes = (doc.notes || []).concat(c.notes.map((n) => {
+      const o = Object.assign(clone(n), { id: fresh(usedP, 'p'), x: n.x + dx, y: n.y + dy, parent: fmap[n.parent] || top }); delete o.auto;
+      out.notes.push(o.id); return o;
+    }));
+    selFrame = null; selNote = null; selChain = null;
+    rebuild(doc, true);
+    const h2 = host && frameById(host.id); if (h2) { fitAncestors(h2); drawFrames(); }
+    commit();
+    // the pasted items become the selection: one node, else the top pasted group, else a post-it, else all the nodes
+    const topFrame = c.frames.filter((f) => !fmap[f.parent]).map((f) => fmap[f.id])[0];
+    if (out.nodes.length === 1 && !out.frames.length && !out.notes.length) selectDf(nidToDf.get(out.nodes[0]));
+    else if (topFrame) selectFrame(topFrame);
+    else if (!out.nodes.length && out.notes.length) selectNote(out.notes[0]);
+    else if (out.nodes.length) {
+      const trig = out.nodes.find((id) => { const d = nidToDf.get(id); return d != null && model(d).kind === 'trigger'; });
+      selChain = { tid: trig || null, ids: out.nodes.slice() }; paintChainSel(); renderInspector();
+    }
+    return out;
   }
-  function duplicateNode(dfid) {
-    if (!copyNode(dfid)) return;
-    const d = dfNode(dfid);
-    pasteNode({ x: d.pos_x + 40, y: d.pos_y + 40 });
+  function duplicateSelection() {
+    if (editBlocked()) return null;
+    if (selFrame && (frameById(selFrame) || {}).auto) { toast(COL_NO_CUT, 'err'); return null; }
+    const frag = selectionFragment(); if (!frag) return null;
+    const all = frag.nodes.concat(frag.frames, frag.notes);
+    return pasteFragment(frag, { x: Math.min(...all.map((o) => o.x || 0)) + 40, y: Math.min(...all.map((o) => o.y || 0)) + 40 });
   }
+  // Older single-node entry points (test hooks, earlier scenarios): same clipboard.
+  function copyNode(dfid) { if (String(selDf) !== String(dfid)) selectDf(dfid); return copySelection(true); }
+  function pasteNode(pt) { return pasteFragment(clipboard, pt); }
+  function duplicateNode(dfid) { if (String(selDf) !== String(dfid)) selectDf(dfid); return duplicateSelection(); }
   function toggleChain(dfid) {
     const m = model(dfid); if (!m || m.kind !== 'trigger' || isEnterTrig(m)) return;
     m.params.enabled = m.params.enabled === false;           // false -> true, true/undefined -> false
     if (m.params.enabled === true) delete m.params.enabled;
     refreshNode(dfid); if (selDf === dfid) renderInspector();
     analyze(); commitSoon();
+  }
+  // L10: "Désactiver la chaîne" on any node: the (non entry) triggers whose chains reach it, all switched together
+  // (any of them enabled -> all disabled, else all enabled again).
+  function chainTriggersOf(dfid) {
+    const nid = nidOf(dfid);
+    return treeChains().filter((c) => !c.orphan && c.ids.includes(nid)).map((c) => c.df).filter((d) => !isEnterTrig(model(d)));
+  }
+  function toggleChains(dfids) {
+    if (editBlocked() || !dfids.length) return;
+    const off = dfids.some((d) => model(d).params.enabled !== false);
+    dfids.forEach((d) => { const p = model(d).params; if (off) p.enabled = false; else delete p.enabled; refreshNode(d); });
+    renderInspector(); analyze(); commitSoon();
   }
   // Link `fromDf` (output class) to `toDf`, honouring the same rules as a manual link.
   function linkNodes(fromDf, outCls, toDf) {
@@ -2592,61 +2749,75 @@
   function colorMenu(list, cur, apply) {
     return list.map(([nm, c]) => ({ label: nm + (c === cur ? ' ✓' : ''), icon: 'square', color: c, fn: () => apply(c) }));
   }
-  // Build and open the menu that matches what was right-clicked.
+  // Build and open the menu that matches what was right-clicked (lot L10 layout). Every menu but a wire's ends with the
+  // canvas part: Post-it, Groupe de nœuds, then Copier la sélection / Couper / Coller; on the bare canvas it starts with the
+  // three node categories (inserted at the click point). On a node, a group or a post-it it starts with what acts on that
+  // item: Copier, Couper, Dupliquer, Supprimer (+ Désactiver la chaîne on a node), Ranger dans le groupe ▸. A node keeps
+  // "Insérer après" (linked to its output); a wire keeps "Insérer un nœud au milieu" / "Supprimer le fil".
   function openContextFor(e) {
     const t = e.target, x = e.clientX, y = e.clientY, pt = canvasPoint(x, y);
     const noteEl = t.closest('.postit'), frameEl = t.closest('.frame'), nodeElm = t.closest('.drawflow-node'), pathEl = t.closest('path.main-path');
-    let items;
+    const atPoint = (c) => addAt(c.kind, c.preset, pt, { exact: true });
+    const tail = () => [
+      { label: 'Post-it', icon: 'message', tip: 'Un post-it au point du clic (touche N : au centre de la vue).', fn: () => addNote(pt) },
+      { label: 'Groupe de nœuds', icon: 'square', tip: 'Un groupe autour de la sélection ; sans nœud ni chaîne sélectionné, un groupe vide au point du clic (touche G).',
+        fn: () => (selDf != null || selChain ? addFrame() : addFrame(pt)) },
+      { sep: true },
+      { label: 'Copier la sélection', icon: 'text-caption', key: 'Ctrl+C', disabled: !hasSelection(), fn: () => copySelection() },
+      { label: 'Couper', icon: 'eraser', key: 'Ctrl+X', disabled: !hasSelection(), fn: cutSelection },
+      { label: 'Coller', icon: 'arrow-right', key: 'Ctrl+V', disabled: !clipboard, tip: 'Colle au point du clic.', fn: () => pasteFragment(clipboard, pt) }];
+    const acts = (o) => [
+      { label: 'Copier', icon: 'text-caption', key: 'Ctrl+C', disabled: !o.copy, fn: () => copySelection() },
+      { label: 'Couper', icon: 'eraser', key: 'Ctrl+X', disabled: !o.cut, tip: o.cutTip || null, fn: cutSelection },
+      { label: 'Dupliquer', icon: 'plus', disabled: !o.cut, tip: o.cutTip || null, fn: duplicateSelection },
+      { label: 'Supprimer', icon: 'x', key: 'Suppr', fn: o.del }]
+      .concat(o.extra || [], [{ label: 'Ranger dans le groupe', icon: 'square', disabled: !o.file, tip: o.fileTip || null, sub: o.file ? () => fileMenu(o.file) : null }]);
+    let items, filter = null;
     if (noteEl) {
       const n = noteById(noteEl.dataset.nid);
       if (n) selectNote(n.id, true);
-      items = [
+      items = acts({ copy: true, cut: true, del: () => deleteNote(n.id), file: { what: 'note', id: n.id } }).concat([{ sep: true },
         { label: 'Modifier', icon: 'eraser', fn: () => { const ta = noteEls.get(n.id).querySelector('textarea'); ta.focus(); } },
         { label: 'Couleur', icon: 'square', sub: colorMenu(NOTE_COLORS, n.color, (c) => editNote(n, { color: c }, true)) },
-        { sep: true }, { label: 'Supprimer', icon: 'x', fn: () => deleteNote(n.id) }];
+        { sep: true }], tail());
     } else if (frameEl && frameEl.dataset.fid) {
       const f = frameById(frameEl.dataset.fid);
       selectFrame(f.id);
-      items = [
+      items = acts({ copy: true, cut: !f.auto, cutTip: f.auto ? COL_NO_CUT : null, del: () => deleteFrame(f.id),
+        file: f.auto ? null : { what: 'group', id: f.id }, fileTip: f.auto ? COL_TOP : null }).concat([{ sep: true },
         { label: 'Renommer', icon: 'eraser', fn: () => editFrameTitle(f) },
         { label: 'Couleur', icon: 'square', sub: colorMenu(FRAME_COLORS, f.color, (c) => editFrame(f, { color: c }, true)) },
-        { sep: true }, { label: 'Supprimer', icon: 'x', fn: () => deleteFrame(f.id) }];
+        { sep: true }], tail());
     } else if (nodeElm) {
       const dfid = nodeElm.id.replace('node-', ''), m = model(dfid);
       selectDf(dfid);
-      const after = [];
+      const own = m.kind !== 'state' && m.kind !== 'start';
+      const trig = chainTriggersOf(dfid), anyOn = trig.some((d) => model(d).params.enabled !== false);
+      const extra = trig.length ? [{ label: anyOn ? 'Désactiver la chaîne' : 'Activer la chaîne', icon: 'power', fn: () => toggleChains(trig) }] : [];
+      items = acts({ copy: own, cut: own, del: () => editor.removeNodeId('node-' + dfid), extra, file: chainRef(m.id) });
       const kinds = kindsAfter(m.kind);
       const ports = m.kind === 'condition' ? [['output_1', ' (Vrai)'], ['output_2', ' (Faux)']] : [['output_1', '']];
-      ports.forEach(([cls, suffix]) => {
-        after.push({ label: 'Insérer après' + suffix, icon: 'plus', disabled: !kinds.length && !canGoToState(m.kind),
-          sub: insertSub(kinds, (c) => insertAfter(dfid, cls, c), { moves: canGoToState(m.kind) }) });
-      });
-      items = after.concat([{ sep: true },
-        { label: 'Dupliquer', icon: 'plus', disabled: m.kind === 'state' || m.kind === 'start', fn: () => duplicateNode(dfid) },
-        { label: 'Copier', icon: 'text-caption', disabled: m.kind === 'state' || m.kind === 'start', fn: () => copyNode(dfid) }]);
-      if (m.kind === 'trigger' && !isEnterTrig(m)) items.push({ label: (m.params || {}).enabled === false ? 'Activer la chaîne' : 'Désactiver la chaîne', icon: 'power', fn: () => toggleChain(dfid) });
-      items.push({ label: 'Grouper', icon: 'square', fn: () => { selectDf(dfid); addFrame(); } },
-        { label: 'Ajouter un post-it ici', icon: 'message', fn: () => { const d = dfNode(dfid); addNote({ x: d.pos_x, y: d.pos_y + nodeBox(dfid).y1 - nodeBox(dfid).y0 + 24 }); } },
-        { sep: true }, { label: 'Supprimer', icon: 'x', fn: () => editor.removeNodeId('node-' + dfid) });
+      items.push({ sep: true });
+      ports.forEach(([cls, suffix]) => items.push({ label: 'Insérer après' + suffix, icon: 'plus', disabled: !kinds.length,
+        sub: kinds.length ? insertSub(kinds, (c) => insertAfter(dfid, cls, c)) : null }));
+      items = items.concat([{ sep: true }], tail());
+      if (kinds.length) filter = filterRows(kinds, (c) => insertAfter(dfid, 'output_1', c));
     } else if (pathEl && pathEl.parentElement.classList.length >= 5) {
       const cl = pathEl.parentElement.classList, w = { in: cl[1].slice(13), out: cl[2].slice(14), outCls: cl[3] };
       selConn = w;
       const ma = model(w.out), mb = model(w.in);
       const ok = ['condition', 'action'].filter((k) => !linkProblem(ma, { kind: k }) && !linkProblem({ kind: k }, mb) && !(k === 'condition' && ma.kind === 'action'));
       items = [
-        { label: 'Insérer un nœud au milieu', icon: 'plus', disabled: !ok.length, sub: insertSub(ok, (c) => splitWire(w, c)) },
+        { label: 'Insérer un nœud au milieu', icon: 'plus', disabled: !ok.length, sub: ok.length ? insertSub(ok, (c) => splitWire(w, c)) : null },
         { sep: true },
         { label: 'Supprimer le fil', icon: 'x', fn: () => { editor.removeSingleConnection(w.out, w.in, w.outCls, 'input_1'); selConn = null; renderInspector(); } }];
+      if (ok.length) filter = filterRows(ok, (c) => splitWire(w, c));
     } else {
-      items = [
-        { label: 'Insérer un nœud', icon: 'plus', sub: insertSub(NODE_KINDS, (c) => addAt(c.kind, c.preset, pt, { exact: true }), { moves: true }) },
-        { label: 'Insérer un post-it', icon: 'message', fn: () => addNote(pt) },
-        { label: 'Insérer un groupe', icon: 'square', fn: () => addFrame(pt) },
-        { label: 'Coller', icon: 'text-caption', disabled: !clipboard, fn: () => pasteNode(pt) },
-        { sep: true }, { label: 'Ajuster la vue', icon: 'eye', fn: fit }];
+      items = catRows(NODE_KINDS, atPoint).concat([{ sep: true }], tail());
+      filter = filterRows(NODE_KINDS, atPoint);
     }
-    if (editBlocked(true)) items = readOnlyMenu(items);
-    openCtx(x, y, items);
+    if (editBlocked(true)) { items = readOnlyMenu(items); filter = null; }
+    openCtx(x, y, items, filter);
   }
 
   // ---------- adding nodes ----------
@@ -2731,92 +2902,424 @@
       { guard: 'var_compare', args: { name: 'etat', op: '=', value: st.id } }, 'Vrai quand le robot est dans l’état « ' + st.label + ' » : range la chaîne dans sa colonne.', 'etat état ' + st.id, 'state_test'));
     V.actions.forEach((a) => add('action', a.theme, a.label, a.icon, { action: a.id }, a.help, a.id));
     moveChoices().forEach((c) => add('action', slotTheme('state_move'), c.label, c.icon, c.preset, 'Le robot passe dans cet état (action « Changer une variable » sur etat).', c.hay, 'state_move'));
+    // L10: "Fin" (end of chain, no state change) is an `end` node filed under Actions › État, beside "Changer d'état → X"
+    out.push({ cat: 'action', kind: 'end', theme: slotTheme('state_move'), label: KINDS.end.label, icon: KINDS.end.icon, preset: null, help: KIND_TIP.end, slot: 'end',
+      hay: (KINDS.end.label + ' end fin de chaîne ' + KIND_TIP.end + ' ' + themeById(slotTheme('state_move')).label).toLowerCase() });
     return out;
   }
   // [{cat, themes: [{theme, items}]}] for the allowed kinds; themes in vocabulary order; a theme without item is dropped.
   function menuTree(kinds, opts) {
-    const items = menuItems().filter((i) => kinds.includes(i.cat) && (!(opts && opts.noMoves) || i.slot !== 'state_move'));
-    return CATS.filter((c) => kinds.includes(c.id)).map((c) => {
+    // L10: an entry is kept when its node KIND is allowed ("Fin" = an end filed under the Actions category)
+    const items = menuItems().filter((i) => kinds.includes(i.kind) && (!(opts && opts.noMoves) || i.slot !== 'state_move'));
+    return CATS.filter((c) => items.some((i) => i.cat === c.id)).map((c) => {
       const mine = items.filter((i) => i.cat === c.id), ids = [...new Set(mine.map((i) => i.theme))];
       ids.sort((a, b) => themeById(a).order - themeById(b).order);
       return { cat: c, themes: ids.map((t) => ({ theme: themeById(t), items: mine.filter((i) => i.theme === t) })) };
     }).filter((c) => c.themes.length);
   }
   const itemPath = (i) => ((CATS.find((c) => c.id === i.cat) || {}).label || '') + ' › ' + themeById(i.theme).label;
-  // Palette tree open / closed rows (per browser): 'c:<cat>' and 't:<cat>:<theme>'. Default: categories open.
-  const PAL_KEY = 'nanterino.editor.palette';
-  let palOpen = null;
-  function palState() {
-    if (!palOpen) {
-      palOpen = new Set(CATS.map((c) => 'c:' + c.id));
-      try { const v = JSON.parse(localStorage.getItem(PAL_KEY) || 'null'); if (Array.isArray(v)) palOpen = new Set(v); } catch (e) { /* storage off */ }
+  // ---------- hierarchy (lot L10): Unity-style tree of the left column (replaces the palette and the COLONNES / GROUPES lists) ----------
+  // Rows: columns (auto frames, top level) > nested groups (frame.parent, any depth) > chains > post-its (note.parent).
+  // A chain = one trigger + every node its outputs reach (a fan shared by several compiled chains is ONE row); nodes carry
+  // no parent, so a chain sits in the deepest frame under its trigger's centre (dropTargetAt, the canvas drop rule). Nodes
+  // reached by no trigger get a row of their own. Siblings: groups, then chains, then post-its, each by (y, then x).
+  // Rebuilt (debounced: scheduleTree) after every edit and diagnostics pass, keeping the fold state (per browser) and the
+  // scroll; never rebuilt under a rename or a drag. The filter keeps the matching rows and their ancestors (unfolded).
+  // Click = select + centre (a chain selects all its nodes), double-click / F2 = rename a group, column or post-it, a
+  // pointer drag of a row onto a column / group row = moveInto (same rules as a canvas drop). The selected item's row is
+  // highlighted (syncTreeSel, called by renderInspector), or its nearest visible ancestor when folded away.
+  const TREE_KEY = 'nanterino.editor.tree';
+  const COL_TOP = 'Une colonne d’état reste au premier niveau : elle ne se range pas dans un groupe.';
+  let treeFold = null, treeTimer = 0, treeDrag = null, treeRename = false, treeJustDragged = false;
+  let treeOwner = new Map(), treeUp = new Map();   // last build: node id -> its row key ; row key -> parent row key
+  function treeFolded() {
+    if (!treeFold) {
+      treeFold = new Set();
+      try { const v = JSON.parse(localStorage.getItem(TREE_KEY) || 'null'); if (Array.isArray(v)) treeFold = new Set(v); } catch (e) { /* storage off */ }
     }
-    return palOpen;
+    return treeFold;
   }
-  function palToggle(key, force) {
-    const st = palState();
-    if (force === true || (force == null && !st.has(key))) st.add(key); else st.delete(key);
-    try { localStorage.setItem(PAL_KEY, JSON.stringify([...st])); } catch (e) { /* storage off: still works for this page */ }
-    renderPalette();
-    const back = document.querySelector('#palette [data-pkey="' + key + '"]'); if (back) back.focus();
+  function setFold(key, folded) {
+    const s = treeFolded();
+    if (folded) s.add(key); else s.delete(key);
+    try { localStorage.setItem(TREE_KEY, JSON.stringify([...s])); } catch (e) { /* storage off: still works for this page */ }
+    renderTree();
+    const back = document.querySelector('#tree .hrow[data-key="' + CSS.escape(key) + '"]'); if (back) back.focus({ preventScroll: true });
   }
-  function palHead(cls, key, open, icon, color, label, count, tip, data) {
-    const el = h('div', Object.assign({ class: cls + (open ? ' open' : ''), role: 'button', tabindex: '0', 'aria-expanded': String(open), 'data-pkey': key, 'data-tip': tip || null }, data),
-      h('span', { class: 'pcar' }, open ? '▾' : '▸'), ico(icon, color), h('span', { class: 'plab' }, label), h('small', {}, String(count)));
-    el.addEventListener('click', () => palToggle(key));
-    el.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); palToggle(key); }
-      else if (e.key === 'ArrowRight' && !open) { e.preventDefault(); palToggle(key, true); }
-      else if (e.key === 'ArrowLeft' && open) { e.preventDefault(); palToggle(key, false); }
+  function scheduleTree() { if (!treeTimer) treeTimer = setTimeout(() => { treeTimer = 0; renderTree(); }, 120); }
+  const colState = (f) => String(f.id).replace(/^auto-/, '');
+  const colIcon = (st) => (st === 'global' ? 'git-branch' : stateIcon(st));
+  const colColor = (st) => (st === 'global' ? null : stateColor(st));
+  // Chains of the canvas: [{df, tid, ids}] (ids in breadth-first order from the trigger, true branch before false) plus the
+  // nodes no trigger reaches [{df, nid, ids, orphan: true}].
+  function treeChains() {
+    if (!editor) return [];
+    const data = dfData(), reached = new Set(), out = [];
+    const trig = Object.keys(data).filter((d) => data[d].data.model.kind === 'trigger')
+      .sort((a, b) => data[a].pos_y - data[b].pos_y || data[a].pos_x - data[b].pos_x);
+    trig.forEach((df) => {
+      const seen = new Set(), queue = [df];
+      while (queue.length) {
+        const d = queue.shift(); if (seen.has(d) || !data[d]) continue; seen.add(d);
+        if (d !== df && data[d].data.model.kind === 'state') continue;     // a legacy hub ends the chain
+        Object.keys(data[d].outputs).sort().forEach((k) => data[d].outputs[k].connections.forEach((c) => queue.push(String(c.node))));
+      }
+      const ids = [...seen].map((d) => data[d].data.model.id);
+      ids.forEach((i) => reached.add(i));
+      out.push({ df, tid: data[df].data.model.id, ids });
     });
-    return el;
+    Object.keys(data).forEach((df) => { const id = data[df].data.model.id; if (!reached.has(id)) out.push({ df, nid: id, ids: [id], orphan: true }); });
+    return out;
   }
-
-  function renderPalette() {
-    const q = $('#search').value.trim().toLowerCase();
-    const box = $('#palette'); box.innerHTML = '';
-    const items = [];
-    const vocab = menuItems();
-    const rects = bandRects();
-    // Vars L2: the columns (one automatic frame per state) are navigation targets; changing the state is an action
-    V.states.forEach((st) => { if (rects[st.id]) items.push({ sec: 'Colonnes (cliquer pour y aller)', kind: 'band', band: true, id: st.id, label: st.label, sub: 'etat = ' + st.id, icon: stateIcon(st.id), hay: 'colonne état ' + st.label + st.id }); });
-    if (rects.global) items.push({ sec: 'Colonnes (cliquer pour y aller)', kind: 'band', band: true, id: 'global', label: 'Règles globales', sub: 'global', icon: 'git-branch', hay: 'global règles globales' });
-    items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: () => addFrame(), label: 'Groupe', sub: 'nouveau (G)', icon: 'plus', color: '#e3b341', hay: 'groupe nouveau cadre commentaire' });
-    frames().forEach((f) => items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: () => focusFrame(f.id), label: f.title || '(sans nom)', sub: '', icon: 'square', color: f.color, hay: 'groupe ' + f.title + ' ' + (f.note || '') }));
-    items.push({ sec: 'Notes', kind: 'note', fn: () => addNote(), label: 'Post-it', sub: 'nouveau (N)', icon: 'plus', color: NOTE_COLORS[0][1], hay: 'note post-it postit nouveau' });
-    notes().forEach((n) => items.push({ sec: 'Notes', kind: 'note', fn: () => focusNoteBox(n.id), label: n.title || (n.text || '').slice(0, 24) || '(vide)', sub: '', icon: 'message', color: n.color, hay: 'note post-it ' + (n.title || '') + ' ' + (n.text || '') }));
-    NODE_KINDS.forEach((k) => items.push({ sec: 'Blocs (vides)', kind: k, label: KINDS[k].label, sub: '', icon: KINDS[k].icon, hay: KINDS[k].label + ' ' + k, tip: KIND_TIP[k] }));
-    const mk = (i, extraCls) => {
-      const el = h('div', { class: 'pitem' + (extraCls || ''), draggable: i.band || i.fn ? null : 'true', 'data-tip': i.tip || i.help || null, 'data-tip-side': '1' },
-        ico(i.icon, i.color || (i.band ? stateColor(i.id) : KINDS[i.kind].color)), h('span', { class: 'plab' }, i.label), h('small', { class: i.path ? 'ppath' : null }, i.path || i.sub || ''));
-      el.addEventListener('click', () => { if (i.fn) i.fn(); else if (i.band) focusBand(i.id); else addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
-      el.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', JSON.stringify({ kind: i.kind, preset: i.preset || null })); });
-      return el;
+  function chainHost(df) { const b = nodeBox(df); return dropTargetAt({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }); }
+  // Reference of the chain a node belongs to (first chain reaching it, else the node alone), for moveInto / fileMenu.
+  function chainRef(nid) {
+    const all = treeChains(), c = all.find((x) => !x.orphan && x.ids.includes(nid)) || all.find((x) => x.ids.includes(nid));
+    return c ? { what: 'chain', id: c.tid || c.nid, ids: c.ids.slice(), df: c.df } : null;
+  }
+  // The tree: rows {key, type: col | group | chain | node | note, id, label, icon, color, x, y, ids (own node ids), off, kids}.
+  function buildTree() {
+    const root = { key: 'root', type: 'root', ids: [], kids: [] }, rowOf = new Map();
+    if (!editor) return root;
+    frames().forEach((f) => {
+      const st = f.auto ? colState(f) : null;
+      rowOf.set(f.id, { key: (f.auto ? 'col:' : 'g:') + f.id, type: f.auto ? 'col' : 'group', id: f.id, label: f.title || '(sans nom)',
+        icon: f.auto ? colIcon(st) : 'square', color: f.auto ? colColor(st) : f.color, x: f.x, y: f.y, ids: [], kids: [] });
+    });
+    const into = (pid) => (pid && rowOf.get(pid)) || root;
+    frames().forEach((f) => (f.auto ? root : into(f.parent)).kids.push(rowOf.get(f.id)));
+    treeOwner = new Map();
+    treeChains().forEach((c) => {
+      const m = model(c.df), d = dfNode(c.df), host = chainHost(c.df), key = c.orphan ? 'n:' + c.nid : 'c:' + c.tid;
+      const row = c.orphan
+        ? { key, type: 'node', id: c.nid, label: KINDS[m.kind].label + ' : ' + summary(m), icon: iconOf(m), color: KINDS[m.kind].color, x: d.pos_x, y: d.pos_y, ids: c.ids, kids: [] }
+        : { key, type: 'chain', id: c.tid, label: summary(m), icon: themeById(nodeTheme(m)).icon || iconOf(m), color: KINDS.trigger.color,
+          x: d.pos_x, y: d.pos_y, ids: c.ids, off: (m.params || {}).enabled === false, kids: [] };
+      c.ids.forEach((i) => { if (!treeOwner.has(i)) treeOwner.set(i, key); });
+      into(host && host.id).kids.push(row);
+    });
+    notes().forEach((n) => into(n.parent).kids.push({ key: 'p:' + n.id, type: 'note', id: n.id, label: n.title || noteFirstLine(n) || '(vide)',
+      icon: 'message', color: n.color, x: n.x, y: n.y, ids: [], kids: [] }));
+    const rank = { col: 0, group: 1, chain: 2, node: 2, note: 3 };
+    const sortRec = (row, depth) => { if (depth > 200) return; row.kids.sort((a, b) => rank[a.type] - rank[b.type] || a.y - b.y || a.x - b.x); row.kids.forEach((k) => sortRec(k, depth + 1)); };
+    sortRec(root, 0);
+    return root;
+  }
+  // Post-order pass: rolled-up node ids (diagnostics: nodes in error / warning, chains below) and filter matches.
+  function treeStat(row, q, depth) {
+    const all = new Set(row.ids);
+    let hit = false, chains = row.type === 'chain' ? 1 : 0;
+    if ((depth || 0) < 200) row.kids.forEach((k) => { treeStat(k, q, (depth || 0) + 1).forEach((i) => all.add(i)); if (k.hit) hit = true; chains += k.chains; });
+    row.self = !!q && String(row.label || '').toLowerCase().includes(q);
+    row.hit = row.self || hit;
+    row.chains = chains; row.err = 0; row.warn = 0;
+    all.forEach((i) => {
+      const l = issues.get(i) || [];
+      if (l.some((x) => x.level === 'err')) row.err++; else if (l.some((x) => x.level === 'warn')) row.warn++;
+    });
+    return all;
+  }
+  function treeStats(key) {
+    const root = buildTree(); treeStat(root, '');
+    let found = null;
+    const find = (r) => { if (found) return; if (r.key === key) { found = r; return; } r.kids.forEach(find); };
+    find(root);
+    return found || { chains: 0, err: 0, warn: 0 };
+  }
+  function renderTree() {
+    const box = $('#tree'); if (!box || !editor) return;
+    if (treeRename || treeDrag) { scheduleTree(); return; }
+    clearTimeout(treeTimer); treeTimer = 0;
+    const q = (($('#treeFilter') || {}).value || '').trim().toLowerCase();
+    const root = buildTree(), fold = treeFolded();
+    treeStat(root, q);
+    treeUp = new Map();
+    const up = (row, pk, depth) => { treeUp.set(row.key, pk); if (depth < 200) row.kids.forEach((k) => up(k, row.key, depth + 1)); };
+    up(root, null, 0);
+    const out = document.createDocumentFragment();
+    const emit = (row, depth) => {
+      if (depth > 200 || (q && !row.hit)) return;
+      const hasKids = row.kids.length > 0, open = hasKids && (q ? true : !fold.has(row.key));
+      const roll = !hasKids || !open;      // an open container lets its children carry their own badges
+      const badges = [];
+      if (roll && row.err) badges.push(h('span', { class: 'hb err', 'data-tip': row.err + ' nœud(s) en erreur' + (hasKids ? ' dans ce qui est replié' : '') }, '✖ ' + row.err));
+      if (roll && row.warn) badges.push(h('span', { class: 'hb warn', 'data-tip': row.warn + ' nœud(s) avec un avertissement' + (hasKids ? ' dans ce qui est replié' : '') }, '⚠ ' + row.warn));
+      const tip = row.off ? 'Chaîne désactivée : elle reste dans le fichier mais le robot l’ignore.' : (String(row.label).length > 26 ? row.label : null);
+      out.append(h('div', { class: 'hrow h-' + row.type + (row.off ? ' off' : '') + (row.self ? ' hit' : ''), role: 'treeitem', tabindex: '-1',
+        'data-key': row.key, 'data-type': row.type, 'data-id': row.id, 'aria-level': String(depth + 1), 'aria-expanded': hasKids ? String(open) : null,
+        style: '--d:' + depth, 'data-tip': tip, 'data-tip-side': tip ? '1' : null },
+        h('span', { class: 'hcar' + (hasKids ? '' : ' sp'), 'aria-hidden': 'true' }, hasKids ? (open ? '▾' : '▸') : ''),
+        ico(row.icon, row.color), h('span', { class: 'hlab' }, row.label), badges));
+      if (open) row.kids.forEach((k) => emit(k, depth + 1));
     };
-    // lot L5: Déclencheurs / Actions / Conditions, each split by shared theme (collapsible); a search lists the matches
-    // of every category flat, each with its "Catégorie › Thème" path.
-    if (q) {
-      const hits = vocab.filter((i) => i.hay.includes(q));
-      if (hits.length) box.append(h('div', { class: 'psec' }, 'Nœuds (' + hits.length + ')'));
-      hits.forEach((i) => box.append(mk(Object.assign({}, i, { path: itemPath(i) }))));
-    } else {
-      const st = palState();
-      menuTree(CATS.map((c) => c.id)).forEach(({ cat, themes }) => {
-        const ck = 'c:' + cat.id, open = st.has(ck);
-        box.append(palHead('pcat', ck, open, cat.icon, KINDS[cat.id].color, cat.label, themes.reduce((n, t) => n + t.items.length, 0), cat.tip, { 'data-cat': cat.id }));
-        if (!open) return;
-        themes.forEach(({ theme, items: tItems }) => {
-          const tk = 't:' + cat.id + ':' + theme.id, topen = st.has(tk);
-          box.append(palHead('pthm', tk, topen, theme.icon, null, theme.label, tItems.length, theme.help, { 'data-cat': cat.id, 'data-theme': theme.id }));
-          if (topen) tItems.forEach((i) => box.append(mk(Object.assign({}, i, { sub: '' }), ' pin')));
-        });
-      });
-    }
-    let sec = '';
-    items.filter((i) => !q || i.hay.toLowerCase().includes(q)).forEach((i) => {
-      if (i.sec !== sec) { sec = i.sec; box.append(h('div', { class: 'psec' }, sec)); }
-      box.append(mk(i));
+    root.kids.forEach((k) => emit(k, 0));
+    const top = box.scrollTop;
+    box.innerHTML = '';
+    box.append(out);
+    if (!box.children.length) box.append(h('p', { class: 'hint' }, q ? 'Rien ne correspond au filtre.' : 'Graphe vide : clic droit sur le graphe pour ajouter un nœud.'));
+    box.scrollTop = top;
+    syncTreeSel(true);
+  }
+  // Row key of the current selection (a node -> the chain row it belongs to).
+  function selKey() {
+    if (selChain && selChain.tid) return 'c:' + selChain.tid;
+    if (selFrame) { const f = frameById(selFrame); return f ? (f.auto ? 'col:' : 'g:') + f.id : null; }
+    if (selNote) return 'p:' + selNote;
+    if (selDf != null) return treeOwner.get(nidOf(selDf)) || null;
+    return null;
+  }
+  function syncTreeSel(noScroll) {
+    const box = $('#tree'); if (!box) return;
+    let k = selKey(), el = null, guard = 0;
+    while (k && guard++ < 300 && !(el = box.querySelector('.hrow[data-key="' + CSS.escape(k) + '"]'))) k = treeUp.get(k);
+    box.querySelectorAll('.hrow.sel').forEach((r) => { if (r !== el) r.classList.remove('sel'); });
+    if (!el) return;
+    el.classList.add('sel');
+    if (noScroll) return;
+    // scroll the tree box only (scrollIntoView could also scroll overflow-hidden ancestors of the page)
+    const r = el.getBoundingClientRect(), b = box.getBoundingClientRect();
+    if (r.top < b.top) box.scrollTop -= b.top - r.top + 4; else if (r.bottom > b.bottom) box.scrollTop += r.bottom - b.bottom + 4;
+  }
+  // A chain picked in the hierarchy: every node of it selected (highlighted) at once, view centred on it.
+  function selectChain(tid, centre) {
+    const c = treeChains().find((x) => x.tid === tid); if (!c) return false;
+    clearNodeSelection();
+    if (selFrame) { selFrame = null; drawFrames(); }
+    if (selNote) { selNote = null; noteEls.forEach((el) => el.classList.remove('sel')); }
+    selConn = null;
+    selChain = { tid, ids: c.ids.slice() };
+    paintChainSel();
+    if (centre) focusChainIds(c.ids);
+    renderInspector();
+    if (innerWidth <= 900) document.body.classList.remove('hide-right');
+    return true;
+  }
+  function treeActivate(r) {
+    const type = r.dataset.type, id = r.dataset.id;
+    if (type === 'col' || type === 'group') focusFrame(id);
+    else if (type === 'note') focusNoteBox(id);
+    else if (type === 'chain') selectChain(id, true);
+    else if (type === 'node') focusNode(id);
+    if (innerWidth <= 900) document.body.classList.add('hide-left');
+  }
+  function treeRenameRow(r) {
+    const type = r.dataset.type, id = r.dataset.id;
+    const it = type === 'note' ? noteById(id) : (type === 'group' || type === 'col') ? frameById(id) : null;
+    if (!it || editBlocked()) return;
+    const lab = r.querySelector('.hlab'); if (!lab) return;
+    const inp = h('input', { class: 'hrename', type: 'text', maxlength: 60, 'aria-label': type === 'note' ? 'Titre du post-it' : 'Nom du groupe' });
+    inp.value = it.title || '';
+    treeRename = true;
+    lab.replaceWith(inp); inp.focus(); inp.select();
+    let done = false;
+    inp._fin = (ok) => {
+      if (done) return; done = true; treeRename = false;
+      const v = inp.value.slice(0, 60);
+      if (ok && v !== (it.title || '')) { if (type === 'note') editNote(it, { title: v }, true); else editFrame(it, { title: v }, true); }
+      renderTree();
+    };
+    inp.addEventListener('blur', () => inp._fin(true));
+    ['pointerdown', 'mousedown', 'click', 'dblclick'].forEach((t) => inp.addEventListener(t, (e) => e.stopPropagation()));
+  }
+  function treeFilterKey(e) {
+    const flt = e.target;
+    if (e.key === 'Escape' && flt.value) { e.preventDefault(); flt.value = ''; renderTree(); }
+    else if (e.key === 'ArrowDown' || e.key === 'Enter') { const r = document.querySelector('#tree .hrow'); if (r) { e.preventDefault(); r.focus(); } }
+  }
+  // Keys on a focused row: arrows move / fold, Enter selects, F2 renames. Returns true when handled.
+  function treeKey(e) {
+    const r = e.target, rows = [...document.querySelectorAll('#tree .hrow')], i = rows.indexOf(r), k = e.key, open = r.getAttribute('aria-expanded');
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (k === 'ArrowDown' || k === 'ArrowUp') { const n = rows[i + (k === 'ArrowDown' ? 1 : -1)]; if (n) n.focus(); }
+    else if (k === 'ArrowRight' && open === 'false') setFold(r.dataset.key, false);
+    else if (k === 'ArrowLeft' && open === 'true') setFold(r.dataset.key, true);
+    else if (k === 'ArrowLeft') { const p = treeUp.get(r.dataset.key), pr = p && document.querySelector('#tree .hrow[data-key="' + CSS.escape(p) + '"]'); if (pr) pr.focus(); }
+    else if (k === 'Enter') treeActivate(r);
+    else if (k === 'F2') treeRenameRow(r);
+    else return false;
+    e.preventDefault(); e.stopPropagation();
+    return true;
+  }
+  const rowRef = (r) => {
+    const type = r.dataset.type, id = r.dataset.id;
+    if (type === 'group') return { what: 'group', id };
+    if (type === 'note') return { what: 'note', id };
+    if (type === 'chain' || type === 'node') return chainRef(type === 'chain' ? id : id);
+    return { what: 'col', id };
+  };
+  // May the dragged row `d` be dropped on row `over`? (a column never moves; a group never into itself / its subtree)
+  function treeDropOk(d, over) {
+    if (!over || over === d.row || !/^(col|group)$/.test(over.dataset.type) || d.type === 'col') return false;
+    const t = frameById(over.dataset.id); if (!t) return false;
+    if (d.type === 'group') { const f = frameById(d.id); if (!f || f.id === t.id || descendantFrames(f).some((g) => g.id === t.id)) return false; }
+    return true;
+  }
+  function installTree() {
+    const box = $('#tree'), flt = $('#treeFilter');
+    if (!box || !flt) return;
+    flt.addEventListener('input', renderTree);
+    box.addEventListener('click', (e) => {
+      if (treeJustDragged) { treeJustDragged = false; return; }
+      const r = e.target.closest && e.target.closest('.hrow'); if (!r || treeRename) return;
+      if (e.target.closest('.hcar') && r.getAttribute('aria-expanded') != null) { setFold(r.dataset.key, r.getAttribute('aria-expanded') === 'true'); return; }
+      treeActivate(r);
+      const again = box.querySelector('.hrow[data-key="' + CSS.escape(r.dataset.key) + '"]'); if (again) again.focus({ preventScroll: true });
     });
+    box.addEventListener('dblclick', (e) => {
+      const r = e.target.closest && e.target.closest('.hrow');
+      if (r && /^(group|col|note)$/.test(r.dataset.type)) { e.preventDefault(); treeRenameRow(r); }
+    });
+    // Drag and drop of rows: pointer events (mouse, pen, touch), the pointer is captured only once the drag has started so
+    // that a plain click keeps its row as the click target. The drop target is the row under the POINTER.
+    box.addEventListener('pointerdown', (e) => {
+      const r = e.target.closest && e.target.closest('.hrow');
+      if (!r || e.button !== 0 || treeRename || e.target.closest('.hcar:not(.sp)')) return;
+      treeDrag = { row: r, type: r.dataset.type, id: r.dataset.id, x: e.clientX, y: e.clientY, pid: e.pointerId, on: false, over: null, ghost: null };
+    });
+    box.addEventListener('pointermove', (e) => {
+      const d = treeDrag; if (!d || e.pointerId !== d.pid) return;
+      if (!d.on) {
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 6) return;
+        d.on = true;
+        try { box.setPointerCapture(d.pid); } catch (err) { /* synthetic pointer */ }
+        document.body.classList.add('tree-drag');
+        try { const s = window.getSelection(); if (s && !s.isCollapsed) s.removeAllRanges(); } catch (err) { /* nothing selected */ }
+        d.row.classList.add('hdragged');
+        d.ghost = h('div', { class: 'hghost' }, (d.row.querySelector('.hlab') || {}).textContent || '');
+        document.body.append(d.ghost);
+      }
+      if (e.cancelable) e.preventDefault();
+      d.ghost.style.left = (e.clientX + 14) + 'px'; d.ghost.style.top = (e.clientY + 10) + 'px';
+      const el = document.elementFromPoint(e.clientX, e.clientY), over = el && el.closest ? el.closest('#tree .hrow') : null;
+      const target = over && over !== d.row && /^(col|group)$/.test(over.dataset.type) ? over : null;
+      if (d.over && d.over !== target) d.over.classList.remove('hdrop', 'hdeny');
+      d.over = target;
+      if (target) { const ok = treeDropOk(d, target); target.classList.toggle('hdrop', ok); target.classList.toggle('hdeny', !ok); }
+    });
+    const end = (e) => {
+      const d = treeDrag; if (!d || (e.pointerId != null && e.pointerId !== d.pid)) return;
+      treeDrag = null;
+      if (!d.on) return;                                   // a plain click: the click handler selects
+      treeJustDragged = true; setTimeout(() => { treeJustDragged = false; }, 0);
+      document.body.classList.remove('tree-drag');
+      d.row.classList.remove('hdragged');
+      if (d.ghost) d.ghost.remove();
+      if (d.over) d.over.classList.remove('hdrop', 'hdeny');
+      if (e.type === 'pointerup' && d.over) {
+        if (d.type === 'col') toast(COL_TOP, 'err');
+        else if (!treeDropOk(d, d.over)) toast('Un groupe ne peut pas entrer dans lui-même ni dans un de ses sous-groupes.', 'err');
+        else moveInto(rowRef(d.row), frameById(d.over.dataset.id));
+      }
+      scheduleTree();
+    };
+    box.addEventListener('pointerup', end);
+    box.addEventListener('pointercancel', end);
+    renderTree();
+  }
+  // "Ranger dans le groupe ▸": every column and group in hierarchy order (indented by depth); the current host is ticked
+  // and off, a moved group's own subtree is left out.
+  function fileMenu(ref) {
+    if (!ref) return [{ label: 'Rien à ranger', disabled: true }];
+    const skip = new Set();
+    if (ref.what === 'group') { const f = frameById(ref.id); if (f) [f].concat(descendantFrames(f)).forEach((g) => skip.add(g.id)); }
+    let cur = null;
+    if (ref.what === 'group') cur = (frameById(ref.id) || {}).parent || null;
+    else if (ref.what === 'note') cur = (noteById(ref.id) || {}).parent || null;
+    else if (ref.df != null) { const hst = chainHost(ref.df); cur = hst ? hst.id : null; }
+    const rows = [];
+    const walk = (row, depth) => row.kids.forEach((k) => {
+      if (!/^(col|group)$/.test(k.type) || skip.has(k.id) || depth > 50) return;
+      rows.push({ label: ' '.repeat(depth) + k.label + (k.id === cur ? ' ✓' : ''), icon: k.icon, color: k.color, disabled: k.id === cur,
+        fn: () => moveInto(ref, frameById(k.id)) });
+      walk(k, depth + 1);
+    });
+    walk(buildTree(), 0);
+    return rows.length ? rows : [{ label: 'Aucun groupe', disabled: true }];
+  }
+  // L10: file a group, a post-it or a chain (its nodes) in `target` (a column or a group), from the hierarchy (drag a row)
+  // or the menu (Ranger dans le groupe ▸). The item moves just below what the target already holds, on its inner left
+  // margin; the target and its parents grow to enclose it (they never shrink); then, like a canvas drop, dropTargetAt at
+  // the item's anchor decides the parent (the explicit target wins when the anchor also falls in an overlapping outsider).
+  // A column never moves into anything (same refusal as on the canvas). One undo step.
+  function moveInto(ref, target) {
+    if (editBlocked() || !ref || !target) return false;
+    if (ref.what === 'col') { toast(COL_TOP, 'err'); return false; }
+    let box = null, it = null;
+    const mv = { frames: [], notes: [], dfids: [] };
+    if (ref.what === 'group') {
+      it = frameById(ref.id); if (!it) return false;
+      if (it.auto) { toast(COL_TOP, 'err'); return false; }
+      if (it.id === target.id || descendantFrames(it).some((g) => g.id === target.id)) { toast('Un groupe ne peut pas entrer dans lui-même ni dans un de ses sous-groupes.', 'err'); return false; }
+      Object.assign(mv, frameMembers(it)); box = frameBox(it);
+    } else if (ref.what === 'note') {
+      it = noteById(ref.id); if (!it) return false;
+      mv.notes = [it]; box = noteBox(it);
+    } else {
+      mv.dfids = (ref.ids || []).map((i) => nidToDf.get(i)).filter((d) => d != null && dfNode(d)).map(String);
+      if (!mv.dfids.length) return false;
+      mv.dfids.forEach((d) => { const b = nodeBox(d); box = box ? { x0: Math.min(box.x0, b.x0), y0: Math.min(box.y0, b.y0), x1: Math.max(box.x1, b.x1), y1: Math.max(box.y1, b.y1) } : b; });
+    }
+    // lowest point of what the target already holds (the moved item itself excluded)
+    const mf = new Set(mv.frames.map((g) => g.id)), mn = new Set(mv.notes.map((n) => n.id)), md = new Set(mv.dfids.map(String));
+    let bottom = target.y + FRAME_PAD.t - 24;
+    frames().forEach((g) => { if (g.parent === target.id && !mf.has(g.id)) bottom = Math.max(bottom, g.y + g.h); });
+    notes().forEach((n) => { if (n.parent === target.id && !mn.has(n.id)) bottom = Math.max(bottom, n.y + noteHeight(n)); });
+    Object.keys(dfData()).forEach((d) => { if (!md.has(String(d)) && inFrame(target, d)) bottom = Math.max(bottom, nodeBox(d).y1); });
+    const dx = Math.round(target.x + FRAME_PAD.l - box.x0), dy = Math.round(bottom + 24 - box.y0);
+    mv.frames.forEach((g) => { g.x += dx; g.y += dy; });
+    mv.notes.forEach((n) => { n.x += dx; n.y += dy; });
+    mv.dfids.forEach((d) => {
+      const nd = dfNode(d), el = nodeEl(d);
+      nd.pos_x += dx; nd.pos_y += dy;
+      if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
+    });
+    mv.dfids.forEach((d) => editor.updateConnectionNodes('node-' + d));
+    const moved = { x0: box.x0 + dx, y0: box.y0 + dy, x1: box.x1 + dx, y1: box.y1 + dy };
+    let nb = moved, f = target, guard = 0;
+    while (f && guard++ < 200) {          // the target (then each parent) encloses the moved box, columns included
+      const pad = f === target ? FRAME_PAD : NEST_PAD;
+      const x0 = Math.min(f.x, nb.x0 - pad.l), y0 = Math.min(f.y, nb.y0 - pad.t), x1 = Math.max(f.x + f.w, nb.x1 + pad.r), y1 = Math.max(f.y + f.h, nb.y1 + pad.b);
+      f.x = Math.round(x0); f.y = Math.round(y0); f.w = Math.round(x1 - x0); f.h = Math.round(y1 - y0);
+      nb = frameBox(f); f = parentOf(f);
+    }
+    if (ref.what === 'group' || ref.what === 'note') {
+      let t = dropTargetAt({ x: moved.x0 + 12, y: moved.y0 + 12 }, mf);
+      if (!t || (t.id !== target.id && !descendantFrames(target).some((g) => g.id === t.id))) t = target;
+      reparent(it, ref.what === 'note', t);
+    } else toast('Chaîne rangée dans « ' + (target.title || target.id) + ' ».', '');
+    drawFrames(); drawNotes(); paintWires();
+    commitSoon(); scheduleTree();
+    return true;
+  }
+  // Inspector of a chain picked in the hierarchy (or of several pasted nodes): where it lives, its problems, its steps.
+  function renderChainInspector(box) {
+    const df = selChain.tid ? nidToDf.get(selChain.tid) : null, m = df != null ? model(df) : null;
+    const ids = selChain.ids.filter((i) => nidToDf.has(i));
+    if (m) {
+      box.append(h('div', { class: 'insttitle' }, ico(themeById(nodeTheme(m)).icon || iconOf(m), KINDS.trigger.color), 'Chaîne', h('small', { class: 'hint' }, ids.length + ' nœud(s)')));
+      box.append(h('div', { class: 'chname' }, summary(m)));
+      const path = []; let f = chainHost(df), g = 0;
+      while (f && g++ < 50) { path.unshift(f.title || f.id); f = parentOf(f); }
+      box.append(h('p', { class: 'hint chpath' }, 'Dans : ' + (path.length ? path.join(' › ') : 'hors des colonnes')));
+    } else box.append(h('div', { class: 'insttitle' }, ico('git-branch'), 'Sélection', h('small', { class: 'hint' }, ids.length + ' nœud(s)')));
+    const iss = [];
+    ids.forEach((i) => (issues.get(i) || []).forEach((x) => { if (x.level === 'err' || x.level === 'warn') iss.push(Object.assign({ nid: i }, x)); }));
+    if (iss.length) box.append(h('div', { class: 'isslist' }, iss.map((i) => h('div', { class: 'iss ' + i.level, role: 'button', tabindex: '0', onclick: () => focusNode(i.nid) },
+      (ISSUE_PREFIX[i.level] || '') + i.message))));
+    else box.append(h('p', { class: 'hint chok' }, '✔ Aucune erreur ni avertissement dans cette chaîne.'));
+    box.append(h('div', { class: 'sect' }, 'Étapes'));
+    ids.forEach((i, k) => {
+      const mm = model(nidToDf.get(i));
+      box.append(h('div', { class: 'trow cstep', 'data-nid': i, onclick: () => focusNode(i) }, ico(iconOf(mm), KINDS[mm.kind].color), ' ',
+        (k + 1) + '. ', h('b', {}, KINDS[mm.kind].label), ' : ' + summary(mm)));
+    });
+    if (m && !isEnterTrig(m)) {
+      box.append(checkCtl('Chaîne activée', m.params.enabled !== false, () => toggleChains([df]), 'power'));
+      if (m.params.enabled === false) box.append(h('p', { class: 'hint' }, 'Désactivée : la chaîne reste dans le fichier mais le robot l’ignore (grisée).'));
+    }
+    box.append(h('div', { class: 'chbtns' }, h('button', { type: 'button', onclick: () => copySelection() }, 'Copier'),
+      h('button', { type: 'button', onclick: cutSelection }, 'Couper'),
+      h('button', { type: 'button', class: 'danger', onclick: deleteSelection }, m ? 'Supprimer la chaîne' : 'Supprimer ces nœuds')));
   }
 
   // ---------- inspector ----------
@@ -3001,13 +3504,15 @@
 
   function renderInspector() {
     const box = $('#inspector'); box.innerHTML = '';
+    syncTreeSel();                       // L10: every selection change passes here: the hierarchy row follows
     const fr = selFrame && frameById(selFrame);
     if (fr) { renderFrameInspector(box, fr); return; }
     const nt = selNote && noteById(selNote);
     if (nt) { renderNoteInspector(box, nt); return; }
+    if (selChain && selDf == null) { renderChainInspector(box); return; }
     if (selConn && selDf == null && renderWireInspector(box)) return;
     const m = selDf != null ? model(selDf) : null;
-    if (!m) { box.append(h('p', { class: 'hint' }, 'Sélectionnez un nœud pour le modifier, ou ajoutez-en un depuis la palette.')); return; }
+    if (!m) { box.append(h('p', { class: 'hint' }, 'Sélectionnez un élément dans la hiérarchie ou le graphe ; clic droit sur le graphe pour ajouter un nœud.')); return; }
     const p = m.params;
     box.append(h('div', { class: 'insttitle' }, ico(iconOf(m), KINDS[m.kind].color),
       KINDS[m.kind].label, h('small', { class: 'hint' }, m.id + (m.group ? ' · ' + (m.group === 'global' ? 'global' : stateLabel(m.group)) : ''))));
@@ -3136,7 +3641,7 @@
   // simulate time and answers with {intent: name, message}. A shared list (`words_from`) is shown read-only.
   function intentChanged(rerender) {
     commitSoon();
-    renderPalette();
+    scheduleTree();
     if (rerender) renderIntents();
     if (selDf != null) renderInspector();
   }
@@ -3553,10 +4058,10 @@
     if (!vocab.ok || !vis.ok) { toast('Impossible de charger le graphe (' + (vocab.status || vis.status) + ').', 'err'); return; }
     V = vocab.json; serverErrors = []; simErrors = [];
     (V.kinds || []).forEach((k) => { if (KINDS[k.id] && k.icon) KINDS[k.id].icon = k.icon; });
-    renderPalette();
+    scheduleTree();
     rebuild(vis.json, false);
     liveChains = computeChains(vis.json);
-    renderPalette();
+    scheduleTree();
     if (curTab === 'versions') loadVersions();
     hist = [snap()]; histIdx = 0; savedSnap = hist[0];
     const b = $('#banner');
@@ -3892,6 +4397,7 @@
     editor.zoom_min = 0.03; editor.zoom_max = 1.6;
     editor.start();
     editor.on('nodeSelected', (id) => {
+      clearChainSel();
       selDf = id; selConn = null;
       if (selFrame) { selFrame = null; drawFrames(); }
       if (selNote) { selNote = null; noteEls.forEach((el) => el.classList.remove('sel')); }
@@ -3959,13 +4465,23 @@
         if (ctxKey(e)) return;
       }
       if (e.target.classList && e.target.classList.contains('finput')) return;   // inline group rename handles its own Enter/Escape
+      // L10 hierarchy: its filter field, its inline rename and its rows handle their keys here (never reaching Drawflow)
+      if (e.target.id === 'treeFilter') { treeFilterKey(e); e.stopPropagation(); return; }
+      if (e.target.classList && e.target.classList.contains('hrename')) {
+        if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); if (e.target._fin) e.target._fin(e.key === 'Enter'); }
+        e.stopPropagation(); return;
+      }
+      if (e.target.classList && e.target.classList.contains('hrow') && treeKey(e)) return;
       if (/^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) { e.stopPropagation(); return; }
       if (selFrame && e.key === 'Delete') { e.preventDefault(); e.stopPropagation(); deleteFrame(selFrame); return; }
       if (selNote && e.key === 'Delete') { e.preventDefault(); e.stopPropagation(); deleteNote(selNote); return; }
       if (e.key.toLowerCase() === 'g' && !e.ctrlKey && !e.metaKey && !e.altKey && $('#modal').hidden) { e.preventDefault(); addFrame(); return; }
       if (e.key.toLowerCase() === 'n' && !e.ctrlKey && !e.metaKey && !e.altKey && $('#modal').hidden) { e.preventDefault(); addNote(); return; }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'c' && selDf != null) { e.preventDefault(); copyNode(selDf); return; }
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v' && clipboard) { e.preventDefault(); pasteNode(); return; }
+      // L10: Ctrl+C / Ctrl+X / Ctrl+V act on the whole selection (node, hierarchy chain, group, post-it); Suppr on a chain
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'c' && hasSelection()) { e.preventDefault(); copySelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'x' && hasSelection()) { e.preventDefault(); cutSelection(); return; }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'v' && clipboard) { e.preventDefault(); pasteFragment(clipboard); return; }
+      if (selChain && selDf == null && e.key === 'Delete') { e.preventDefault(); e.stopPropagation(); deleteSelection(); return; }
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
       else if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'y' || (e.shiftKey && e.key.toLowerCase() === 'z'))) { e.preventDefault(); redo(); }
     }, true);
@@ -3981,15 +4497,15 @@
     document.addEventListener('pointermove', miniMove, { passive: false });
     ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((t) => document.addEventListener(t, miniUp, true));
     // A press on the bare canvas or on a node unselects the frame / note (their own presses stop before here).
-    dfEl.addEventListener('mousedown', (e) => { if (!e.target.closest('.drawflow-node')) { unselectFrame(); unselectNote(); } });
+    dfEl.addEventListener('mousedown', (e) => { if (!e.target.closest('.drawflow-node')) { unselectFrame(); unselectNote(); if (clearChainSel()) renderInspector(); } });
     dfEl.addEventListener('dragover', (e) => e.preventDefault());
     dfEl.addEventListener('drop', (e) => {
       e.preventDefault();
-      if (editBlocked()) return;                 // lock / hand tool: palette drops refused
+      if (editBlocked()) return;                 // lock / hand tool: drops refused (L10: no palette; an external drop of the same payload)
       try { const d = JSON.parse(e.dataTransfer.getData('text/plain')); addAt(d.kind, d.preset, canvasPoint(e.clientX, e.clientY)); } catch (err) { /* foreign drop */ }
     });
 
-    $('#search').addEventListener('input', renderPalette);
+    installTree();             // L10: left column = hierarchy (filter, rows, drag and drop)
     $('#btnGroup').onclick = () => addFrame();
     $('#btnNote').onclick = () => addNote();
     $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnFit').onclick = fit;
@@ -4040,6 +4556,9 @@
     setHand, setLock, toggleHelp, save,
     menuTree, menuItems, issues: () => Object.fromEntries(issues), diagNodes, diagCycle, checkErrors: () => checkErrors, runCheck, freshCheck, clearJumpbar, setNoteDisplay, hideTip,
     selDf: () => selDf, validate,
+    // lot L10 test hooks: selection / clipboard, hierarchy
+    copySelection, cutSelection, pasteFragment, duplicateSelection, hasSelection, selChain: () => selChain, selectChain,
+    buildTree, renderTree, treeChains, moveInto, treeFold: () => [...treeFolded()],
     // lot L8 test hooks: node bubble text, minimap mapping / viewport, nesting helpers
     nodeTip: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodeTipOf(nodeEl(df)); },
     nodePath: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodePath(model(df)); },
@@ -4077,7 +4596,7 @@
       activateTab('intents');
       meta.intents = meta.intents || {};
       meta.intents.au_secours = { words: ['au secours', 'aidez-moi'], only_in: ['ecoute', 'relance'], description: 'Le visiteur appelle à l’aide.' };
-      renderIntents(); renderPalette();
+      renderIntents(); scheduleTree();
       document.querySelector('#intents').scrollTop = 99999;
       dbg('intent trigger offered: ' + !!byId(evs(), 'intent.au_secours'));
     }
