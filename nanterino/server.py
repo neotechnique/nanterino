@@ -255,7 +255,8 @@ async def graph_simulate(request: Request):
 async def graph_check(request: Request):
     """Dry-run compile of an editor document (nothing written, nothing applied): errors, warnings (e.g. several
     branches of one trigger that change the state) and, per trigger with several outgoing branches, the
-    execution order the engine will use. The editor calls it while the user edits."""
+    execution order the engine will use. The editor calls it while the user edits (lot L5: node badges). An error
+    found by the YAML validator keeps `node` = its trigger and adds `at` = the faulty condition / action node."""
     try:
         doc = await request.json()
     except ValueError:

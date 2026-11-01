@@ -168,8 +168,9 @@ def test_vocabulary():
     v = G.vocabulary(CFG, g)
     counts = {k: len(x) for k, x in v.items()}
     # CHANGED (lot L1): + var_changed, 7 variable actions, 4 variable conditions, variable manager keys
+    # CHANGED (lot L5): + the node-menu theme table (11 themes) and the 5 theme slots of the data-built entries
     assert counts == {"events": 22, "actions": 30, "guards": 12, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
-                      "var_types": 5, "list_types": 3, "ops": 6, "variables": 2}, counts
+                      "var_types": 5, "list_types": 3, "ops": 6, "themes": 11, "theme_slots": 5, "variables": 2}, counts
     ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
     assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])
     assert [x["id"] for x in v["variables"]["names"][:5]] == list(G.SYSTEM_VARS)

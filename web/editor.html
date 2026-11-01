@@ -16,8 +16,8 @@
   <span id="liveState" class="livestate" title="État courant du robot">…</span>
   <span id="dirty" class="dirty" hidden>modifié</span>
   <span class="sp"></span>
-  <button id="btnUndo" title="Annuler (Ctrl+Z)">↶ Annuler</button>
-  <button id="btnRedo" title="Refaire (Ctrl+Y)">↷ Refaire</button>
+  <button id="btnUndo" title="Annuler la dernière modification (Ctrl+Z)">↶ Annuler</button>
+  <button id="btnRedo" title="Refaire la modification annulée (Ctrl+Y)">↷ Refaire</button>
   <button id="btnGroup" title="Créer un groupe autour du nœud sélectionné (G)">▭ Groupe</button>
   <button id="btnNote" title="Ajouter un post-it (N)">🗒 Post-it</button>
   <button id="btnFit" title="Tout voir (0)">⤢ Ajuster</button>
@@ -25,16 +25,17 @@
   <button id="btnLock" class="navbtn" title="Verrouiller : lecture seule (L)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/lock-open.svg')"></span></button>
   <button id="btnHelp" class="navbtn" title="Commandes de navigation (?)"><span class="ico" style="--ic:url('/web/vendor/tabler/question-mark.svg')"></span></button>
   <button id="btnVars" title="Variables et listes du graphe (comme les Local / Global Variables de Game Creator 2)"><span class="ico" style="--ic:url('/web/vendor/tabler/text-caption.svg')"></span> Variables</button>
-  <button id="btnValidate">✔ Valider</button>
-  <button id="btnSave" class="primary">Enregistrer et appliquer</button>
-  <button id="btnYaml">Voir le YAML</button>
-  <button id="btnReset" class="danger">Revenir au graphe par défaut</button>
+  <button id="btnDiag" class="diag ok" type="button" aria-label="Erreurs et avertissements">✔ 0</button>
+  <button id="btnValidate" title="Vérifier le graphe sans l'enregistrer (le robot fait la validation finale à l'enregistrement)">✔ Valider</button>
+  <button id="btnSave" class="primary" title="Envoyer le graphe au robot : il est vérifié, sauvegardé (version précédente gardée) puis appliqué (tout de suite en veille, sinon à la prochaine veille)">Enregistrer et appliquer</button>
+  <button id="btnYaml" title="Afficher le fichier graph.yaml actif (lecture seule)">Voir le YAML</button>
+  <button id="btnReset" class="danger" title="Remplacer le graphe par celui livré avec le robot (l'actuel est sauvegardé dans Versions)">Revenir au graphe par défaut</button>
   <button id="btnRight" class="icon only-narrow" title="Inspecteur">⚙</button>
 </header>
 <div id="banner" hidden></div>
 <main id="main">
   <aside id="left">
-    <input id="search" type="search" placeholder="Rechercher un nœud…" autocomplete="off">
+    <input id="search" type="search" placeholder="Rechercher un nœud…" autocomplete="off" aria-label="Rechercher un nœud dans les déclencheurs, actions et conditions">
     <div id="palette"></div>
   </aside>
   <section id="stage">

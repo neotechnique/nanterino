@@ -567,6 +567,8 @@ def _note_problem(n: dict):
         return "La couleur du post-it doit être au format #rrggbb."
     if not all(_num(n.get(k)) for k in ("x", "y", "w", "h")) or n["w"] <= 0 or n["h"] <= 0:
         return "La position et la taille du post-it doivent être numériques (largeur et hauteur > 0)."
+    if n.get("display") not in (None, "full", "compact"):   # lot L5: full text (default) or title / first line only
+        return "L'affichage du post-it est « full » ou « compact »."
     return None
 
 
@@ -591,6 +593,8 @@ def clean_notes(notes):
              "x": n["x"], "y": n["y"], "w": n["w"], "h": n["h"]}
         if n.get("title"):
             c["title"] = n["title"]
+        if n.get("display") == "compact":   # lot L5: only the non-default mode is stored (old files stay byte-identical)
+            c["display"] = "compact"
         out.append(c)
     return out, errors
 
@@ -599,7 +603,8 @@ def clean_notes(notes):
 def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     """Compile an editor document. Returns (raw_dict | None, layout dict, errors).
 
-    errors = [{"node": id | None, "message": str}] (French); when non-empty nothing may be written.
+    errors = [{"node": id | None, "message": str}] (French); when non-empty nothing may be written. A validator
+    (parse_graph) error also carries `at` (the condition / action node it is about) and `nodes` [trigger, at] (lot L5).
     `report` (optional dict, filled in place): "warnings" = non-blocking remarks [{"node", "nodes", "kind",
     "message"}] and "fans" = {trigger id: [{"target", "nodes", "moves", "rank", "ignored"}]} for triggers with
     several outgoing paths (rank = execution order, see _fan_report).
@@ -708,6 +713,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     reached = set(i for i in nodes if nodes[i]["kind"] in ("start", "trigger", "state")) | {END0}
     states_raw = {s["id"]: {"description": str(s.get("description") or "")} for s in states_doc if isinstance(s, dict)}
     on_enter, transitions, globals_, where_map, node_pos = {}, {}, [], {}, {}
+    where_nodes = {}           # lot L5: validator location -> condition / action node ids of that chain (error -> node)
     fan_groups = {}
 
     def paths(tid):
@@ -914,6 +920,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                     err(tid, "L'état %s a déjà un déclencheur d'entrée." % st); continue
                 on_enter[st] = do
                 where_map["state %s on_enter" % st] = tid
+                where_nodes["state %s on_enter" % st] = [x for x in ids if x in nodes and nodes[x]["kind"] in ("condition", "action")]
                 key = st + "/enter"
             else:
                 t = {}
@@ -973,6 +980,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                         key = "%s/t%d" % (cname, len(container))
                     container.append(json.loads(json.dumps(t)))
                     where_map["%s #%d" % (label, len(container))] = tid
+                    where_nodes["%s #%d" % (label, len(container))] = [x for x in ids if x in nodes and nodes[x]["kind"] in ("condition", "action")]
                 if report is not None:
                     allowed = set(state_ids)
                     if pos_sets:
@@ -1026,11 +1034,15 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         except G.GraphError as e:
             items = e.items or [("", str(e))]
             for where, msg in items:
-                nid = next((v for k, v in where_map.items() if where == k or where.startswith(k + " ")), None)
+                wkey = next((k for k in where_map if where == k or where.startswith(k + " ")), None)
+                nid = where_map.get(wkey)
+                at = _error_node(msg, where_nodes.get(wkey) or [], nodes) if wkey else None
                 if where.startswith("intent "):   # the editor shows intent problems next to the intent, not a node
                     err(None, "%s : %s" % (where, msg), intent=where[7:])
                 elif where.startswith(("variable ", "list ", "variables")):   # shown in the variable manager
                     err(None, "%s : %s" % (where, msg), variable=where.split(" ", 1)[1] if " " in where else None)
+                elif at and at != nid:   # lot L5: `node` stays the trigger (contract), `at` names the faulty node
+                    err(nid, "%s : %s" % (where, msg) if where else msg, at=at, nodes=[nid, at])
                 else:
                     err(nid, "%s : %s" % (where, msg) if where else msg)
 
@@ -1057,6 +1069,27 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     if notes:    # post-it notes: same story as frames (layout only, never compiled)
         layout["notes"] = notes
     return (None if errors else raw), layout, errors
+
+
+def _error_node(msg: str, cands: list, nodes: dict):
+    """Node of a chain that a validator message is about (lot L5), or None.
+
+    parse_graph reports a problem per transition (`state x transition #n do: set_var.name: unknown variable 'v'`);
+    the editor wants the faulty node itself. The message names the call (`set_var.name`, `guard var_compare`,
+    `action set_var`); among the chain's condition / action nodes using that call, the one whose argument values
+    appear in the message wins (two set_var nodes in one chain), else the first one.
+    """
+    names = set(re.findall(r"\b([a-z][a-z0-9_]*)\.[a-z_]+:", msg)) | set(re.findall(r"(?:guard|action) ([a-z][a-z0-9_]*)", msg))
+    hits = []
+    for nid in cands:
+        q = nodes[nid].get("params") or {}
+        call = q.get("action") if nodes[nid]["kind"] == "action" else q.get("guard")
+        if call in names:
+            hits.append((nid, q.get("args") or {}))
+    for nid, args in hits:
+        if any(isinstance(v, (str, int, float)) and not isinstance(v, bool) and repr(v) in msg for v in args.values()):
+            return nid
+    return hits[0][0] if hits else None
 
 
 def _fan_report(tids: list, emitted: list, report: dict):

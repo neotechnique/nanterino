@@ -44,6 +44,12 @@ Variables (lot L1, 2026-10-31)
       module only validates names and types. A system variable is never written and `etat` is never compared or
       watched in YAML (placement under a state, only_in/not_in and on_enter already say it).
 
+Node menu themes + argument help (lot L5, 2026-11-01)
+    - Every event / action / guard has exactly one `theme` (EVENT_THEME / ACTION_THEME / GUARD_THEME, checked at import);
+      THEME_DOC is the ordered theme table (French label, icon, help) and THEME_SLOTS gives the theme of the entries the
+      editor builds from data (intents, the delay trigger, the per-state entries). vocabulary() returns `theme` on each
+      entry, `themes` and `theme_slots`; each argument gets a `help` text (ARG_KIND_HELP) for the inspector tooltips.
+
 Invariants
     - dispatch() (GC2-like branches, 2026-10-31): every applicable transition (event match + only_in/not_in + all
       guards, judged against the state at event arrival; global ones first, then the current state's, file order)
@@ -279,6 +285,86 @@ DEFAULT_STATE_ICON, DEFAULT_INTENT_ICON = "circle-dot", "message"
 assert set(EVENT_ICON) == set(EVENT_DOC) and set(ACTION_ICON) == set(ACTION_DOC) and set(GUARD_ICON) == set(GUARD_DOC), \
     "every event / action / guard needs exactly one icon"
 
+# ---------------------------------------------------------------- themes (lot L5, node menu)
+# The editor's node menu is Category (Déclencheurs / Actions / Conditions = node kinds) > Theme > item. Themes are
+# SHARED by the three categories (a theme "Micro & écoute" holds triggers, actions and conditions). Each registry
+# entry has exactly one theme (checked below); the editor shows a theme in a category only when it has items there and
+# never decides a theme itself. Theme order = dict order. value = (French label, Tabler icon, help).
+THEME_DOC = {
+    "conversation": ("Conversation", "message", "Le déroulé d'un échange : accueil, réponse, tours de parole, demandes de répétition."),
+    "parole": ("Parole & voix", "volume", "Ce que le robot dit, et quand il a fini de parler."),
+    "micro": ("Micro & écoute", "microphone", "Le micro, l'écoute du visiteur et les interruptions."),
+    "vision": ("Visage & vision", "scan-eye", "La caméra (visages vus) et le visage affiché à l'écran (expression, regard)."),
+    "intentions": ("Intentions", "bell", "Ce que le visiteur veut dire, reconnu dans sa phrase (panneau Intentions)."),
+    "variables": ("Variables", "text-caption", "Les variables du graphe (panneau Variables)."),
+    "listes": ("Listes", "square", "Les listes du graphe (panneau Variables, onglet Listes)."),
+    "etat": ("État", "arrow-right", "L'état du robot (variable système etat) : y entrer, le tester, le changer."),
+    "temps": ("Temps & délais", "clock", "Délais, attentes, horaires d'ouverture et inactivité."),
+    "systeme": ("Tableau de bord & système", "power", "Les boutons du tableau de bord et les commandes tapées."),
+    "evenements": ("Événements", "bolt", "Événements programmés ou envoyés par le graphe lui-même."),
+}
+EVENT_THEME = {
+    "stop": "systeme", "off": "systeme", "on": "systeme", "start": "systeme", "ask": "systeme",
+    "visage": "vision", "visage_perdu": "vision", "personnes_multiples": "vision",
+    "greeting_done": "conversation", "relance_done": "conversation", "goodbye_done": "conversation",
+    "answer_done": "conversation", "not_understood": "conversation",
+    "cloture_done": "evenements",
+    "hush": "parole", "sing": "parole", "say_done": "parole",
+    "barge_in": "micro", "utterance": "micro", "tick": "temps",
+    "ouverture": "temps", "fermeture": "temps", "inactivite_longue": "temps",
+    "var_changed": "variables",
+}
+ACTION_THEME = {
+    "cancel_all": "parole", "speak_relance": "parole", "set_relance_text": "parole", "speak_phrase": "parole",
+    "say_text": "parole", "say_random": "parole", "start_sing": "parole",
+    "mic_on": "micro", "mic_off": "micro", "mic_off_no_barge_in": "micro", "reset_silence": "micro",
+    "subtitle_listening": "micro",
+    "clear_conversation": "conversation", "clear_history": "conversation", "reset_repairs": "conversation",
+    "count_turn": "conversation", "count_repair": "conversation", "start_answer": "conversation",
+    "as_utterance": "systeme",
+    "set_expression": "vision", "gaze": "vision",
+    "wait": "temps", "schedule": "temps",
+    "emit": "evenements",
+    "set_var": "variables", "add_var": "variables", "toggle_var": "variables",
+    "list_add": "listes", "list_remove": "listes", "list_clear": "listes",
+}
+GUARD_THEME = {
+    "auto_greet_on_face": "vision", "barge_in": "micro", "not_busy": "micro", "mic_active": "micro",
+    "not_speaking": "parole", "repairs_left": "conversation", "turns_left": "conversation",
+    "dans_les_horaires": "temps", "var_compare": "variables", "var_true": "variables",
+    "list_contains": "listes", "list_empty": "listes",
+}
+# Theme of the entries the editor builds from DATA (not from a registry): one trigger per intent, the delay trigger,
+# one "etat becomes X" trigger / "etat = X" condition / "Changer d'état → X" action per state.
+THEME_SLOTS = {"intent": "intentions", "after": "temps", "state_enter": "etat", "state_test": "etat", "state_move": "etat"}
+assert set(EVENT_THEME) == set(EVENT_DOC) and set(ACTION_THEME) == set(ACTION_DOC) and set(GUARD_THEME) == set(GUARD_DOC), \
+    "every event / action / guard needs exactly one theme"
+assert set(EVENT_THEME.values()) | set(ACTION_THEME.values()) | set(GUARD_THEME.values()) | set(THEME_SLOTS.values()) <= set(THEME_DOC), \
+    "a theme used by an entry is missing from THEME_DOC"
+
+# Help text of an argument, by argument kind (inspector tooltips); a kind without an entry gets no help.
+ARG_KIND_HELP = {
+    "cfgkey": "Une phrase de la configuration du robot : accueil, relance, au revoir ou demande de répétition.",
+    "event": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent.",
+    "delay": "Un nombre de secondes, ou le nom d'une clé de réglage (sa valeur actuelle est utilisée).",
+    "text": "Phrase libre ; sa voix est calculée une fois, au chargement du graphe.",
+    "expression": "Expression du visage affichée à l'écran.",
+    "seconds": "Durée en secondes (un nombre).",
+    "gazemode": "Où regarde le visage affiché.",
+    "var": "Variable modifiée (à créer dans le panneau Variables) ; « etat » change l'état du robot.",
+    "numvar": "Variable de type nombre ou durée qui sera modifiée.",
+    "boolvar": "Variable vrai/faux qui sera inversée.",
+    "anyvar": "Variable lue ; les variables système (etat, tours…) sont permises.",
+    "anyboolvar": "Variable vrai/faux lue ; les variables système sont permises.",
+    "wlist": "Liste modifiée ; une liste liée à la configuration ou à une intention est en lecture seule.",
+    "rlist": "Liste de textes dans laquelle une phrase est tirée au hasard.",
+    "rlist_any": "Liste lue (tous types).",
+    "value": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+    "listvalue": "Élément cherché ; « $utterance » = la phrase que le visiteur vient de dire.",
+    "op": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées.",
+    "number": "Un nombre (négatif pour retirer).",
+}
+
 
 def state_icon(name: str) -> str:
     return STATE_ICON.get(name, DEFAULT_STATE_ICON)
@@ -289,6 +375,7 @@ def all_icons() -> list:
     used = {i for _l, i in KIND_DOC.values()}
     for d in (EVENT_ICON, ACTION_ICON, GUARD_ICON, STATE_ICON, INTENT_ICON, SINCE_ICON):
         used |= set(d.values())
+    used |= {ic for _l, ic, _h in THEME_DOC.values()}
     return sorted(used | {DELAY_ICON, DEFAULT_STATE_ICON, DEFAULT_INTENT_ICON})
 
 _TOP_KEYS = {"version", "description", "states", "global", "intents", "variables"}
@@ -899,12 +986,15 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
     `graph` (the active one) supplies the states and intents, which are data, not code; delay values
     are read from `cfg` so the editor shows the current seconds.
     """
-    ev = [{"id": k, "label": v[0], "help": v[1], "icon": EVENT_ICON[k]} for k, v in EVENT_DOC.items() if not v[2]]
+    ev = [{"id": k, "label": v[0], "help": v[1], "icon": EVENT_ICON[k], "theme": EVENT_THEME[k]}
+          for k, v in EVENT_DOC.items() if not v[2]]
     ev_ids = [e["id"] for e in ev if e["id"] != "var_changed"]   # var_changed needs arguments: never emitted by name
     for e in ev:
         if e["id"] == "var_changed":
-            e["args"] = [{"name": "name", "type": "var", "var_types": list(VAR_TYPES), "writable": False, "label": "Variable"},
-                         {"name": "value", "type": "value", "of": "name", "optional": True, "label": "Valeur (facultative)"}]
+            e["args"] = [{"name": "name", "type": "var", "var_types": list(VAR_TYPES), "writable": False, "label": "Variable",
+                          "help": "Variable surveillée : la chaîne démarre quand sa valeur change."},
+                         {"name": "value", "type": "value", "of": "name", "optional": True, "label": "Valeur (facultative)",
+                          "help": "Seulement quand la variable prend cette valeur ; vide = à chaque changement."}]
 
     def var_arg(a, kind, alabel):
         """Argument schema of the variable kinds (lot L1); None for the older kinds."""
@@ -947,12 +1037,14 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
                 args.append({"name": a, "type": "number", "options": [], "label": alabel})
             else:  # delay: a number of seconds, or one of the `options` config keys
                 args.append({"name": a, "type": "number", "options": list(DELAY_DOC), "label": alabel})
-        actions.append({"id": name, "label": label, "help": hlp, "icon": ACTION_ICON[name], "args": args})
+        for d, (_a, (kind, _l)) in zip(args, spec.items()):
+            d["help"] = ARG_KIND_HELP.get(kind, "")
+        actions.append({"id": name, "label": label, "help": hlp, "icon": ACTION_ICON[name], "theme": ACTION_THEME[name], "args": args})
     guards = []
     for k, v in GUARD_DOC.items():
         spec = GUARD_ARGS.get(k, {})
-        g = {"id": k, "label": v[0], "help": v[1], "icon": GUARD_ICON[k],
-             "args": [var_arg(a, kind, alabel) for a, (kind, alabel) in spec.items()]}
+        g = {"id": k, "label": v[0], "help": v[1], "icon": GUARD_ICON[k], "theme": GUARD_THEME[k],
+             "args": [dict(var_arg(a, kind, alabel), help=ARG_KIND_HELP.get(kind, "")) for a, (kind, alabel) in spec.items()]}
         if k in GUARD_AS_VARS:
             g["as_vars"] = GUARD_AS_VARS[k]
         guards.append(g)
@@ -972,6 +1064,9 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             "var_types": [{"id": k, "label": v} for k, v in VAR_TYPES.items()],
             "list_types": [{"id": k, "label": v} for k, v in LIST_TYPES.items()],
             "ops": [{"id": k, "label": v} for k, v in OPS.items()],
+            "themes": [{"id": k, "label": lab, "icon": ic, "help": hlp, "order": i}
+                       for i, (k, (lab, ic, hlp)) in enumerate(THEME_DOC.items())],
+            "theme_slots": dict(THEME_SLOTS),
             "variables": variable_entries(graph, cfg)}
 
 

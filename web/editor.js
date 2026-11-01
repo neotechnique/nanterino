@@ -32,6 +32,11 @@
  *           target kind colour: a Faux wire starts green like its condition, the red pastille is only a port marker.
  *           L4 (2026-11-01): no Start node (palette, Insérer menu and import drop it; a trigger starts its chain); wires
  *           follow dragged nodes again: the gradient <defs> sits after the wire path (Drawflow writes svg.children[0]).
+ *           L5 (2026-11-01): node menu = Category (trigger / action / condition) > shared Theme > item, themes read from the
+ *           vocabulary (`theme`, `themes`, `theme_slots`; menuItems / menuTree) in the palette tree and the cascading
+ *           "Insérer" menus; one tooltip component (data-tip / borrowed title, #tip in <body>, long press / "i" icon on
+ *           touch); post-it display modes (note.display 'compact' | absent = full, auto-grow); node diagnostics: badges
+ *           from client checks + /api/graph/check errors (`at` = faulty node), toolbar counter #btnDiag cycling them.
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -88,6 +93,77 @@
     d.textContent += msg + '\n';
   }
 
+  // ---------- tooltips (lot L5): one lightweight component for the whole page ----------
+  // Any element with `data-tip` (or a native `title`, taken over while hovered so the browser bubble never shows, then
+  // put back) gets a styled bubble after TIP_DELAY ms. The bubble lives in <body> (never clipped by a panel), has
+  // pointer-events none (never steals a click, a drag or an elementFromPoint) and hides on press / key / wheel / scroll.
+  // Touch: a long press (500 ms) shows it; a `.tipi` info icon toggles it on tap. `data-tip-side` = beside the target.
+  const TIP_DELAY = 400;
+  let tipEl = null, tipTimer = 0, tipFor = null, tipTouch = 0;
+  function tipTarget(el) {
+    el = el && el.closest ? el.closest('[data-tip],[title]') : null;
+    if (!el || el.id === 'tip') return null;
+    if (el.hasAttribute('title')) {
+      const t = el.getAttribute('title');
+      el.removeAttribute('title');
+      if (t) { el.setAttribute('data-tip', t); el.setAttribute('data-tip-own', '1'); }
+    }
+    return el.getAttribute('data-tip') ? el : null;
+  }
+  function restoreTitle(el) {   // a borrowed `title` goes back (selectors and code that read it keep working)
+    if (!el || !el.getAttribute('data-tip-own')) return;
+    if (!el.hasAttribute('title')) el.setAttribute('title', el.getAttribute('data-tip') || '');
+    el.removeAttribute('data-tip'); el.removeAttribute('data-tip-own');
+  }
+  function showTip(el) {
+    if (!tipEl || !el.isConnected) return;
+    const txt = el.getAttribute('data-tip'); if (!txt) return;
+    tipEl.textContent = txt; tipEl.hidden = false;
+    const r = el.getBoundingClientRect(), t = tipEl.getBoundingClientRect(), W = innerWidth, H = innerHeight, g = 8;
+    let x, y;
+    if (el.hasAttribute('data-tip-side')) { x = r.right + g; if (x + t.width > W - 4) x = r.left - t.width - g; y = r.top; }
+    else { x = r.left + r.width / 2 - t.width / 2; y = r.bottom + g; if (y + t.height > H - 4) y = r.top - t.height - g; }
+    tipEl.style.left = Math.round(Math.max(4, Math.min(x, W - t.width - 4))) + 'px';
+    tipEl.style.top = Math.round(Math.max(4, Math.min(y, H - t.height - 4))) + 'px';
+    tipEl.classList.add('on');
+    tipFor = el;
+  }
+  function hideTip() {
+    clearTimeout(tipTimer); tipTimer = 0;
+    if (tipEl) { tipEl.hidden = true; tipEl.classList.remove('on'); }
+    if (tipFor) { restoreTitle(tipFor); tipFor = null; }
+  }
+  // Small "i" button carrying a help text (inspector fields): hover = bubble, tap = bubble (touch screens).
+  const tipi = (text) => (text ? h('span', { class: 'tipi', 'data-tip': text, role: 'button', tabindex: '0', 'aria-label': 'Aide' }, 'i') : null);
+  function installTips() {
+    tipEl = h('div', { id: 'tip', role: 'tooltip', hidden: true });
+    document.body.append(tipEl);
+    document.addEventListener('mouseover', (e) => {
+      if (Date.now() - tipTouch < 800) return;            // compatibility mouse events right after a touch
+      const t = e.buttons ? null : tipTarget(e.target);    // never while a button is held (drags, wires)
+      if (t === tipFor) return;
+      hideTip();
+      if (!t) return;
+      tipFor = t; tipTimer = setTimeout(() => showTip(t), TIP_DELAY);
+    }, true);
+    document.addEventListener('mouseout', (e) => { if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) hideTip(); }, true);
+    ['mousedown', 'keydown', 'wheel', 'dragstart'].forEach((ev) => document.addEventListener(ev, () => hideTip(), true));
+    document.addEventListener('scroll', () => hideTip(), true);
+    let lp = 0;                                            // touch: long press shows, the next touch hides
+    document.addEventListener('touchstart', (e) => {
+      tipTouch = Date.now(); hideTip(); clearTimeout(lp);
+      const t = tipTarget(e.target); if (!t) return;
+      tipFor = t; lp = setTimeout(() => showTip(t), 500);
+    }, { capture: true, passive: true });
+    ['touchmove', 'touchend', 'touchcancel'].forEach((ev) => document.addEventListener(ev, () => { tipTouch = Date.now(); clearTimeout(lp); }, { capture: true, passive: true }));
+    document.addEventListener('click', (e) => {           // info icons: a tap / click toggles their bubble at once
+      const i = e.target.closest && e.target.closest('.tipi'); if (!i) return;
+      e.preventDefault(); e.stopPropagation();
+      const was = tipFor === i && tipEl && !tipEl.hidden;
+      hideTip(); if (!was) showTip(i);
+    }, true);
+  }
+
   const KINDS = {
     // Legacy Start (lot L4: the server no longer produces it, rebuild() drops one found in an old document, the palette
     // and the context menu never offer it). Kept only so code paths that still name the kind stay harmless.
@@ -103,6 +179,27 @@
     state:     { label: 'État (ancien)',    cls: 'state',     ins: 0, outs: 0, color: 'var(--state)',   icon: 'circle-dot' },
   };
   const NOT_IN_PALETTE = new Set(['start', 'goto', 'state']);
+  // Lot L5 tooltips: what a node kind does (node header) and what each port means.
+  const KIND_TIP = {
+    trigger: 'Déclencheur : démarre une chaîne quand son événement arrive (ou après son délai). Il n’a pas d’entrée.',
+    condition: 'Condition : teste une garde ou une variable. Sortie Vrai : la chaîne continue ; sortie Faux : la branche suivante démarre.',
+    action: 'Action : ce que fait le robot. Les actions d’une chaîne s’exécutent dans l’ordre des fils.',
+    end: 'Fin : termine la chaîne sans changer d’état.',
+    goto: 'Ancien nœud « Aller à » : utilisez l’action « Changer d’état ».', state: 'Ancien nœud État : il n’est plus utilisé.', start: '',
+  };
+  const PORT_TIP = {
+    in: 'Entrée : reçoit la suite d’un déclencheur, d’une condition ou d’une action.',
+    trigger: 'Sortie : la chaîne démarre ici quand le déclencheur se produit.',
+    true: 'Vrai : suite exécutée quand la condition est vraie.',
+    false: 'Faux : suite exécutée quand la condition est fausse (la branche suivante).',
+    action: 'Sortie : nœud suivant, exécuté après cette action.',
+  };
+  // Node menu categories (lot L5) = the three insertable node kinds; their themes come from the vocabulary.
+  const CATS = [
+    { id: 'trigger', label: 'Déclencheurs', icon: 'bolt', tip: 'Ce qui démarre une chaîne : un événement, une intention, un délai, une entrée dans un état.' },
+    { id: 'action', label: 'Actions', icon: 'player-play', tip: 'Ce que fait le robot, dans l’ordre de la chaîne.' },
+    { id: 'condition', label: 'Conditions', icon: 'git-branch', tip: 'Ce qui est testé : la suite Vrai ou Faux en dépend.' },
+  ];
   const NODE_KINDS = ['trigger', 'condition', 'action', 'end'];   // "Blocs" section of the palette (L4: no Start)
   // Post-it palette (pastel), first = default.
   const NOTE_COLORS = [['Jaune', '#fff59d'], ['Rose', '#f8bbd0'], ['Vert', '#c8e6c9'], ['Bleu', '#bbdefb'], ['Orange', '#ffe0b2'], ['Violet', '#e1bee7']];
@@ -136,6 +233,7 @@
   // and, per trigger with several outgoing branches, the engine's execution order (rank).
   let fanInfo = { warnings: [], fans: {} };
   let checkTimer = null, lastCheckKey = '';
+  let checkErrors = [];            // lot L5: errors of the last POST /api/graph/check (dry run while editing), same shape
   let globalIssues = [];           // issues without a node
   let liveState = null;
   let lastWs = 0, lastAge = null;
@@ -265,6 +363,25 @@
     return out;
   }
 
+  // var_compare: operator / value of the wrong type for the variable (lot L5 live check; the server stays the judge).
+  function compareIssues(a) {
+    const out = [], d = a.name ? varDef(a.name) : null;
+    if (!d || a.name === 'etat') return out;
+    const op = a.op || '=', v = a.value, num = ['number', 'duration'].includes(d.type);
+    if (ORDER_OPS.includes(op) && !num) out.push(`« ${opLabel(op)} » ne s’applique qu’aux nombres et aux durées (« ${a.name} » : ${typeLabel(d.type)}).`);
+    if (v == null || v === '') return out;
+    if (typeof v === 'string' && v.startsWith('$')) {
+      const r = varDef(v.slice(1));
+      if (!r) out.push(`Variable inconnue : « ${v.slice(1)} ».`);
+      else if (num !== ['number', 'duration'].includes(r.type) || (!num && r.type !== d.type)) out.push(`Types différents : « ${a.name} » (${typeLabel(d.type)}) comparée à « ${r.id} » (${typeLabel(r.type)}).`);
+      return out;
+    }
+    if (num && !(typeof v === 'number' || isNum(v))) out.push(`« ${v} » n’est pas un nombre (« ${a.name} » : ${typeLabel(d.type)}).`);
+    if (d.type === 'bool' && !(typeof v === 'boolean' || ['true', 'false'].includes(String(v)))) out.push(`« ${v} » n’est pas vrai / faux.`);
+    if (d.type === 'choice' && (d.choices || []).length && !d.choices.includes(v)) out.push(`« ${v} » n’est pas un des choix de « ${a.name} » (${d.choices.join(', ')}).`);
+    return out;
+  }
+
   // ---------- network ----------
   async function api(path, opts) {
     const r = await fetch(path, opts);
@@ -342,12 +459,27 @@
       const sid = (m.params || {}).state, col = stateColor(sid);
       return `<div class="nhead">${icoHtml(stateIcon(sid), col)}<span class="ntitle">État</span></div><div class="nstate" style="color:${esc(col)}">${esc(stateLabel(sid))}</div><div class="nsum ndesc">${esc(stateDesc(sid))}</div><div class="nmsg"></div>`;
     }
-    const tag = m.group === 'global' ? `<span class="ntag" style="background:${esc(stateColor(m.group))}">${esc(m.group === 'global' ? 'global' : stateLabel(m.group))}</span>` : '';
-    const off = m.kind === 'trigger' && (m.params || {}).enabled === false ? '<span class="ntag off">désactivée</span>' : '';
+    const tag = m.group === 'global' ? `<span class="ntag" data-tip="Règle globale : valable dans tous les états, évaluée avant les règles de l’état courant." style="background:${esc(stateColor(m.group))}">${esc(m.group === 'global' ? 'global' : stateLabel(m.group))}</span>` : '';
+    const off = m.kind === 'trigger' && (m.params || {}).enabled === false ? '<span class="ntag off" data-tip="Chaîne désactivée : elle reste dans le fichier mais le robot l’ignore (clic droit → Activer la chaîne).">désactivée</span>' : '';
     const scope = m.kind === 'trigger' && (m.params || {}).state && (m.params || {}).type !== 'enter'
       ? `<div class="nsum nscope">${icoHtml(stateIcon(m.params.state), stateColor(m.params.state))} dans : ${esc(stateLabel(m.params.state))}</div>` : '';
     const desc = m.description ? `<div class="nsum" style="color:var(--mut)">${esc(m.description)}</div>` : '';
-    return `<div class="nhead">${icoHtml(iconOf(m), k.color)}<span class="ntitle">${esc(k.label)}</span>${off}${tag}</div><div class="nsum">${esc(summary(m))}</div>${scope}${desc}<div class="nmsg"></div>`;
+    return `<div class="nhead" data-tip="${esc(headTip(m))}">${icoHtml(iconOf(m), k.color)}<span class="ntitle">${esc(k.label)}</span>${off}${tag}</div><div class="nsum">${esc(summary(m))}</div>${scope}${desc}<div class="nmsg"></div>`;
+  }
+  // Header tooltip (lot L5): what the kind does, then the help of the vocabulary entry the node uses.
+  function headTip(m) {
+    const p = m.params || {};
+    let help = '';
+    if (m.kind === 'trigger' && p.type === 'event') help = (byId(evs(), p.event) || {}).help || '';
+    if (m.kind === 'condition' && p.type === 'guard') help = (byId(V.guards, p.guard) || {}).help || '';
+    if (m.kind === 'action') help = (byId(V.actions, p.action) || {}).help || '';
+    return (KIND_TIP[m.kind] || '') + (help ? '\n' + help : '');
+  }
+  function portTips(dfid) {
+    const el = nodeEl(dfid), m = model(dfid); if (!el || !m) return;
+    el.querySelectorAll('.inputs .input').forEach((e) => e.setAttribute('data-tip', PORT_TIP.in));
+    el.querySelectorAll('.outputs .output').forEach((e) => e.setAttribute('data-tip', m.kind === 'condition'
+      ? (e.classList.contains('output_2') ? PORT_TIP.false : PORT_TIP.true) : m.kind === 'trigger' ? PORT_TIP.trigger : PORT_TIP.action));
   }
   function nodeEl(dfid) { return document.getElementById('node-' + dfid); }
   function refreshNode(dfid) {
@@ -362,6 +494,7 @@
     const k = KINDS[m.kind];
     const dfid = editor.addNode(m.kind, k.ins, k.outs, x, y, 'node-' + k.cls, { model: m }, nodeHtml(m), false);
     nidToDf.set(m.id, dfid);
+    portTips(dfid);
     return dfid;
   }
 
@@ -641,8 +774,10 @@
     // A node the user just dropped from the palette gets mild "todo" hints (no coloured outline) until the
     // first validate / save, instead of errors for the fields it has not had time to receive yet.
     const add = (nid, level, message) => {
-      if (freshIds.has(nid)) { if (level === 'warn') return; level = 'todo'; }   // structural warnings wait until validate
-      if (!out.has(nid)) out.set(nid, []); out.get(nid).push({ level, message });
+      if (freshIds.has(nid)) { if (level === 'warn' || level === 'info') return; level = 'todo'; }   // structural warnings wait until validate
+      if (!out.has(nid)) out.set(nid, []);
+      if (out.get(nid).some((i) => i.message === message)) return;     // same message from the client and the server
+      out.get(nid).push({ level, message });
     };
     const incoming = {}, outgoing = {};
     for (const dfid in data) { incoming[dfid] = 0; outgoing[dfid] = 0; }
@@ -655,7 +790,8 @@
     for (const dfid in data) {
       const m = data[dfid].data.model, p = m.params || {}, id = m.id;
       if (m.kind === 'trigger') {
-        if (p.type === 'event' && !byId(evs(), p.event)) add(id, 'err', 'Événement inconnu ou manquant.');
+        if (p.type === 'event' && !byId(evs(), p.event)) add(id, 'err', String(p.event || '').startsWith('intent.')
+          ? `Intention inconnue : « ${p.event.slice(7)} » (à créer dans le panneau Intentions).` : 'Événement inconnu ou manquant.');
         if (p.type === 'event' && p.event === 'var_changed') {
           if (!p.name) add(id, 'err', '« Une variable change » : choisir la variable.');
           else if (!varDef(p.name)) add(id, 'err', `Variable inconnue : « ${p.name} ».`);
@@ -669,7 +805,10 @@
       } else if (m.kind === 'condition') {
         if (p.type === 'state' && !(p.states || []).length) add(id, 'err', 'Aucun état choisi.');
         if (p.type === 'guard' && !byId(V.guards, p.guard)) add(id, 'err', 'Garde inconnue ou manquante.');
-        else if (p.type === 'guard') argIssues(byId(V.guards, p.guard), p.args || {}).forEach((msg) => add(id, 'err', msg));
+        else if (p.type === 'guard') {
+          argIssues(byId(V.guards, p.guard), p.args || {}).forEach((msg) => add(id, 'err', msg));
+          if (p.guard === 'var_compare') compareIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
+        }
       } else if (m.kind === 'action') {
         if (!byId(V.actions, p.action)) add(id, 'err', 'Action inconnue ou manquante.');
         else {
@@ -687,6 +826,7 @@
         // Vars L2: an action with an unlinked output ends its chain; a condition needs at least one linked output
         const o1 = data[dfid].outputs.output_1, o2 = data[dfid].outputs.output_2;
         if (!(o1 && o1.connections.length) && !(o2 && o2.connections.length)) add(id, 'warn', 'La condition n’a aucune suite : relier au moins une de ses sorties.');
+        else if (!(o1 && o1.connections.length)) add(id, 'info', 'Sortie Vrai libre : quand la condition est vraie, la chaîne s’arrête ici (seule la branche Faux agit).');
       }
       if (m.kind === 'action' && p.action === 'set_var' && (p.args || {}).name === 'etat' && p.args.value && !stateIds.has(p.args.value)) add(id, 'err', 'État de destination inconnu.');
       if (m.kind === 'condition') {
@@ -696,6 +836,32 @@
         }
       }
     }
+    // lot L5: reachability from the triggers (unreachable node, chain without action, only disabled triggers upstream)
+    const reachFrom = (start) => {
+      const seen = new Set(), st = [start];
+      while (st.length) {
+        const d = st.pop(); if (seen.has(d) || !data[d]) continue; seen.add(d);
+        if (d !== start && data[d].data.model.kind === 'state') continue;
+        for (const key in data[d].outputs) data[d].outputs[key].connections.forEach((c) => st.push(String(c.node)));
+      }
+      return seen;
+    };
+    const reached = new Set();
+    for (const dfid in data) {
+      const m = data[dfid].data.model;
+      if (m.kind !== 'trigger') continue;
+      const r = reachFrom(dfid);
+      r.forEach((d) => reached.add(d));
+      if (outgoing[dfid] && ![...r].some((d) => data[d].data.model.kind === 'action')) add(m.id, 'warn', 'Cette chaîne ne contient aucune action : elle ne fait rien.');
+    }
+    for (const dfid in data) {
+      const m = data[dfid].data.model;
+      if (!['trigger', 'start', 'state'].includes(m.kind) && incoming[dfid] && !reached.has(dfid)) add(m.id, 'warn', 'Aucun déclencheur en amont : ce nœud ne s’exécute jamais.');
+    }
+    disabledNodes().forEach((nid) => {
+      const df = nidToDf.get(nid), m = df != null ? model(df) : null;
+      if (m && m.kind !== 'trigger') add(nid, 'info', 'Chaîne désactivée en amont : ce nœud ne s’exécute pas tant qu’elle reste désactivée.');
+    });
     globalIssues = [];
     Object.keys(meta.intents || {}).forEach((n) => {
       const it = meta.intents[n] || {};
@@ -703,11 +869,18 @@
       if (!it.words_from && !it.regex && !(it.words || []).length) globalIssues.push({ level: 'warn', message: `Intention « ${n} » : aucun mot (ajoutez au moins un mot ou une expression).` });
     });
     intentErrs = {};
-    serverErrors.concat(simErrors).forEach((e) => {
-      if (e.intent) { intentErrs[e.intent] = e.message; globalIssues.push({ level: 'err', message: `Intention « ${e.intent} » : ${e.message}` }); }
-      else if (e.variable && !(e.node && nidToDf.has(e.node))) globalIssues.push({ level: 'err', message: `Variable « ${e.variable} » : ${e.message}` });
-      else if (e.node && nidToDf.has(e.node)) add(e.node, 'err', e.message);
-      else globalIssues.push({ level: 'err', message: e.message });
+    const seenG = new Set();
+    serverErrors.concat(simErrors, checkErrors).forEach((e) => {
+      const gkey = (e.intent || e.variable || '') + '|' + e.message;
+      if (e.intent) { intentErrs[e.intent] = e.message; if (!seenG.has(gkey)) globalIssues.push({ level: 'err', message: `Intention « ${e.intent} » : ${e.message}` }); }
+      else if (e.variable && !(e.node && nidToDf.has(e.node))) { if (!seenG.has(gkey)) globalIssues.push({ level: 'err', message: `Variable « ${e.variable} » : ${e.message}` }); }
+      else if ((e.at && nidToDf.has(e.at)) || (e.node && nidToDf.has(e.node))) {
+        // lot L5: the faulty node itself (`at`) AND the trigger of its chain (`node`, the contract location)
+        [e.at, e.node].forEach((x) => { if (x && nidToDf.has(x)) add(x, 'err', e.message); });
+      }
+      else if (!e.note && !seenG.has(gkey)) globalIssues.push({ level: 'err', message: e.message });
+      else if (e.note && !seenG.has(gkey)) globalIssues.push({ level: 'err', message: 'Post-it : ' + e.message });
+      seenG.add(gkey);
     });
     (fanInfo.warnings || []).forEach((w) => {
       (new Set([w.node].concat(w.nodes || []))).forEach((id) => {
@@ -716,6 +889,7 @@
     });
     issues = out;
     for (const dfid in data) markNode(dfid);
+    paintDiagWires();
     paintOrderBadges();
     scheduleCheck();
     paintChains();
@@ -738,6 +912,7 @@
     const r = await postJson('/api/graph/check', doc);
     if (!r.json || r.status >= 500) return;
     fanInfo = { warnings: r.json.warnings || [], fans: r.json.fans || {} };
+    checkErrors = r.json.errors || [];             // lot L5: the dry-run compile errors become node badges too
     analyze();
   }
   // A small numbered badge on each target of a node with several outgoing links = execution order.
@@ -764,25 +939,86 @@
       });
     }
   }
+  // Lot L5: each node with an error / a warning (/ an info) carries a badge (✖ red, ⚠ amber, i grey) whose tooltip lists
+  // the messages; a click selects the node and shows them at the top of the inspector. 'todo' (fresh node) has no badge.
+  const ISSUE_PREFIX = { err: 'Erreur : ', warn: 'Attention : ', todo: 'À faire : ', info: 'Info : ' };
   function markNode(dfid) {
     const el = nodeEl(dfid), m = model(dfid);
     if (!el || !m) return;
     const list = issues.get(m.id) || [];
-    const hasErr = list.some((i) => i.level === 'err');
+    const hasErr = list.some((i) => i.level === 'err'), hasWarn = !hasErr && list.some((i) => i.level === 'warn');
     el.classList.toggle('err', hasErr);
-    el.classList.toggle('warn', !hasErr && list.some((i) => i.level === 'warn'));
+    el.classList.toggle('warn', hasWarn);
     const msg = el.querySelector('.nmsg');
-    if (msg) msg.textContent = list.map((i) => i.message).join(' ');
-    el.title = list.map((i) => (i.level === 'err' ? 'Erreur : ' : i.level === 'todo' ? 'À faire : ' : 'Attention : ') + i.message).join('\n');
+    if (msg) msg.textContent = list.filter((i) => i.level !== 'info').map((i) => i.message).join(' ');
+    el.removeAttribute('title');                  // the badge carries the messages now (one tooltip system)
+    const lvl = hasErr ? 'err' : hasWarn ? 'warn' : list.some((i) => i.level === 'info') ? 'info' : null;
+    let b = el.querySelector(':scope > .dbadge');
+    if (!lvl) { if (b) b.remove(); return; }
+    if (!b) {
+      b = h('span', { class: 'dbadge', role: 'button', tabindex: '-1' });
+      ['mousedown', 'pointerdown', 'touchstart', 'dblclick'].forEach((t) => b.addEventListener(t, (e) => e.stopPropagation(), { passive: true }));
+      b.addEventListener('click', (e) => { e.stopPropagation(); const mm = model(dfid); if (mm) showIssuesOf(mm.id, false); });
+      el.append(b);
+    }
+    b.className = 'dbadge ' + lvl;
+    b.textContent = lvl === 'err' ? '✖' : lvl === 'warn' ? '⚠' : 'i';
+    b.setAttribute('aria-label', lvl === 'err' ? 'Erreur' : lvl === 'warn' ? 'Avertissement' : 'Information');
+    b.setAttribute('data-tip', list.filter((i) => i.level !== 'todo').map((i) => (ISSUE_PREFIX[i.level] || '') + i.message).join('\n'));
+  }
+  // Select a node and show its messages in the inspector (pan = bring it into view first: toolbar counter).
+  function showIssuesOf(nid, pan) {
+    const df = nidToDf.get(nid); if (df == null) return;
+    if (curTab !== 'node') activateTab('node');
+    if (pan) focusNode(nid); else selectDf(df);
+    if (innerWidth <= 900) document.body.classList.remove('hide-right');
+    const l = document.querySelector('#inspector .isslist'); if (l) l.scrollIntoView({ block: 'nearest' });
+  }
+  // Nodes with an error, then with a warning, in reading order (column / x, then y): the toolbar counter cycles them.
+  let diagIdx = -1;
+  function diagNodes() {
+    const rank = (nid) => { const l = issues.get(nid) || []; return l.some((i) => i.level === 'err') ? 0 : l.some((i) => i.level === 'warn') ? 1 : 2; };
+    return [...issues.keys()].filter((nid) => nidToDf.has(nid) && rank(nid) < 2).sort((a, b) => {
+      const da = dfNode(nidToDf.get(a)), db = dfNode(nidToDf.get(b));
+      return rank(a) - rank(b) || (da.pos_x - db.pos_x) || (da.pos_y - db.pos_y);
+    });
+  }
+  function diagCycle() {
+    const list = diagNodes();
+    if (!list.length) { if (globalIssues.length) $('#msgs').hidden = false; return null; }
+    diagIdx = (diagIdx + 1) % list.length;
+    showIssuesOf(list[diagIdx], true);
+    return list[diagIdx];
+  }
+  function paintDiagWires() {   // wires into / out of a node with an error get a subtle red glow
+    const bad = new Set();
+    issues.forEach((l, nid) => { if (l.some((i) => i.level === 'err') && nidToDf.has(nid)) bad.add(String(nidToDf.get(nid))); });
+    document.querySelectorAll('#drawflow svg.connection').forEach((svg) => {
+      const cl = svg.classList;
+      svg.classList.toggle('derr', !!(cl[1] && cl[2] && (bad.has(cl[1].slice(13)) || bad.has(cl[2].slice(14)))));
+    });
   }
   function markLive() { drawBands(); }
 
+  // Toolbar counter (lot L5): errors / warnings of the whole graph; a click cycles through the affected nodes.
+  function paintDiagCount(ne, nw) {
+    const b = $('#btnDiag'); if (!b) return;
+    b.className = 'diag' + (ne ? ' err' : nw ? ' warn' : ' ok');
+    b.innerHTML = '';
+    if (!ne && !nw) b.append(h('span', { class: 'dok' }, '✔'), ' 0');
+    else b.append(h('span', { class: 'dne' }, '✖ ' + ne), h('span', { class: 'dnw' }, '⚠ ' + nw));
+    b.setAttribute('data-tip', !ne && !nw ? 'Aucune erreur ni avertissement détecté.'
+      : `${ne} erreur(s), ${nw} avertissement(s). Cliquer : aller au nœud suivant concerné (ses messages s’affichent dans l’inspecteur).`);
+    b.setAttribute('aria-label', `${ne} erreur(s), ${nw} avertissement(s)`);
+  }
   function renderMsgs() {
     const box = $('#msgs'), tg = $('#btnMsgs');
     const all = [];
     issues.forEach((list, nid) => list.forEach((i) => all.push({ ...i, nid })));
     globalIssues.forEach((i) => all.push({ ...i, nid: null }));
+    for (let k = all.length - 1; k >= 0; k--) if (all[k].level === 'info') all.splice(k, 1);   // infos: badge only
     const ne = all.filter((i) => i.level === 'err').length, nw = all.length - ne;
+    paintDiagCount(ne, all.filter((i) => i.level === 'warn').length);
     tg.hidden = !all.length;
     tg.textContent = `${ne} erreur(s), ${nw} avertissement(s)`;
     box.innerHTML = '';
@@ -1350,8 +1586,32 @@
     if (!notesEl || !notesEl.isConnected) { notesEl = h('div', { id: 'notes' }); editor.precanvas.insertBefore(notesEl, ensureFrames().nextSibling); }
     return notesEl;
   }
+  // Lot L5 display modes (n.display, stored only when 'compact'): full = the whole text, the note grows with it (h is
+  // its minimum height); compact = title bar + first line, the full text in the note's tooltip.
+  const noteCompact = (n) => n.display === 'compact';
+  const noteFirstLine = (n) => ((n.text || '').split('\n').find((l) => l.trim()) || '').trim();
+  const noteTip = (n) => [n.title, n.text].filter((x) => x && String(x).trim()).join('\n') || 'Post-it vide';
   function placeNote(n, el) {
-    el.style.cssText = `--c:${n.color};left:${n.x}px;top:${n.y}px;width:${n.w}px;height:${n.h}px`;
+    el.style.cssText = `--c:${n.color};left:${n.x}px;top:${n.y}px;width:${n.w}px;` + (noteCompact(n) ? '' : `min-height:${n.h}px`);
+    el.classList.toggle('compact', noteCompact(n)); el.classList.toggle('full', !noteCompact(n));
+  }
+  function growNote(el) {   // full mode: the text area takes the height of its text (wraps, no inner scroll bar)
+    const ta = el && el.querySelector('.ptext');
+    if (!ta || el.classList.contains('compact')) return;
+    ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+  }
+  function refreshNoteText(n, el) {
+    const pl = el.querySelector('.pline'); if (pl) pl.textContent = noteFirstLine(n) || '(vide)';
+    if (noteCompact(n)) el.setAttribute('data-tip', noteTip(n)); else el.removeAttribute('data-tip');
+    growNote(el);
+  }
+  // Height of a note as drawn (full notes grow, compact ones shrink), in canvas px.
+  function noteHeight(n) { const el = noteEls.get(n.id); return el && el.offsetHeight ? el.offsetHeight : n.h; }
+  function setNoteDisplay(n, mode) {
+    if (!n || editBlocked()) return;
+    if (mode === 'compact') n.display = 'compact'; else delete n.display;
+    drawNotes(); if (selNote === n.id) renderInspector();
+    commitSoon();
   }
   function drawNotes() {
     if (!editor) return;
@@ -1359,15 +1619,21 @@
     notes().forEach((n) => {
       const ta = h('textarea', { class: 'ptext', maxlength: 2000, placeholder: 'Écrivez ici…', 'aria-label': 'Texte du post-it' });
       ta.value = n.text || '';
-      ta.addEventListener('input', () => { n.text = ta.value; });
+      ta.addEventListener('input', () => { n.text = ta.value; refreshNoteText(n, ta.closest('.postit')); });
       ta.addEventListener('change', () => { n.text = ta.value; commitSoon(); if (selNote === n.id) renderInspector(); });
       ta.addEventListener('focus', () => selectNote(n.id, true));
+      const compact = noteCompact(n);
       const head = h('div', { class: 'phead', title: 'Glisser pour déplacer le post-it' }, ico('message'), h('span', { class: 'ptitle' + (n.title ? '' : ' empty') }, n.title || 'Post-it'),
+        h('button', { type: 'button', class: 'pmode', 'data-tip': compact ? 'Afficher tout le texte' : 'Compact : seulement le titre et la première ligne (le texte complet en info-bulle)',
+          'aria-label': compact ? 'Afficher tout le texte' : 'Réduire le post-it', 'aria-pressed': String(compact),
+          onclick: (e) => { e.stopPropagation(); setNoteDisplay(n, compact ? 'full' : 'compact'); } }, compact ? '▾' : '▴'),
         h('button', { type: 'button', class: 'pdel', title: 'Supprimer le post-it', 'aria-label': 'Supprimer le post-it',
           onclick: (e) => { e.stopPropagation(); deleteNote(n.id); } }, '×'));
+      const line = h('div', { class: 'pline' }, noteFirstLine(n) || '(vide)');
       const grip = h('div', { class: 'presize', title: 'Redimensionner' });
-      const el = h('div', { class: 'postit' + (n.id === selNote ? ' sel' : ''), 'data-nid': n.id }, head, ta, grip);
+      const el = h('div', { class: 'postit' + (n.id === selNote ? ' sel' : ''), 'data-nid': n.id }, head, ta, line, grip);
       placeNote(n, el);
+      if (compact) el.setAttribute('data-tip', noteTip(n));
       el.addEventListener('mousedown', (e) => { e.stopPropagation(); if (e.button === 0) selectNote(n.id, true); });   // no canvas pan from a note
       // L7: pointer events + pointer capture (mouse, pen and touch alike): the drag keeps receiving its moves
       // even when the pointer leaves the note, and one document-level pointermove/up pair (boot) drives it.
@@ -1375,6 +1641,7 @@
       head.addEventListener('dblclick', () => { selectNote(n.id); const t = $('#inspector input.ntitleinp'); if (t) t.focus(); });
       noteEls.set(n.id, el);
       root.append(el);
+      growNote(el);
     });
   }
   function selectNote(id, keepFocus) {
@@ -1389,7 +1656,7 @@
   function unselectNote() { if (selNote) { selNote = null; noteEls.forEach((el) => el.classList.remove('sel')); renderInspector(); } }
   function startNoteDrag(e, n, mode) {
     if (e.button || e.isPrimary === false) return;          // left button / primary touch only
-    if (e.target.closest && e.target.closest('.pdel')) return;   // the × button keeps its own click
+    if (e.target.closest && e.target.closest('.pdel,.pmode')) return;   // the × / mode buttons keep their own click
     e.stopPropagation(); e.preventDefault();
     selectNote(n.id, true);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event without a live pointer */ }
@@ -1403,14 +1670,14 @@
     d.moved = true;
     if (d.mode === 'resize') { d.n.w = Math.max(120, Math.round(d.ow + dx)); d.n.h = Math.max(90, Math.round(d.oh + dy)); }
     else { d.n.x = Math.round(d.ox + dx); d.n.y = Math.round(d.oy + dy); }
-    const el = noteEls.get(d.n.id); if (el) placeNote(d.n, el);
+    const el = noteEls.get(d.n.id); if (el) { placeNote(d.n, el); if (d.mode === 'resize') growNote(el); }
   }
   function endNoteDrag(e) {
     const d = noteDrag; if (!d || (e && d.pid != null && e.pointerId !== d.pid)) return;
     noteDrag = null;
     if (!d.moved) return;
     {                                 // a note never covers a node: moved or grown onto one, it slides to the nearest free spot
-      const p = noteSpot(d.n.x, d.n.y, d.n.w, d.n.h, d.n.id);
+      const p = noteSpot(d.n.x, d.n.y, d.n.w, noteHeight(d.n), d.n.id);
       d.n.x = p.x; d.n.y = p.y;
       const el = noteEls.get(d.n.id); if (el) placeNote(d.n, el);
     }
@@ -1419,7 +1686,7 @@
   // Nearest position (spiral on a 40 px grid around x, y) where a w x h note touches no node, badge or other note.
   function noteSpot(x, y, w, hh, selfId, okFn) {   // okFn(x, y): extra constraint on a candidate (L4: visible spot)
     const boxes = Object.keys(dfData()).map((id) => nodeBox(id));
-    notes().forEach((o) => { if (o.id !== selfId) boxes.push({ x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + o.h }); });
+    notes().forEach((o) => { if (o.id !== selfId) boxes.push({ x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + noteHeight(o) }); });
     // L7 fix round: keep clear of each hub's wire fan too (from the hub's output port to its first chain layer)
     const bands = bandRects(), data = dfData();
     for (const id in data) {
@@ -1444,7 +1711,7 @@
     Object.assign(n, patch);
     if (!n.title) delete n.title;
     const el = noteEls.get(n.id);
-    if (el) { placeNote(n, el); const pt = el.querySelector('.ptitle'); pt.textContent = n.title || 'Post-it'; pt.classList.toggle('empty', !n.title); const ta = el.querySelector('textarea'); if (ta.value !== (n.text || '')) ta.value = n.text || ''; }
+    if (el) { placeNote(n, el); const pt = el.querySelector('.ptitle'); pt.textContent = n.title || 'Post-it'; pt.classList.toggle('empty', !n.title); const ta = el.querySelector('textarea'); if (ta.value !== (n.text || '')) ta.value = n.text || ''; refreshNoteText(n, el); }
     renderPalette();
     if (rerender) renderInspector();
     commitSoon();
@@ -1492,6 +1759,9 @@
     t.maxLength = 60; t.classList.add('ntitleinp');
     box.append(field('Titre (facultatif)', t));
     box.append(field('Texte', areaCtl(n.text || '', (v) => editNote(n, { text: v }), 2000), '2000 caractères au plus. Le robot ne lit jamais les post-it.'));
+    const disp = selectCtl([{ v: 'full', l: 'Texte complet' }, { v: 'compact', l: 'Compact : titre et première ligne' }], noteCompact(n) ? 'compact' : 'full', (v) => setNoteDisplay(n, v));
+    disp.classList.add('ndisp');
+    box.append(field('Affichage', disp, 'Compact : le texte complet s’affiche en info-bulle au survol du post-it.'));
     const sw = h('div', { class: 'swatches' });
     NOTE_COLORS.forEach(([nm, c]) => sw.append(h('button', { type: 'button', class: 'sw' + (c === n.color ? ' on' : ''), title: nm, 'aria-label': nm, style: 'background:' + c, onclick: () => editNote(n, { color: c }, true) })));
     box.append(h('div', { class: 'fld' }, h('span', {}, 'Couleur'), sw));
@@ -1783,8 +2053,10 @@
         inp.addEventListener('keydown', (e) => { e.stopPropagation(); if (ctx) ctx.kbd = Date.now(); if (e.key === 'Escape') escMenu(); else if (e.key === 'ArrowDown') { e.preventDefault(); focusNext(el, 1, inp); } else if (e.key === 'Enter') { const f = el.querySelector('.cit:not(.dis)'); if (f) f.click(); } });
         el.append(inp); return;
       }
-      const row = h('div', { class: 'cit' + (it.disabled ? ' dis' : ''), role: 'menuitem', tabindex: '-1', 'aria-disabled': it.disabled ? 'true' : null },
-        it.icon ? ico(it.icon, it.color) : h('span', { class: 'ico-sp' }), h('span', { class: 'clab' }, it.label), it.sub ? h('span', { class: 'carr' }, '▸') : null);
+      const row = h('div', { class: 'cit' + (it.disabled ? ' dis' : ''), role: 'menuitem', tabindex: '-1', 'aria-disabled': it.disabled ? 'true' : null,
+        'aria-haspopup': it.sub ? 'menu' : null, 'data-tip': it.tip || null, 'data-tip-side': it.tip ? '1' : null },
+        it.icon ? ico(it.icon, it.color) : h('span', { class: 'ico-sp' }), h('span', { class: 'clab' }, it.label), it.path ? h('span', { class: 'cpath' }, it.path) : null,
+        it.sub ? h('span', { class: 'carr' }, '▸') : null);
       if (!it.disabled) {
         row.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -1860,21 +2132,30 @@
   const moveChoices = () => V.states.map((s) => ({ label: "Changer d'état → " + s.label, icon: stateIcon(s.id), kind: 'action',
     preset: { action: 'set_var', args: { name: 'etat', value: s.id } }, hay: "changer d'état " + s.label + ' ' + s.id }));
   // Submenu content "insert a node" with a search field; `make(choice)` performs the insertion.
+  // Lot L5 (GC2-like): search field, then Catégorie ▸ Thème ▸ entrée (cascading submenus, arrow keys, kept in the
+  // viewport by openSub/placeMenu), then the empty blocks and the quick "Changer d'état → X" rows (also under Actions ›
+  // État). A search lists matching entries of every allowed category with their path.
   function insertSub(kinds, make, opts) {
     return (subEl, depth) => {
       const base = nodeChoices(kinds);
-      const vocab = [];
-      if (kinds.includes('trigger')) evs().forEach((e) => vocab.push({ label: e.label, icon: e.icon, kind: 'trigger', preset: { event: e.id }, hay: e.label + e.id }));
-      if (kinds.includes('condition')) V.guards.forEach((g) => vocab.push({ label: g.label, icon: g.icon, kind: 'condition', preset: { guard: g.id }, hay: g.label + g.id }));
-      if (kinds.includes('action')) V.actions.forEach((a) => vocab.push({ label: a.label, icon: a.icon, kind: 'action', preset: { action: a.id }, hay: a.label + a.id }));
-      const stateRows = (opts && opts.moves) ? moveChoices() : [];
-      const toItem = (c) => ({ label: c.label, icon: c.icon, color: c.color, fn: () => make(c) });
+      const moves = !!(opts && opts.moves);
+      const tree = menuTree(kinds, { noMoves: !moves });
+      const vocab = tree.flatMap((c) => c.themes.flatMap((t) => t.items));
+      const stateRows = moves ? moveChoices() : [];
+      const toItem = (c) => ({ label: c.label, icon: c.icon, color: c.color, tip: c.help || null, path: c.path || null, fn: () => make(c) });
+      const catRows = tree.map(({ cat, themes }) => ({ label: cat.label, icon: cat.icon, color: KINDS[cat.id].color, tip: cat.tip,
+        sub: themes.map(({ theme, items }) => ({ label: theme.label, icon: theme.icon, tip: theme.help || null, sub: items.map(toItem) })) }));
+      const search = { search: { placeholder: 'Rechercher un nœud…', onInput: (q) => render(q) } };
+      const rowsFor = (q) => (q
+        ? vocab.filter((c) => c.hay.includes(q)).slice(0, 14).map((c) => toItem(Object.assign({}, c, { path: itemPath(c) })))
+          .concat(base.filter((c) => c.label.toLowerCase().includes(q)).map(toItem))
+        : catRows.concat(catRows.length ? [{ sep: true }] : [], base.map(toItem), stateRows.length ? [{ sep: true }].concat(stateRows.map(toItem)) : []));
       const render = (q) => {
-        const rows = q ? vocab.concat(stateRows).filter((c) => c.hay.toLowerCase().includes(q)).slice(0, 14).concat(base.filter((c) => c.label.toLowerCase().includes(q))) : base;
-        fillMenu(subEl, [{ search: { placeholder: 'Rechercher un nœud…', onInput: render } }].concat(rows.map(toItem), stateRows.length && !q ? [{ sep: true }].concat(stateRows.map(toItem)) : []), depth);
+        closeSubsFrom(depth);
+        fillMenu(subEl, [search].concat(rowsFor(q)), depth);
         const s = subEl.querySelector('.csearch'); if (s && q) { s.value = q; s.focus(); }
       };
-      return [{ search: { placeholder: 'Rechercher un nœud…', onInput: render } }].concat(base.map(toItem), stateRows.length ? [{ sep: true }].concat(stateRows.map(toItem)) : []);
+      return [search].concat(rowsFor(''));
     };
   }
   let clipboard = null;           // in-editor clipboard: a node model {kind, description, params}
@@ -2010,7 +2291,9 @@
     if (kind === 'start') p.state = 'veille';
     if (preset) {
       if (preset.event) { p.type = 'event'; p.event = preset.event; }
-      if (preset.guard) p.guard = preset.guard;
+      if (preset.type === 'after') { p.type = 'after'; delete p.event; p.delay = (V.delays[0] || {}).key || 5; p.since = 'state'; }
+      if (preset.params) Object.assign(p, clone(preset.params));   // e.g. var_changed on etat = X (state entry)
+      if (preset.guard) { p.guard = preset.guard; if (preset.args) p.args = clone(preset.args); }
       if (preset.action) { p.action = preset.action; p.args = preset.args ? clone(preset.args) : {}; }
       if (preset.state) p.state = preset.state;
     }
@@ -2055,10 +2338,75 @@
     if (el) { el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); }
   }
 
+  // ---------- node menu: Category (node kind) > Theme > item (lot L5) ----------
+  // Themes and each entry's theme come from the vocabulary (`theme`, `themes`, `theme_slots`); the editor never picks a
+  // theme itself. Entries built from data (intents, delay trigger, per-state entries) use the vocabulary's theme slots.
+  const themeById = (id) => byId(V.themes, id) || { id: id || 'autres', label: 'Autres', icon: 'circle-dot', help: '', order: 999 };
+  const slotTheme = (slot) => (V.theme_slots || {})[slot] || '';
+  function menuItems() {
+    const out = [];
+    // `hay` (search text) = label, id, help and the theme name: searching "micro" lists the whole Micro theme too
+    const add = (cat, theme, label, icon, preset, help, extra, slot) => out.push({ cat, kind: cat, theme, label, icon, preset, help: help || '', slot: slot || '',
+      hay: (label + ' ' + (extra || '') + ' ' + (help || '') + ' ' + themeById(theme).label).toLowerCase() });
+    evs().forEach((e) => {
+      const intent = String(e.id).startsWith('intent.');
+      add('trigger', intent ? slotTheme('intent') : e.theme, e.label, e.icon, { event: e.id }, e.help, e.id, intent ? 'intent' : '');
+    });
+    add('trigger', slotTheme('after'), 'Après un délai', 'clock', { type: 'after' },
+      'Démarre la chaîne après un délai, compté depuis l’entrée dans l’état ou depuis la dernière parole. À rattacher à un état (condition « etat = … »).', 'after délai attendre', 'after');
+    V.states.forEach((st) => add('trigger', slotTheme('state_enter'), 'Entrée dans « ' + st.label + ' »', stateIcon(st.id),
+      { event: 'var_changed', params: { name: 'etat', value: st.id } }, 'Quand etat devient ' + st.id + ' : des actions à l’entrée dans l’état (ni condition, ni changement d’état).', 'etat entrée ' + st.id, 'state_enter'));
+    V.guards.forEach((g) => add('condition', g.theme, g.label, g.icon, { guard: g.id }, g.help, g.id));
+    V.states.forEach((st) => add('condition', slotTheme('state_test'), 'etat = ' + st.label, stateIcon(st.id),
+      { guard: 'var_compare', args: { name: 'etat', op: '=', value: st.id } }, 'Vrai quand le robot est dans l’état « ' + st.label + ' » : range la chaîne dans sa colonne.', 'etat état ' + st.id, 'state_test'));
+    V.actions.forEach((a) => add('action', a.theme, a.label, a.icon, { action: a.id }, a.help, a.id));
+    moveChoices().forEach((c) => add('action', slotTheme('state_move'), c.label, c.icon, c.preset, 'Le robot passe dans cet état (action « Changer une variable » sur etat).', c.hay, 'state_move'));
+    return out;
+  }
+  // [{cat, themes: [{theme, items}]}] for the allowed kinds; themes in vocabulary order; a theme without item is dropped.
+  function menuTree(kinds, opts) {
+    const items = menuItems().filter((i) => kinds.includes(i.cat) && (!(opts && opts.noMoves) || i.slot !== 'state_move'));
+    return CATS.filter((c) => kinds.includes(c.id)).map((c) => {
+      const mine = items.filter((i) => i.cat === c.id), ids = [...new Set(mine.map((i) => i.theme))];
+      ids.sort((a, b) => themeById(a).order - themeById(b).order);
+      return { cat: c, themes: ids.map((t) => ({ theme: themeById(t), items: mine.filter((i) => i.theme === t) })) };
+    }).filter((c) => c.themes.length);
+  }
+  const itemPath = (i) => ((CATS.find((c) => c.id === i.cat) || {}).label || '') + ' › ' + themeById(i.theme).label;
+  // Palette tree open / closed rows (per browser): 'c:<cat>' and 't:<cat>:<theme>'. Default: categories open.
+  const PAL_KEY = 'nanterino.editor.palette';
+  let palOpen = null;
+  function palState() {
+    if (!palOpen) {
+      palOpen = new Set(CATS.map((c) => 'c:' + c.id));
+      try { const v = JSON.parse(localStorage.getItem(PAL_KEY) || 'null'); if (Array.isArray(v)) palOpen = new Set(v); } catch (e) { /* storage off */ }
+    }
+    return palOpen;
+  }
+  function palToggle(key, force) {
+    const st = palState();
+    if (force === true || (force == null && !st.has(key))) st.add(key); else st.delete(key);
+    try { localStorage.setItem(PAL_KEY, JSON.stringify([...st])); } catch (e) { /* storage off: still works for this page */ }
+    renderPalette();
+    const back = document.querySelector('#palette [data-pkey="' + key + '"]'); if (back) back.focus();
+  }
+  function palHead(cls, key, open, icon, color, label, count, tip, data) {
+    const el = h('div', Object.assign({ class: cls + (open ? ' open' : ''), role: 'button', tabindex: '0', 'aria-expanded': String(open), 'data-pkey': key, 'data-tip': tip || null }, data),
+      h('span', { class: 'pcar' }, open ? '▾' : '▸'), ico(icon, color), h('span', { class: 'plab' }, label), h('small', {}, String(count)));
+    el.addEventListener('click', () => palToggle(key));
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); palToggle(key); }
+      else if (e.key === 'ArrowRight' && !open) { e.preventDefault(); palToggle(key, true); }
+      else if (e.key === 'ArrowLeft' && open) { e.preventDefault(); palToggle(key, false); }
+    });
+    return el;
+  }
+
   function renderPalette() {
     const q = $('#search').value.trim().toLowerCase();
     const box = $('#palette'); box.innerHTML = '';
     const items = [];
+    const vocab = menuItems();
     const rects = bandRects();
     // Vars L2: the columns (one automatic frame per state) are navigation targets; changing the state is an action
     V.states.forEach((st) => { if (rects[st.id]) items.push({ sec: 'Colonnes (cliquer pour y aller)', kind: 'band', band: true, id: st.id, label: st.label, sub: 'etat = ' + st.id, icon: stateIcon(st.id), hay: 'colonne état ' + st.label + st.id }); });
@@ -2067,27 +2415,46 @@
     frames().forEach((f) => items.push({ sec: 'Groupes (cliquer pour y aller)', kind: 'frame', fn: () => focusFrame(f.id), label: f.title || '(sans nom)', sub: '', icon: 'square', color: f.color, hay: 'groupe ' + f.title + ' ' + (f.note || '') }));
     items.push({ sec: 'Notes', kind: 'note', fn: () => addNote(), label: 'Post-it', sub: 'nouveau (N)', icon: 'plus', color: NOTE_COLORS[0][1], hay: 'note post-it postit nouveau' });
     notes().forEach((n) => items.push({ sec: 'Notes', kind: 'note', fn: () => focusNoteBox(n.id), label: n.title || (n.text || '').slice(0, 24) || '(vide)', sub: '', icon: 'message', color: n.color, hay: 'note post-it ' + (n.title || '') + ' ' + (n.text || '') }));
-    NODE_KINDS.forEach((k) => items.push({ sec: 'Blocs', kind: k, label: KINDS[k].label, sub: '', icon: KINDS[k].icon, hay: KINDS[k].label + ' ' + k }));
-    evs().forEach((e) => items.push({ sec: 'Événements', kind: 'trigger', preset: { event: e.id }, label: e.label, sub: e.id, icon: e.icon, hay: e.label + e.id + (e.help || '') }));
-    V.guards.forEach((g) => items.push({ sec: 'Conditions', kind: 'condition', preset: { guard: g.id }, label: g.label, sub: g.id, icon: g.icon, hay: g.label + g.id + (g.help || '') }));
-    V.actions.forEach((a) => items.push({ sec: 'Actions', kind: 'action', preset: { action: a.id }, label: a.label, sub: a.id, icon: a.icon, hay: a.label + a.id + (a.help || '') }));
-    moveChoices().forEach((c) => items.push({ sec: "Changer d'état", kind: 'action', preset: c.preset, label: c.label.replace("Changer d'état → ", '→ '), sub: 'set_var etat', icon: c.icon, hay: c.hay }));
+    NODE_KINDS.forEach((k) => items.push({ sec: 'Blocs (vides)', kind: k, label: KINDS[k].label, sub: '', icon: KINDS[k].icon, hay: KINDS[k].label + ' ' + k, tip: KIND_TIP[k] }));
+    const mk = (i, extraCls) => {
+      const el = h('div', { class: 'pitem' + (extraCls || ''), draggable: i.band || i.fn ? null : 'true', 'data-tip': i.tip || i.help || null, 'data-tip-side': '1' },
+        ico(i.icon, i.color || (i.band ? stateColor(i.id) : KINDS[i.kind].color)), h('span', { class: 'plab' }, i.label), h('small', { class: i.path ? 'ppath' : null }, i.path || i.sub || ''));
+      el.addEventListener('click', () => { if (i.fn) i.fn(); else if (i.band) focusBand(i.id); else addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
+      el.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', JSON.stringify({ kind: i.kind, preset: i.preset || null })); });
+      return el;
+    };
+    // lot L5: Déclencheurs / Actions / Conditions, each split by shared theme (collapsible); a search lists the matches
+    // of every category flat, each with its "Catégorie › Thème" path.
+    if (q) {
+      const hits = vocab.filter((i) => i.hay.includes(q));
+      if (hits.length) box.append(h('div', { class: 'psec' }, 'Nœuds (' + hits.length + ')'));
+      hits.forEach((i) => box.append(mk(Object.assign({}, i, { path: itemPath(i) }))));
+    } else {
+      const st = palState();
+      menuTree(CATS.map((c) => c.id)).forEach(({ cat, themes }) => {
+        const ck = 'c:' + cat.id, open = st.has(ck);
+        box.append(palHead('pcat', ck, open, cat.icon, KINDS[cat.id].color, cat.label, themes.reduce((n, t) => n + t.items.length, 0), cat.tip, { 'data-cat': cat.id }));
+        if (!open) return;
+        themes.forEach(({ theme, items: tItems }) => {
+          const tk = 't:' + cat.id + ':' + theme.id, topen = st.has(tk);
+          box.append(palHead('pthm', tk, topen, theme.icon, null, theme.label, tItems.length, theme.help, { 'data-cat': cat.id, 'data-theme': theme.id }));
+          if (topen) tItems.forEach((i) => box.append(mk(Object.assign({}, i, { sub: '' }), ' pin')));
+        });
+      });
+    }
     let sec = '';
     items.filter((i) => !q || i.hay.toLowerCase().includes(q)).forEach((i) => {
       if (i.sec !== sec) { sec = i.sec; box.append(h('div', { class: 'psec' }, sec)); }
-      const el = h('div', { class: 'pitem', draggable: i.band || i.fn ? null : 'true', title: i.hay },
-        ico(i.icon, i.color || (i.band ? stateColor(i.id) : KINDS[i.kind].color)), i.label, h('small', {}, i.sub));
-      el.addEventListener('click', () => { if (i.fn) i.fn(); else if (i.band) focusBand(i.id); else addAt(i.kind, i.preset); if (innerWidth <= 900) document.body.classList.add('hide-left'); });
-      el.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', JSON.stringify({ kind: i.kind, preset: i.preset || null })); });
-      box.append(el);
+      box.append(mk(i));
     });
   }
 
   // ---------- inspector ----------
-  function field(label, control, help) {
+  function field(label, control, help, tip) {
     // A custom dropdown holds clickable rows: a <label> around it would re-click its button, so use a <div>.
+    // `tip` (lot L5): help of the argument, behind an "i" icon next to the label (hover or tap).
     const tag = control && control.classList && control.classList.contains('dd') ? 'div' : 'label';
-    return h(tag, { class: 'fld' }, h('span', {}, label), control, help ? h('div', { class: 'help' }, help) : null);
+    return h(tag, { class: 'fld' }, h('span', {}, label, tipi(tip)), control, help ? h('div', { class: 'help' }, help) : null);
   }
   // Dropdown that can show an icon per entry (a native <select> cannot). options: [{v, l, icon}].
   function iconSelect(options, value, onchange) {
@@ -2189,6 +2556,7 @@
     };
     (specArgs || []).forEach((arg, i) => {
       const v = cur[arg.name], lab = arg.label || arg.name;
+      const F = (l, c, hp) => field(l, c, hp, arg.help);   // lot L5: argument help as a tooltip
       const dependent = (specArgs || []).find((x) => x.type === 'value' && x.of === arg.name && !x.optional);
       const pick = (x, def) => {
         set(arg.name, x);
@@ -2201,16 +2569,16 @@
           v == null ? '' : v, (x) => pick(x, varDef(x)));
         sel.classList.add('varsel');
         const d = v ? varDef(v) : null;
-        box.append(field(lab, sel, d ? (d.description || d.label || '') : (opts.length ? '' : 'Aucune variable de ce type : créez-en une dans le panneau Variables.')));
+        box.append(F(lab, sel, d ? (d.description || d.label || '') : (opts.length ? '' : 'Aucune variable de ce type : créez-en une dans le panneau Variables.')));
       } else if (arg.type === 'list') {
         const opts = listDefs().filter((l) => (!(arg.list_types || []).length || arg.list_types.includes(l.type)) && (!arg.writable || !l.readonly));
         const sel = selectCtl([{ v: '', l: '(choisir une liste)' }].concat(opts.map((l) => ({ v: l.id, l: l.id + ' — ' + typeLabel(l.type, true) + ' (' + l.items.length + ')' }))),
           v == null ? '' : v, (x) => pick(x, null));
         sel.classList.add('varsel');
-        box.append(field(lab, sel, opts.length ? '' : 'Aucune liste de ce type : créez-en une dans le panneau Variables.'));
+        box.append(F(lab, sel, opts.length ? '' : 'Aucune liste de ce type : créez-en une dans le panneau Variables.'));
       } else if (arg.type === 'value') {
         const d = refDef(arg), isList = kindOf(arg.of) === 'list';
-        if (!d) { box.append(field(lab, h('div', { class: 'hint' }, isList ? "Choisir d'abord la liste." : "Choisir d'abord la variable."))); return; }
+        if (!d) { box.append(F(lab, h('div', { class: 'hint' }, isList ? "Choisir d'abord la liste." : "Choisir d'abord la variable."))); return; }
         const opt = !!arg.optional, none = opt ? '(toute valeur)' : '(choisir)';
         let ctl;
         if (!isList && d.id === 'etat') {
@@ -2237,7 +2605,7 @@
           if (!utt) ctl.append(textCtl(v, (x) => set(arg.name, x)));
           if (arg.utterance) ctl.append(checkCtl('la phrase entendue ($utterance)', utt, (c) => set(arg.name, c ? '$utterance' : '')));
         }
-        box.append(field(lab + (isList ? ' (' + typeLabel(d.type, true) + ')' : ' (' + typeLabel(d.type) + ')'), ctl, opt ? 'Facultatif.' : ''));
+        box.append(F(lab + (isList ? ' (' + typeLabel(d.type, true) + ')' : ' (' + typeLabel(d.type) + ')'), ctl, opt ? 'Facultatif.' : ''));
       } else if (arg.type === 'enum') {
         let options = (arg.options || []).slice();
         const labels = Object.assign({ in: 'parmi', not_in: 'hors de' }, arg.labels || {});
@@ -2248,16 +2616,16 @@
         }
         const optLabel = (o) => (arg.name === 'op' ? opLabel(o) + '  ' : '') + (labels[o] || (byId(evs(), o) || {}).label || String(o));
         const required = (ctx.required || []).includes(arg.name) || arg.name === 'op';
-        box.append(field(lab, selectCtl((arg.name === 'op' ? [] : [{ v: '', l: required ? '(à choisir)' : '(aucun)' }]).concat(options.map((o) => ({ v: o, l: optLabel(o) }))), v == null ? (arg.name === 'op' ? '=' : '') : v, (x) => set(arg.name, x)),
+        box.append(F(lab, selectCtl((arg.name === 'op' ? [] : [{ v: '', l: required ? '(à choisir)' : '(aucun)' }]).concat(options.map((o) => ({ v: o, l: optLabel(o) }))), v == null ? (arg.name === 'op' ? '=' : '') : v, (x) => set(arg.name, x)),
           arg.name === 'op' ? '' : required ? 'Obligatoire : choisir une valeur.' : 'Facultatif.'));
       } else if (arg.type === 'number') {
         const lid = 'dl-arg' + i;
         const dl = (arg.options || []).length ? h('datalist', { id: lid }, (arg.options || []).map((o) => h('option', { value: o }))) : null;
-        box.append(field(lab + ((arg.options || []).length && !/clé/.test(lab) ? ' (nombre, ou clé de réglage)' : ''), textCtl(v, (x) => set(arg.name, x === '' ? '' : numOrKey(x)), 'text', dl ? lid : null)));
+        box.append(F(lab + ((arg.options || []).length && !/clé/.test(lab) ? ' (nombre, ou clé de réglage)' : ''), textCtl(v, (x) => set(arg.name, x === '' ? '' : numOrKey(x)), 'text', dl ? lid : null)));
         if (dl) box.append(dl);
       } else if (arg.max_len > 100) {
-        box.append(field(lab, areaCtl(v, (x) => set(arg.name, x), arg.max_len), `${arg.max_len} caractères au plus.`));
-      } else box.append(field(lab, textCtl(v, (x) => set(arg.name, x))));
+        box.append(F(lab, areaCtl(v, (x) => set(arg.name, x), arg.max_len), `${arg.max_len} caractères au plus.`));
+      } else box.append(F(lab, textCtl(v, (x) => set(arg.name, x))));
     });
   }
 
@@ -2275,6 +2643,8 @@
       KINDS[m.kind].label, h('small', { class: 'hint' }, m.id + (m.group ? ' · ' + (m.group === 'global' ? 'global' : stateLabel(m.group)) : ''))));
     const helpOf = (list, id) => (byId(list, id) || {}).help || '';
     const stateOpts = V.states.map((s) => ({ v: s.id, l: s.label, icon: stateIcon(s.id) }));
+    const myIssues = issues.get(m.id) || [];      // lot L5: the node's errors / warnings first (badge click lands here)
+    if (myIssues.length) box.append(h('div', { class: 'isslist' }, myIssues.map((i) => h('div', { class: 'iss ' + i.level }, (ISSUE_PREFIX[i.level] || '') + i.message))));
 
     if (m.kind === 'start') {
       box.append(field('État de départ (fixé par le code)', h('input', { type: 'text', disabled: true, value: stateLabel(p.state) })));
@@ -2388,7 +2758,6 @@
     const ta = h('textarea', {}); ta.value = m.description || '';
     ta.addEventListener('change', () => edit((mm) => { mm.description = ta.value; }));
     if (m.kind !== 'state') box.append(field('Description', ta));
-    (issues.get(m.id) || []).forEach((i) => box.append(h('div', { class: 'iss ' + i.level }, i.message)));
     box.append(h('button', { class: 'danger', onclick: () => { editor.removeNodeId('node-' + selDf); } }, 'Supprimer ce nœud'));
   }
 
@@ -2556,16 +2925,25 @@
     return h('div', { class: 'iss err vuses' }, `Suppression refusée : « ${id} » est utilisée par `,
       varsUi.uses.nodes.map((nid, k) => [k ? ', ' : '', h('a', { href: '#', class: 'navok', onclick: (e) => { e.preventDefault(); focusNode(nid); } }, nid)]).flat(), '.');
   }
+  const VAR_TYPE_TIP = {   // lot L5 tooltips of the variable types
+    bool: 'Vrai / faux : deux valeurs, testées par « Une variable est vraie » et inversées par « Inverser une variable ».',
+    number: 'Nombre (entier ou décimal) : comparable avec <, ≤, >, ≥ ; « Ajouter à une variable » le change.',
+    string: 'Texte libre (300 caractères au plus) ; comparé avec = ou ≠.',
+    choice: 'Choix : une valeur parmi la liste de choix déclarée.',
+    duration: 'Durée en secondes (≥ 0) : comme un nombre.',
+  };
   function renderVarNames(box) {
     const defs = varDefs(), names = docVars().names;
-    const tbl = h('table', { class: 'vtable' }, h('thead', {}, h('tr', {}, h('th', {}, 'Nom'), h('th', {}, 'Type'), h('th', {}, 'Initiale'), h('th', { title: 'Valeur actuelle sur le robot' }, 'Live'))));
+    const tbl = h('table', { class: 'vtable' }, h('thead', {}, h('tr', {}, h('th', { 'data-tip': 'Nom de la variable dans les nœuds (« $nom » dans une valeur = sa valeur).' }, 'Nom'),
+      h('th', { 'data-tip': 'Type : ce que la variable peut contenir (survoler un type pour le détail).' }, 'Type'), h('th', { 'data-tip': 'Valeur au chargement du graphe (et après chaque rechargement).' }, 'Initiale'),
+      h('th', { title: 'Valeur actuelle sur le robot' }, 'Live'))));
     const tb = h('tbody', {});
     defs.forEach((d) => {
       const init = d.system ? (d.id === 'etat' ? 'départ' : '—') : liveText(d.value);
       const tr = h('tr', { class: 'vrow' + (varsUi.sel === d.id ? ' on' : '') + (d.readonly ? ' ro' : ''), 'data-var': d.id, title: d.description || '',
         onclick: () => { varsUi.sel = varsUi.sel === d.id ? null : d.id; varsUi.uses = null; renderVars(); } },
         h('td', {}, d.readonly ? h('span', { class: 'lock', title: 'Variable système : lecture seule' }, ico('lock')) : null, h('code', {}, d.id)),
-        h('td', {}, typeLabel(d.type)), h('td', {}, init), h('td', { class: 'vlive', 'data-live': 'names:' + d.id }, liveText(((varsUi.live || {}).names || {})[d.id])));
+        h('td', { 'data-tip': VAR_TYPE_TIP[d.type] || null }, typeLabel(d.type)), h('td', {}, init), h('td', { class: 'vlive', 'data-live': 'names:' + d.id }, liveText(((varsUi.live || {}).names || {})[d.id])));
       tb.append(tr);
       if (d.description) tb.append(h('tr', { class: 'vdesc' }, h('td', { colspan: 4 }, d.description)));
     });
@@ -2758,7 +3136,7 @@
     freshIds.clear();          // from here on, empty required fields count as real errors
     analyze();
     let ne = 0, nw = 0;
-    issues.forEach((l) => l.forEach((i) => (i.level === 'err' ? ne++ : nw++)));
+    issues.forEach((l) => l.forEach((i) => (i.level === 'err' ? ne++ : i.level === 'info' ? 0 : nw++)));
     globalIssues.forEach((i) => (i.level === 'err' ? ne++ : nw++));
     if (showToast) {
       toast(ne ? `${ne} erreur(s) à corriger, ${nw} avertissement(s).` : nw ? `Aucune erreur, ${nw} avertissement(s).` : "Structure correcte. Le robot fait la validation finale à l'enregistrement.", ne ? 'err' : 'ok');
@@ -3236,6 +3614,8 @@
     $('#btnValidate').onclick = () => validate(true);
     $('#btnSave').onclick = save;
     $('#btnMsgs').onclick = () => { $('#msgs').hidden = !$('#msgs').hidden; };
+    $('#btnDiag').onclick = () => diagCycle();
+    installTips();
     $('#btnLeft').onclick = () => document.body.classList.toggle('hide-left');
     $('#btnRight').onclick = () => document.body.classList.toggle('hide-right');
     document.querySelectorAll('#tabs button').forEach((b) => { b.onclick = () => activateTab(b.dataset.tab); });
@@ -3276,6 +3656,14 @@
     meta: () => meta, journal: () => journal, renderVars, varsUi, varDefs, listDefs, varUses, noInputRefusals: () => noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
     nav: () => ({ locked: navLocked, hand: navHand, space: navSpace, zoom: editor.zoom, x: editor.canvas_x, y: editor.canvas_y }),
     setHand, setLock, toggleHelp, save,
+    menuTree, menuItems, issues: () => Object.fromEntries(issues), diagNodes, diagCycle, checkErrors: () => checkErrors, runCheck, setNoteDisplay, hideTip,
+    selDf: () => selDf, validate,
+    // lot L5 test hook: merge `params` into a node's params (null value = delete the key), then redraw + re-analyse
+    patchNode: (nid, params) => {
+      const df = nidToDf.get(nid), m = df != null ? model(df) : null; if (!m) return false;
+      for (const k in params) { if (params[k] === null) delete m.params[k]; else m.params[k] = clone(params[k]); }
+      refreshNode(df); if (selDf === df) renderInspector(); analyze(); commitSoon(); return true;
+    },
     rebuild: (d) => rebuild(d, true),
     dfState: () => ({ drag: editor.drag, editorSel: editor.editor_selected, ele: editor.ele_selected ? (editor.ele_selected.id || editor.ele_selected.className) : null }) };   // L4 test hook: load a (legacy) document without touching the server
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

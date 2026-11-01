@@ -446,3 +446,44 @@ select.varsel{font-family:ui-monospace,Consolas,monospace;font-size:13px}
 .simvars .sv code{color:var(--fg)}
 .simvars .sv.chg{background:color-mix(in srgb,#39c5cf 30%,var(--panel2));color:#fff;box-shadow:0 0 0 1px #39c5cf}
 .simvars .svlab{width:100%;font-size:11.5px;color:var(--mut)}
+
+/* ---------- lot L5 (2026-11-01): tooltips, categorised palette, node diagnostics, post-it display modes ---------- */
+#tip{position:fixed;left:0;top:0;z-index:1000;max-width:340px;padding:6px 9px;border-radius:6px;background:#0d1117;color:var(--fg);
+  border:1px solid var(--line);box-shadow:0 6px 18px #000a;font-size:12.5px;line-height:1.4;white-space:pre-line;pointer-events:none;opacity:0;transition:opacity .12s}
+#tip.on{opacity:1}
+#tip[hidden]{display:none}
+.tipi{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:6px;border-radius:50%;border:1px solid var(--mut);
+  color:var(--mut);font:italic 700 10px/1 Georgia,serif;cursor:help;vertical-align:middle;user-select:none}
+.tipi:hover,.tipi:focus{color:var(--fg);border-color:var(--fg);outline:0}
+@media (pointer:coarse){.tipi{width:26px;height:26px;font-size:13px}}
+.pcat{display:flex;align-items:center;gap:7px;padding:8px 6px;margin-top:6px;font-weight:700;cursor:pointer;border-radius:6px;user-select:none;outline:0}
+.pthm{display:flex;align-items:center;gap:7px;padding:6px 6px 6px 18px;margin:1px 0;cursor:pointer;border-radius:6px;font-size:13px;user-select:none;outline:0}
+.pcat:hover,.pthm:hover,.pcat:focus-visible,.pthm:focus-visible{background:var(--panel2)}
+.pcat small,.pthm small{margin-left:auto;color:var(--mut);font-weight:400;font-size:11px}
+.pcar{width:10px;color:var(--mut);flex:none;font-size:11px}
+.pcat .plab,.pthm .plab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pitem.pin{margin-left:30px}
+.pitem .plab{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pitem small.ppath{max-width:120px;font-size:10.5px}
+.ctx .cpath{color:var(--mut);font-size:11px;margin-left:8px;flex:none;max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.drawflow .drawflow-node .dbadge{position:absolute;top:-10px;right:-10px;min-width:20px;height:20px;padding:0 3px;border-radius:10px;
+  font:700 12px/20px system-ui,sans-serif;text-align:center;cursor:pointer;z-index:6;box-shadow:0 1px 4px #000a;user-select:none}
+.drawflow .drawflow-node .dbadge.err{background:var(--err);color:#fff}
+.drawflow .drawflow-node .dbadge.warn{background:var(--warn);color:#111}
+.drawflow .drawflow-node .dbadge.info{background:#5a6475;color:#fff;font:italic 700 12px/20px Georgia,serif}
+@media (pointer:coarse){.drawflow .drawflow-node .dbadge{min-width:30px;height:30px;line-height:30px;top:-15px;right:-15px;border-radius:15px}}
+#drawflow svg.connection.derr .main-path{filter:drop-shadow(0 0 3px #f85149)}
+#btnDiag{display:inline-flex;gap:8px;align-items:center;font-weight:700}
+#btnDiag.ok{color:var(--ok)}
+#btnDiag .dne{color:#ff8e86}#btnDiag .dnw{color:#ffc46b}
+#btnDiag.err{border-color:var(--err)}#btnDiag.warn{border-color:var(--warn)}
+.isslist{margin:4px 0 10px}
+.iss.info{background:#262c37;color:#c8d0dc}
+.postit.full{height:auto}
+.postit.full .ptext{flex:1 0 auto;overflow:hidden}
+.postit .pline{display:none}
+.postit.compact .ptext,.postit.compact .presize{display:none}
+.postit.compact .pline{display:block;padding:5px 9px 7px;font:15px/1.35 system-ui,Segoe UI,sans-serif;color:#111;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:help}
+.postit .pmode{border:0;background:transparent;color:#333;padding:0 6px;font-size:14px;line-height:1;cursor:pointer;border-radius:3px}
+.postit .pmode:hover{background:#0002;border:0}
+@media (pointer:coarse){.postit .pmode{padding:0 11px}}

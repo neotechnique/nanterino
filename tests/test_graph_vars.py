@@ -484,12 +484,94 @@ def test_hand_wired_false_branch_compiles():
     assert any(e["node"] == "r" and "après une action" in e["message"] for e in V.from_visual(hoist, CFG)[2])
 
 
+# ---------------------------------------------------------------- lot L5 (2026-11-01): node menu themes, check node ids, post-it modes
+def test_every_vocab_item_has_a_valid_theme():
+    v = G.vocabulary(CFG, parse(mini(variables=VARS)))
+    ids = [t["id"] for t in v["themes"]]
+    assert ids == list(G.THEME_DOC) and [t["order"] for t in v["themes"]] == list(range(len(ids)))
+    assert all(t["label"] and t["help"] and os.path.exists(os.path.join(TABLER, t["icon"] + ".svg")) for t in v["themes"])
+    for k in ("events", "actions", "guards"):
+        for x in v[k]:
+            assert x.get("theme") in ids, (k, x["id"], x.get("theme"))
+    assert set(v["theme_slots"]) == {"intent", "after", "state_enter", "state_test", "state_move"}
+    assert set(v["theme_slots"].values()) <= set(ids)
+    # every theme is used by at least one entry (registry or slot): no theme can only ever be empty
+    used = {x["theme"] for k in ("events", "actions", "guards") for x in v[k]} | set(v["theme_slots"].values())
+    assert used == set(ids), set(ids) - used
+    # shared themes: at least one theme holds triggers, actions and conditions
+    per = {k: {x["theme"] for x in v[k]} for k in ("events", "actions", "guards")}
+    assert per["events"] & per["actions"] & per["guards"], per
+    # argument help for the inspector tooltips
+    assert all(a.get("help") for a in next(x for x in v["actions"] if x["id"] == "set_var")["args"])
+    assert all(a.get("help") for g in v["guards"] for a in g["args"])
+
+
+def test_vocab_endpoint_exposes_themes():
+    """GET /api/graph/vocab returns graph.vocabulary(brain.cfg, active graph) verbatim (server.graph_vocab).
+
+    server.py is read as text, never imported: importing it builds the live Brain (engines, audio)."""
+    import ast
+    tree = ast.parse(open(os.path.join(os.path.dirname(V.__file__), "server.py"), encoding="utf-8").read())
+    fn = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "graph_vocab")
+    src = ast.unparse(fn)
+    assert "'/api/graph/vocab'" in src and "return graph_mod.vocabulary(brain.cfg, brain.engine.graph)" in src, src
+    v = G.vocabulary(CFG, G.load_graph(G.DEFAULT_PATH, CFG))
+    body = json.loads(json.dumps(v))                     # what the endpoint serialises
+    assert body["themes"] and body["theme_slots"] and all("theme" in e for e in body["events"])
+
+
+def test_check_returns_node_ids_for_errors():
+    doc = vdoc([N("t", "trigger", type="event", event="start"), N("c", "condition", **etat("=", "veille")),
+                N("g", "condition", type="guard", guard="var_compare", args={"name": "score", "op": ">", "value": 1}, negate=False),
+                N("x", "action", action="set_var", args={"name": "ok", "value": True}, phase="do"),
+                N("y", "action", action="speak_phrase", args={"done": "greeting_done"}, phase="do")],
+               [L("t", "c"), L("c", "g", "true"), L("g", "x", "true"), L("x", "y")], ["t"], copy.deepcopy(VARS))
+    raw, _l, errs = V.from_visual(doc, CFG)
+    assert raw is None and errs
+    assert any(e["node"] == "t" and e.get("at") == "y" and e.get("nodes") == ["t", "y"] and "speak_phrase" in e["message"] for e in errs), errs
+    del doc["variables"]["names"]["score"]
+    doc["nodes"][-1]["params"]["args"]["text"] = "greeting"
+    errs = V.from_visual(doc, CFG)[2]
+    assert any(e["node"] == "t" and e.get("at") == "g" and "unknown variable 'score'" in e["message"] for e in errs), errs
+    # two set_var nodes in one chain: the one whose argument is named in the message wins
+    doc2 = vdoc([N("t", "trigger", type="event", event="start"), N("c", "condition", **etat("=", "veille")),
+                 N("a", "action", action="set_var", args={"name": "ok", "value": True}, phase="do"),
+                 N("b", "action", action="set_var", args={"name": "perdue", "value": 1}, phase="do")],
+                [L("t", "c"), L("c", "a", "true"), L("a", "b")], ["t"], copy.deepcopy(VARS))
+    errs = V.from_visual(doc2, CFG)[2]
+    assert any(e.get("at") == "b" and "perdue" in e["message"] for e in errs), errs
+    # every structural error already names its node
+    bad = vdoc([N("t", "trigger", type="event", event="start")], [], ["t"])
+    assert all(e["node"] == "t" for e in V.from_visual(bad, CFG)[2])
+
+
+def test_note_display_mode_roundtrips():
+    shutil.rmtree(TMP, ignore_errors=True)
+    os.makedirs(TMP)
+    gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
+    doc = vdoc([N("t", "trigger", type="event", event="start"), N("c", "condition", **etat("=", "veille")),
+                N("x", "action", action="mic_on", args={}, phase="do")], [L("t", "c"), L("c", "x", "true")], ["t"])
+    note = {"id": "p1", "text": "a\nb", "color": "#fff59d", "x": 0, "y": 0, "w": 220, "h": 160}
+    doc["notes"] = [dict(note, display="compact"), dict(note, id="p2"), dict(note, id="p3", display="full")]
+    assert V.save(doc, CFG, gp, lp)[0]
+    stored = {n["id"]: n for n in V.load_layout(lp)["notes"]}
+    assert stored["p1"]["display"] == "compact" and "display" not in stored["p2"] and "display" not in stored["p3"]
+    back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert {n["id"]: n.get("display") for n in back["notes"]} == {"p1": "compact", "p2": None, "p3": None}
+    doc["notes"] = [dict(note, display="tiny")]
+    ok, errs = V.save(doc, CFG, gp, lp)
+    assert not ok and any(e.get("note") == "p1" for e in errs), errs
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
 TESTS = [test_each_type_is_validated, test_system_variables_are_read_only, test_set_var_fires_var_changed_with_anti_loop,
          test_list_contains_with_utterance_and_list_actions, test_say_random_is_cached_and_stays_muted,
          test_used_variable_cannot_be_deleted, test_wire_into_trigger_is_refused, test_old_hub_layout_migrates,
          test_multi_state_condition_duplicates_with_one_fan, test_user_var_changed_trigger_roundtrips,
          test_simulator_returns_vars_per_step, test_vocabulary_icons_are_vendored, test_live_snapshot_shape,
-         test_default_graph_has_no_crossing, test_if_else_is_one_condition, test_hand_wired_false_branch_compiles]
+         test_default_graph_has_no_crossing, test_if_else_is_one_condition, test_hand_wired_false_branch_compiles,
+         test_every_vocab_item_has_a_valid_theme, test_vocab_endpoint_exposes_themes, test_check_returns_node_ids_for_errors,
+         test_note_display_mode_roundtrips]
 
 
 def main(argv):
