@@ -99,7 +99,7 @@
   // pointer-events none (never steals a click, a drag or an elementFromPoint) and hides on press / key / wheel / scroll.
   // Touch: a long press (500 ms) shows it; a `.tipi` info icon toggles it on tap. `data-tip-side` = beside the target.
   const TIP_DELAY = 400;
-  let tipEl = null, tipTimer = 0, tipFor = null, tipTouch = 0;
+  let tipEl = null, tipTimer = 0, tipFor = null, tipTouch = 0, tipOpenAt = null;
   function tipTarget(el) {
     el = el && el.closest ? el.closest('[data-tip],[title]') : null;
     if (!el || el.id === 'tip') return null;
@@ -151,7 +151,9 @@
     document.addEventListener('scroll', () => hideTip(), true);
     let lp = 0;                                            // touch: long press shows, the next touch hides
     document.addEventListener('touchstart', (e) => {
-      tipTouch = Date.now(); hideTip(); clearTimeout(lp);
+      tipTouch = Date.now(); clearTimeout(lp);
+      tipOpenAt = tipFor && tipEl && !tipEl.hidden ? tipFor : null;   // remembered: touchstart hides it before the click toggles
+      hideTip();
       const t = tipTarget(e.target); if (!t) return;
       tipFor = t; lp = setTimeout(() => showTip(t), 500);
     }, { capture: true, passive: true });
@@ -159,7 +161,9 @@
     document.addEventListener('click', (e) => {           // info icons: a tap / click toggles their bubble at once
       const i = e.target.closest && e.target.closest('.tipi'); if (!i) return;
       e.preventDefault(); e.stopPropagation();
-      const was = tipFor === i && tipEl && !tipEl.hidden;
+      // A real touch tap: touchstart already hid the bubble, so "was open" comes from what touchstart remembered.
+      const was = (tipFor === i && tipEl && !tipEl.hidden) || (tipOpenAt === i && Date.now() - tipTouch < 800);
+      tipOpenAt = null;
       hideTip(); if (!was) showTip(i);
     }, true);
   }
