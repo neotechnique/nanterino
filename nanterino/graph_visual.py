@@ -234,6 +234,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     legacy = form == "goto"
     new = form == "hub"           # L6 state-node (hub) drawing
     vform = form == "vars"        # lot L1 drawing: etat conditions / set_var(etat) / var_changed(etat)
+    seed_frames = []              # lot L9: column frames drawn by this call (default post-its go into them)
     nodes, links, order, chains, specs = [], [], [], [], []
     link_seen = set()
     state_nid = {}            # state id -> node id of its `state` hub (new form)
@@ -434,7 +435,10 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         chains.append({"key": s["key"], "group": s["group"], "ids": ids})
 
     # ---- layout: saved positions per node, the rest automatic (layered, see graph_layout)
-    auto = GL.hub_layout(nodes, links) if new else (GL.var_layout(nodes, links) if vform else GL.auto_layout(nodes, links))
+    # lot L9: the variables drawing reserves room at the top of each column for its default post-it (see column_notes)
+    seed_text = column_note_texts(states_raw) if vform else {}
+    auto = GL.hub_layout(nodes, links) if new else (
+        GL.var_layout(nodes, links, head={g: column_note_height(t) for g, t in seed_text.items()}) if vform else GL.auto_layout(nodes, links))
     pos = {nid: auto[nid] for nid in auto}
     if new and start_state in state_nid:   # Start sits just left of its state hub, on the same row
         sx, sy = auto[state_nid[start_state]]
@@ -489,16 +493,20 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         user = [f for f in old if f not in auto_old]
         fresh = GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}, badge=0) if auto_old else []
         doc["frames"] = (user + fresh)[:MAX_FRAMES]
+        seed_frames = fresh       # lot L9: freshly drawn columns get their default post-it
     elif layout:
         doc["frames"] = [f for f in (layout.get("frames") or []) if isinstance(f, dict) and _frame_problem(f) is None][:MAX_FRAMES]
     elif vform:   # one automatic column frame per state, the global rules last
         doc["frames"] = GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}, badge=0)
+        seed_frames = doc["frames"]   # lot L9: default layout -> one post-it per column
     else:
         # hub drawing: one automatic column frame per state (muted state colour, `auto: True`), globals last
         doc["frames"] = (GL.hub_frames(nodes, pos, {s["id"]: s["color"] for s in doc["states"]}) if new
                          else GL.default_frames(nodes, pos))
     # post-it notes: cosmetic like frames (layout file only, never compiled); invalid entries are not shown
     doc["notes"] = [n for n in (layout.get("notes") or []) if isinstance(n, dict) and _note_problem(n) is None][:MAX_NOTES]
+    if vform and seed_frames:
+        doc["notes"] = (column_notes(seed_frames, seed_text, doc["notes"]) + doc["notes"])[:MAX_NOTES]
     # lot L8: nested groups / post-its in groups; a link to a frame that is not shown (or a cycle) is dropped
     doc["frames"], doc["notes"] = clean_parents(doc["frames"], doc["notes"])
     return doc
@@ -515,6 +523,65 @@ def _num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e7
 
 
+# ---- lot L9 (2026-11-01): default post-it of each state column (variables drawing)
+# A layout the SERVER draws (no graph.layout.json, or an older-form file whose columns are redrawn) gets one post-it per
+# column frame, at its top, child of the column (`parent`), titled with the column title, text = the state's
+# `description` from graph.yaml (the global column: GLOBAL_NOTE), full display. Marked `auto: "state:<id>"`. A saved
+# vars layout is never seeded again: its notes list is the record, so a deleted default post-it stays deleted and an
+# edited one keeps the user's text. Layout only: graph.yaml never changes (YAML parity unaffected).
+GLOBAL_NOTE = ("Règles globales : chacune peut se déclencher quel que soit l'état du robot "
+               "(ou seulement dans les états choisis sur son déclencheur).")
+COLUMN_NOTE_W = GL.NODE_W + 24     # fits inside every column frame (frame = nodes + 28 px each side)
+COLUMN_NOTE_COLOR = "#fff59d"      # web/editor.js NOTE_COLORS[0]
+AUTO_NOTE = re.compile(r"^state:[A-Za-z0-9_.-]{1,60}$")
+
+
+def column_note_texts(states_raw) -> dict:
+    """{column group: post-it text} for the state columns (non-empty description) and the global column."""
+    out = {}
+    for sid, spec in (states_raw or {}).items():
+        d = str((spec or {}).get("description") or "").strip() if isinstance(spec, dict) else ""
+        if d:
+            out[str(sid)] = d[:MAX_NOTE_TEXT]
+    out["global"] = GLOBAL_NOTE
+    return out
+
+
+def column_note_height(text: str) -> int:
+    """Estimated drawn height (px) of a full-mode column post-it: 28 px title bar, 15 px / 1.4 text wrapped at about
+    26 characters per line (COLUMN_NOTE_W, conservative), 7 px padding top and bottom."""
+    lines, cur = 0, 0
+    for para in str(text).split("\n"):
+        lines, cur = lines + 1, 0
+        for w in para.split():
+            if cur and cur + 1 + len(w) > 26:
+                lines, cur = lines + 1, len(w)
+            else:
+                cur += (1 if cur else 0) + len(w)
+    return 28 + 14 + 21 * max(1, lines) + 8
+
+
+def column_notes(frames: list, texts: dict, existing: list) -> list:
+    """Default post-its for the automatic column frames `frames` (ids `auto-<group>`): each column is grown upward by
+    the post-it height (the layout reserved that room above its nodes, see graph_layout.var_layout `head`) and its
+    post-it sits 16 px inside its top-left corner. Columns that already have a note marked `auto: "state:<group>"` in
+    `existing` are skipped. Mutates the frames in place, returns the new notes."""
+    have = {n.get("auto") for n in existing if isinstance(n, dict)}
+    used = {n.get("id") for n in existing if isinstance(n, dict)}
+    out = []
+    for f in frames:
+        g = f["id"][5:] if f.get("auto") and f["id"].startswith("auto-") else None
+        if not g or g not in texts or "state:" + g in have or "state-" + g in used:
+            continue
+        hh = column_note_height(texts[g])
+        f["y"] -= hh
+        f["h"] += hh
+        out.append({"id": "state-" + g, "title": str(f.get("title") or g)[:MAX_NOTE_TITLE], "text": texts[g],
+                    "color": COLUMN_NOTE_COLOR, "x": f["x"] + 16, "y": f["y"] + 16, "w": COLUMN_NOTE_W, "h": hh,
+                    "parent": f["id"], "auto": "state:" + g})
+    return out
+
+
 def _parent_ok(item: dict) -> bool:
     """Lot L8: `parent` is absent / null / "" (top level) or a frame id string (<= 64 chars)."""
     p = item.get("parent")
@@ -527,12 +594,14 @@ def clean_parents(frames: list, notes: list) -> tuple:
     A link survives only when it names another existing frame; automatic column frames (`auto`) stay top level;
     a cycle (hand-edited file) is broken by dropping the link that closes it, in list order. Items are copied
     only when a link is removed, so a clean list comes back equal (old files without `parent` are unchanged).
+    Lot L9: `parent: null` (explicit top level, written by the editor after the user's first nesting choice so its
+    geometry adoption never runs again) is kept on user frames and notes.
     Returns (frames, notes)."""
     ids = {f["id"] for f in frames}
     out_f = []
     for f in frames:
         p = f.get("parent")
-        if "parent" in f and (not p or p not in ids or p == f["id"] or f.get("auto")):
+        if "parent" in f and (f.get("auto") or (p is not None and (not p or p not in ids or p == f["id"]))):
             f = {k: v for k, v in f.items() if k != "parent"}
         out_f.append(f)
     parent = {f["id"]: f.get("parent") for f in out_f}
@@ -545,7 +614,7 @@ def clean_parents(frames: list, notes: list) -> tuple:
                 break
             seen.add(cur)
             cur = parent.get(cur)
-    out_n = [n if not ("parent" in n and (not n.get("parent") or n["parent"] not in ids))
+    out_n = [n if not ("parent" in n and n["parent"] is not None and (not n["parent"] or n["parent"] not in ids))
              else {k: v for k, v in n.items() if k != "parent"} for n in notes]
     return out_f, out_n
 
@@ -590,8 +659,8 @@ def clean_frames(frames):
             c["note"] = f["note"]
         if f.get("auto") is True:     # automatic column frame the user saved: keeps its muted drawing
             c["auto"] = True
-        if f.get("parent"):           # lot L8: enclosing group id (checked against the other frames by clean_parents)
-            c["parent"] = f["parent"]
+        if "parent" in f:             # lot L8: enclosing group id (checked against the other frames by clean_parents);
+            c["parent"] = f["parent"] or None   # L9: null = explicit top level (the editor's choice, kept)
         out.append(c)
     return out, errors
 
@@ -638,8 +707,10 @@ def clean_notes(notes):
             c["title"] = n["title"]
         if n.get("display") == "compact":   # lot L5: only the non-default mode is stored (old files stay byte-identical)
             c["display"] = "compact"
-        if n.get("parent"):                 # lot L8: the group the post-it belongs to (moves with it)
-            c["parent"] = n["parent"]
+        if "parent" in n:                   # lot L8: the group the post-it belongs to (moves with it); L9: null kept
+            c["parent"] = n["parent"] or None
+        if isinstance(n.get("auto"), str) and AUTO_NOTE.match(n["auto"]):   # lot L9: default column post-it marker
+            c["auto"] = n["auto"]
         out.append(c)
     return out, errors
 

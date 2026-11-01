@@ -42,6 +42,10 @@
  *           minimap press-and-drag navigation (pointer capture, one rAF per frame, wheel = zoom); nested groups: frames
  *           and post-its carry `parent` (frame id), drops re-parent with a drop-target outline, parents grow to fit
  *           and never shrink below their children, deleting a group hands its children to its parent.
+ *           L9 (2026-11-01): the drop target is the deepest frame under the POINTER (dropTargetAt), whatever the sizes;
+ *           a state column refuses to enter a group (red outline, back in place, toast); the first nesting choice
+ *           writes an explicit `parent` (null = top level) on every user frame / post-it so adoptLegacy never reruns.
+ *           Default column post-its (note.auto = "state:<group>") come from the server (graph_visual.column_notes).
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -1560,12 +1564,18 @@
   // ---------- nested groups (lot L8) ----------
   // f.parent / note.parent = id of the enclosing frame (absent = top level), saved in graph.layout.json (the server's
   // clean_parents drops dangling / cyclic links and any parent of an automatic column). Frames and post-its belong by
-  // that link; nodes still follow a frame by geometry (centre inside it when its drag starts). A drop decides the link:
-  // the innermost frame under the dragged item's centre, never the item itself or one of its descendants (so no cycle);
-  // a frame only enters a larger frame; automatic columns (`auto`) never get a parent. A user frame always encloses its
-  // children: a drop grows the parent chain to fit (automatic columns are never grown: they are the state columns), and
-  // a resize cannot shrink any frame below its children. Deleting a frame hands its children to its own parent.
-  // Legacy layouts (no `parent` anywhere) get their membership from geometry once, at load (adoptLegacy).
+  // that link; nodes still follow a frame by geometry (centre inside it when its drag starts). A drop decides the link.
+  // L9 (2026-11-01, user report "je ne peux pas mettre un groupe dans un groupe"): the target is the innermost frame
+  // under the POINTER at release (dropTargetAt), never the item itself or one of its descendants (so no cycle), whatever
+  // the sizes: a person drags by the title and lets go where the pointer is, often with a group as big as or bigger than
+  // the target (the L8 rule, "the dragged item's centre inside a LARGER frame", refused exactly that). A user group may
+  // enter a state column (`auto`); a column itself stays top level: dropped onto a group it goes back where it was, with
+  // a red outline while held and a toast. A user frame always encloses its children: a drop grows the parent chain to
+  // fit (automatic columns are never grown: they are the state columns), and a resize cannot shrink any frame below its
+  // children. Deleting a frame hands its children to its own parent.
+  // Legacy layouts (no `parent` anywhere) get their membership from geometry once, at load (adoptLegacy). L9: the first
+  // time the user nests or un-nests anything, every user frame and post-it gets an explicit `parent` (null = top level,
+  // kept by the server), so that adoption can never run again and redo a choice the user made.
   const NEST_PAD = { l: 16, r: 16, t: 40, b: 16 };   // t: room for the child's title bar under the parent's
   const parentOf = (it) => (it && it.parent ? frameById(it.parent) || null : null);
   function frameDepth(f) { let d = 0, p = parentOf(f), guard = 0; while (p && guard++ < 200) { d++; p = parentOf(p); } return d; }
@@ -1592,6 +1602,24 @@
     });
     return best;
   }
+  // L9: frame that receives a drop: the deepest frame under the POINTER (canvas point `pt`), then the smallest, skipping
+  // `skip` ids (the dragged frame and its descendants). Size never matters: the receiving chain grows to fit.
+  function dropTargetAt(pt, skip) {
+    if (!pt) return null;
+    let best = null, bd = -1, ba = 0;
+    frames().forEach((g) => {
+      if ((skip && skip.has(g.id)) || pt.x < g.x || pt.x > g.x + g.w || pt.y < g.y || pt.y > g.y + g.h) return;
+      const d = frameDepth(g), ga = g.w * g.h;
+      if (!best || d > bd || (d === bd && ga < ba)) { best = g; bd = d; ba = ga; }
+    });
+    return best;
+  }
+  // L9: after the user's first nesting choice every user frame / post-it carries `parent` (null = top level): adoptLegacy
+  // only runs on a layout where no item has the key, so it can never undo that choice on a later reload.
+  function explicitParents() {
+    frames().forEach((f) => { if (!f.auto && !('parent' in f)) f.parent = null; });
+    notes().forEach((n) => { if (!('parent' in n)) n.parent = null; });
+  }
   function childBoxes(f) {
     return frames().filter((g) => g.parent === f.id).map(frameBox).concat(notes().filter((n) => n.parent === f.id).map((n) => noteBox(n)));
   }
@@ -1617,20 +1645,22 @@
   // Link a dropped frame / note to `target` (null = top level); grows the new parent chain. Toast when the link changed.
   function reparent(it, isNote, target) {
     const old = it.parent || null, now = target ? target.id : null;
-    if (now) it.parent = now; else delete it.parent;
+    it.parent = now;                            // L9: null = top level, written explicitly (see explicitParents)
     if (target) fitAncestors(target);
     if (old === now) return false;
+    explicitParents();
     const what = isNote ? 'Post-it' : 'Groupe', name = (g) => '« ' + ((g && g.title) || (g && g.id) || old) + ' »';
     toast(now ? what + ' rangé dans ' + name(target) + '.' : what + ' sorti de ' + name(frameById(old)) + '.', '');
     return true;
   }
-  let dropEl = null;                          // frame element outlined as the drop target of the current drag
-  function markDrop(f) {
-    const el = f ? frameEls.get(f.id) || null : null;
-    if (el === dropEl) return;
-    if (dropEl) dropEl.classList.remove('droptarget');
-    dropEl = el;
-    if (el) el.classList.add('droptarget');
+  let dropEl = null, dropCls = '';            // frame element outlined as the drop target of the current drag
+  // deny: L9 red outline (a state column held over a group: it will not enter it)
+  function markDrop(f, deny) {
+    const el = f ? frameEls.get(f.id) || null : null, cls = deny ? 'dropdeny' : 'droptarget';
+    if (el === dropEl && cls === dropCls) return;
+    if (dropEl) dropEl.classList.remove(dropCls);
+    dropEl = el; dropCls = cls;
+    if (el) el.classList.add(cls);
   }
   // Old layout without any `parent`: frames and post-its join the smallest frame around their centre, once at load.
   function adoptLegacy() {
@@ -1648,7 +1678,9 @@
     frames().map((f, i) => [f, frameDepth(f), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).forEach(([f]) => {
       const text = h('span', { class: 'ftext' }, f.title || '(sans nom)');
       if (!f.title) text.classList.add('empty');
-      const title = h('div', { class: 'ftitle', title: 'Glisser pour déplacer le groupe avec ses nœuds, ses groupes et ses post-it ; lâché dans un autre groupe, il en fait partie. Double-clic pour renommer.' }, ico('square'), text);
+      const tip = f.auto ? 'Glisser pour déplacer la colonne avec ses nœuds, ses groupes et ses post-it (une colonne reste au premier niveau). Double-clic pour renommer.'
+        : 'Glisser pour déplacer le groupe avec ses nœuds, ses groupes et ses post-it ; lâché avec le pointeur sur un autre groupe ou une colonne, il en fait partie. Double-clic pour renommer.';
+      const title = h('div', { class: 'ftitle', title: tip }, ico('square'), text);
       const grip = h('div', { class: 'fresize', title: 'Redimensionner' });
       const el = h('div', { class: 'frame' + (f.auto ? ' auto' : '') + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id, 'data-parent': f.parent || false }, title, grip);
       placeFrame(f, el);
@@ -1713,7 +1745,8 @@
       });
       d.frames.forEach((o) => { o.g.x = Math.round(o.x + dx); o.g.y = Math.round(o.y + dy); const el = frameEls.get(o.g.id); if (el) placeFrame(o.g, el); });
       d.notes.forEach((o) => { o.n.x = Math.round(o.x + dx); o.n.y = Math.round(o.y + dy); const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
-      markDrop(f.auto ? null : dropTarget(frameBox(f), d.skip, { frame: true }));   // L8: drop-target outline
+      d.pt = canvasPoint(p.clientX, p.clientY);
+      markDrop(dropTargetAt(d.pt, d.skip), f.auto);   // L8 outline; L9: under the pointer, red for a column (refused)
     }
     const el = frameEls.get(f.id); if (el) placeFrame(f, el);
   }
@@ -1722,10 +1755,29 @@
     frameDrag = null;
     markDrop(null);
     if (!d.moved) return;
-    if (d.mode === 'move' && !d.f.auto) reparent(d.f, false, dropTarget(frameBox(d.f), d.skip, { frame: true }));
-    else if (d.mode === 'resize') fitAncestors(parentOf(d.f));   // a grown child grows its parents
+    if (d.mode === 'move') {
+      const t = dropTargetAt(d.pt, d.skip);
+      if (!d.f.auto) reparent(d.f, false, t);
+      else if (t) {                     // L9: a state column stays top level: back where it was, and say so
+        undoFrameMove(d);
+        toast('Une colonne d\u2019état reste au premier niveau : « ' + (d.f.title || d.f.id) + ' » revient à sa place. Pour ranger « '
+          + (t.title || t.id) + ' » dans la colonne, glissez plutôt ce groupe dans la colonne.', 'err');
+      }
+    } else if (d.mode === 'resize') fitAncestors(parentOf(d.f));   // a grown child grows its parents
     drawBands(); drawFrames(); renderInspector();
     commitSoon();
+  }
+  // L9: put a frame drag back (the frame, the nodes, frames and post-its that followed it), wires redrawn.
+  function undoFrameMove(d) {
+    d.f.x = d.ox; d.f.y = d.oy;
+    d.nodes.forEach((n) => {
+      const nd = dfNode(n.dfid), el = nodeEl(n.dfid);
+      nd.pos_x = n.x; nd.pos_y = n.y;
+      if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
+      editor.updateConnectionNodes('node-' + n.dfid);
+    });
+    d.frames.forEach((o) => { o.g.x = o.x; o.g.y = o.y; });
+    d.notes.forEach((o) => { o.n.x = o.x; o.n.y = o.y; const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
   }
   function editFrameTitle(f) {
     const el = frameEls.get(f.id), t = el && el.querySelector('.ftext'); if (!t) return;
@@ -1753,7 +1805,7 @@
     if (editBlocked()) return;
     // L8: the children of a deleted group go to its parent (or the top level); they are never deleted
     const gone = frameById(id), up = gone && gone.parent ? gone.parent : null;
-    frames().concat(notes()).forEach((it) => { if (it.parent === id) { if (up) it.parent = up; else delete it.parent; } });
+    frames().concat(notes()).forEach((it) => { if (it.parent === id) it.parent = up; });   // L9: null = explicit top level
     meta.frames = frames().filter((f) => f.id !== id);
     if (selFrame === id) selFrame = null;
     drawFrames(); renderInspector(); renderPalette();
@@ -1810,7 +1862,7 @@
     box.append(h('div', { class: 'fld' }, h('span', {}, 'Couleur'), sw));
     box.append(field('Note', areaCtl(f.note || '', (v) => editFrame(f, { note: v }), 2000), 'Texte libre, purement décoratif : le robot ne le lit pas.'));
     if (parentOf(f)) box.append(h('p', { class: 'hint fparent' }, 'Dans le groupe « ' + (parentOf(f).title || parentOf(f).id) + ' » (glisser ce groupe hors de lui pour l’en sortir).'));
-    box.append(h('p', { class: 'hint' }, 'Un groupe ne change rien au comportement du robot : il sert seulement à ranger le graphe. Glisser la barre de titre déplace aussi les nœuds, les groupes et les post-it qu’il contient ; un groupe ou un post-it lâché dans un groupe en fait partie.'));
+    box.append(h('p', { class: 'hint' }, 'Un groupe ne change rien au comportement du robot : il sert seulement à ranger le graphe. Glisser la barre de titre déplace aussi les nœuds, les groupes et les post-it qu’il contient ; un groupe ou un post-it lâché avec le pointeur sur un groupe ou une colonne en fait partie, quelle que soit sa taille (une colonne d’état, elle, reste au premier niveau).'));
     box.append(h('button', { type: 'button', class: 'danger', onclick: () => deleteFrame(f.id) }, 'Supprimer le groupe (son contenu reste)'));
   }
 
@@ -1979,7 +2031,7 @@
     if (!d.moved && Math.hypot(p.clientX - d.cx, p.clientY - d.cy) < 3) return;
     d.moved = true;
     if (d.mode === 'resize') { d.n.w = Math.max(120, Math.round(d.ow + dx)); d.n.h = Math.max(90, Math.round(d.oh + dy)); }
-    else { d.n.x = Math.round(d.ox + dx); d.n.y = Math.round(d.oy + dy); markDrop(dropTarget(noteBox(d.n, d.nh))); }   // L8 outline
+    else { d.n.x = Math.round(d.ox + dx); d.n.y = Math.round(d.oy + dy); d.pt = canvasPoint(p.clientX, p.clientY); markDrop(dropTargetAt(d.pt)); }   // L8 outline, L9 pointer
     const el = noteEls.get(d.n.id); if (el) { placeNote(d.n, el); if (d.mode === 'resize') growNote(el); }
   }
   function endNoteDrag(e) {
@@ -1992,8 +2044,8 @@
       d.n.x = p.x; d.n.y = p.y;
       const el = noteEls.get(d.n.id); if (el) placeNote(d.n, el);
     }
-    // L8: the group under the note's centre (after the slide) owns it; a resize grows its parents
-    if (d.mode === 'move') reparent(d.n, true, dropTarget(noteBox(d.n)));
+    // L9: the group under the POINTER at release owns the note (L8 used its centre); a resize grows its parents
+    if (d.mode === 'move') reparent(d.n, true, dropTargetAt(d.pt));
     else fitAncestors(parentOf(d.n));
     if (d.n.parent || d.mode === 'move') drawFrames();
     commitSoon();

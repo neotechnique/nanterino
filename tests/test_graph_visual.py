@@ -751,7 +751,10 @@ def test_notes_cosmetic_postits():
     os.makedirs(TMP)
     gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
     base = V.to_visual(default_raw())
-    assert base["notes"] == [] and "notes" in base
+    # CHANGED (lot L9): the default drawing ships one marked post-it per column (test_default_column_postits);
+    # this test is about user notes, so it starts from a drawing without them
+    assert "notes" in base and base["notes"] and all(n.get("auto") for n in base["notes"])
+    base["notes"] = []
     doc = copy.deepcopy(base)
     doc["notes"] = [_note(1, title="À faire"), _note(2, text="", color="#a5d6a7")]
     raw0, _ = compile_ok(base)
@@ -906,6 +909,66 @@ def test_nested_groups_parent_links():
     shutil.rmtree(TMP, ignore_errors=True)
 
 
+def test_default_column_postits():
+    """Lot L9: the default variables drawing has one post-it per column (state description / global explanation),
+    at the column top, child of the column, above its nodes; layout only; saved and reloaded unchanged; a deleted one
+    stays deleted and an edited one keeps its text (a saved layout is never seeded again); explicit `parent: null`
+    (editor's top-level choice) round-trips."""
+    shutil.rmtree(TMP, ignore_errors=True)
+    os.makedirs(TMP)
+    gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
+    raw = default_raw()
+    base = V.to_visual(raw)
+    cols = {f["id"]: f for f in base["frames"] if f.get("auto")}
+    notes = {n["parent"]: n for n in base["notes"]}
+    assert set(notes) == set(cols) and len(base["notes"]) == len(cols), (sorted(notes), sorted(cols))
+    for cid, f in cols.items():
+        n, g = notes[cid], cid[len("auto-"):]
+        want = V.GLOBAL_NOTE if g == "global" else raw["states"][g]["description"]
+        assert n["auto"] == "state:" + g and n["id"] == "state-" + g and n["title"] == f["title"] and n["text"] == want, n
+        assert "display" not in n                                 # full display mode
+        assert f["x"] <= n["x"] and n["x"] + n["w"] <= f["x"] + f["w"] and f["y"] <= n["y"] and n["y"] + n["h"] <= f["y"] + f["h"], (n, f)
+        assert n["y"] - f["y"] <= 20, "the post-it sits at the top of its column"
+        inside = [x for x in base["nodes"] if f["x"] <= x["x"] <= f["x"] + f["w"] and f["y"] <= x["y"] <= f["y"] + f["h"]]
+        assert inside and all(x["y"] >= n["y"] + n["h"] + 24 for x in inside), (cid, n, min(x["y"] for x in inside))
+    # layout only: the compiled graph is the same with or without them
+    plain = copy.deepcopy(base)
+    plain["notes"] = []
+    raw0, _ = compile_ok(plain)
+    raw1, layout = compile_ok(base)
+    assert semantic(raw0) == semantic(raw1) and "state:" not in V.dump_yaml(raw1)
+    assert [(n["id"], n["auto"], n["parent"]) for n in layout["notes"]] == [(n["id"], n["auto"], n["parent"]) for n in base["notes"]]
+    # save -> reload: identical notes (marker, parent, text)
+    assert V.save(base, CFG, gp, lp)[0]
+    back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert back["notes"] == [V.clean_notes(base["notes"])[0][i] for i in range(len(base["notes"]))], back["notes"][:2]
+    # delete the veille post-it, edit the global one, save, reload: no re-seed, edit kept
+    doc = copy.deepcopy(back)
+    doc["notes"] = [n for n in doc["notes"] if n["auto"] != "state:veille"]
+    for n in doc["notes"]:
+        if n["auto"] == "state:global":
+            n["text"] = "Mon texte."
+            n["display"] = "compact"
+    assert V.save(doc, CFG, gp, lp)[0]
+    again = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    marks = {n["auto"]: n for n in again["notes"]}
+    assert "state:veille" not in marks and len(again["notes"]) == len(cols) - 1, sorted(marks)
+    assert marks["state:global"]["text"] == "Mon texte." and marks["state:global"]["display"] == "compact"
+    # L9 explicit top level: `parent: null` on a user frame / note is kept (blocks the editor's geometry adoption)
+    top = copy.deepcopy(again)
+    top["frames"].append({"id": "fz", "title": "Z", "color": "#4f8ef7", "x": -900, "y": 0, "w": 300, "h": 200, "parent": None})
+    top["notes"].append(_note(9, parent=None))
+    _, lay3 = compile_ok(top)
+    assert [f for f in lay3["frames"] if f["id"] == "fz"][0]["parent"] is None and "parent" in [f for f in lay3["frames"] if f["id"] == "fz"][0]
+    assert "parent" in lay3["notes"][-1] and lay3["notes"][-1]["parent"] is None
+    assert all("parent" not in f for f in lay3["frames"] if f.get("auto")), "columns stay top level, no key"
+    # a bad marker is dropped silently (cosmetic)
+    odd = copy.deepcopy(top)
+    odd["notes"][0]["auto"] = "pwn:<b>"
+    assert "auto" not in compile_ok(odd)[1]["notes"][0]
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
 FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabulary, test_error_cases,
         test_negated_guard_compiles_and_evaluates, test_false_port_and_order, test_save_backups_and_reset,
         test_deferred_reload_applies_at_next_veille, test_frames_cosmetic_groups,
@@ -913,7 +976,7 @@ FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabula
         test_merged_fan_trigger_reloads_as_one_node, test_sharing_keeps_independent_transitions_apart,
         test_state_nodes_compile, test_trigger_linked_from_several_states, test_state_node_link_rules,
         test_legacy_goto_documents_compile_identically, test_notes_cosmetic_postits, test_hub_layout_has_no_overlap_and_global_area,
-        test_nested_groups_parent_links]
+        test_nested_groups_parent_links, test_default_column_postits]
 
 
 def parity_on_compiled_graph():

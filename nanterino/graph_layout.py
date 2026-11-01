@@ -145,15 +145,17 @@ def hub_groups(nodes) -> list:
     return out
 
 
-def var_layout(nodes, links, y0: int = TOP) -> dict:
+def var_layout(nodes, links, y0: int = TOP, head: dict | None = None) -> dict:
     """Columns layout of the variables drawing (lot L1): no state node, one column per state group in order of first
     appearance (the state order of the graph), `global` last, columns wrapped into rows like hub_layout. Every link of
     this drawing stays inside its column (shared nodes only join chains of one group), so the only crossings are the
-    ones the band algorithm leaves inside a column; no room is kept for "→ État" badges and layers use COLW."""
-    return hub_layout(nodes, links, y0, badge=0, pitch=COLW, stack=True)
+    ones the band algorithm leaves inside a column; no room is kept for "→ État" badges and layers use COLW.
+    `head` (lot L9): {group: px} of free room kept at the top of a column, above its first chain (default post-it)."""
+    return hub_layout(nodes, links, y0, badge=0, pitch=COLW, stack=True, head=head)
 
 
-def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False) -> dict:
+def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int = HUB_PITCH, stack: bool = False,
+               head: dict | None = None) -> dict:
     """Columns layout of the state-node (hub) drawing (L7, 2026-10-31; fix round: columns wrapped into rows).
 
     Fix round: the columns (flow order kept) are wrapped into 1..4 rows chosen by `_wrap_rows()` for an
@@ -170,7 +172,7 @@ def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int 
     # L7 fix round: the columns are built at the origin, then wrapped into rows (see _wrap_rows)
     hub_h = max([node_height(n) for n in nodes if n.get("kind") == "state"] + [0])
     chain_top = hub_h + HUB_GAP if hub_h else 0
-    cols = [_hub_column(g, nodes, links, chain_top, badge, pitch, stack) for g in hub_groups(nodes)]
+    cols = [_hub_column(g, nodes, links, chain_top + (head or {}).get(g, 0), badge, pitch, stack) for g in hub_groups(nodes)]
     pos = {}
     for row in _wrap_rows(cols):
         x = 0

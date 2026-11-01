@@ -494,6 +494,8 @@ select.varsel{font-family:ui-monospace,Consolas,monospace;font-size:13px}
 /* L8: drop target of a dragged group / post-it (nested groups), minimap press-and-drag navigation */
 .frame.droptarget{outline:3px dashed #58a6ff;outline-offset:3px;background:color-mix(in srgb,#58a6ff 16%,transparent)}
 .frame.auto.droptarget{border-color:#58a6ff}
+/* L9: a state column held over a group: it will not enter it (stays top level) */
+.frame.dropdeny{outline:3px dashed #f85149;outline-offset:3px;background:color-mix(in srgb,#f85149 14%,transparent)}
 #minimap canvas{touch-action:none;cursor:grab}
 #minimap.dragging,#minimap.dragging canvas{opacity:1;cursor:grabbing}
 #minimap,#jumpbar{user-select:none;-webkit-user-select:none}
