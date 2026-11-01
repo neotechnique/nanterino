@@ -5,7 +5,7 @@
  *           round-trip it through the node-document contract (Notes/graph-visual-format.md).
  * Boundary: talks only to GET /api/graph/visual, /api/graph/vocab, /api/graph, /api/graph/versions, /api/graph/vars,
  *           /api/graph/trace, POST /api/graph/visual, /api/graph/simulate, /api/graph/reset,
- *           /api/graph/versions/<id>/restore, GET /web/vendor/tabler/<name>.svg (icons) and WS /ws (live state,
+ *           /api/graph/versions/<id>/restore, /api/graph/check, /api/graph/vars/reset (L12), GET /web/vendor/tabler/<name>.svg (icons) and WS /ws (live state,
  *           heartbeat, last_transition). graph.yaml stays the only executed artifact; the server compiles and
  *           validates, this page never decides what is valid on its own (client checks below are structural
  *           hints only). Wave 2 adds: icons (read from the vocabulary, never chosen here), disabled chains,
@@ -57,6 +57,17 @@
  *           centre, double-click = rename, drag a row onto a column / group row = moveInto with the canvas drop rules,
  *           selection synced both ways). The first right tab is "Inspecteur": node, wire, group, column, post-it or a
  *           whole chain (steps + diagnostics).
+ *           L12 (2026-11-01, contract "Variables v2"): every type list comes from the vocabulary (var_types[].control /
+ *           options / ops / choices / range / size, list_types, op_sets, scopes, list_kinds, list_modes, weekdays), never
+ *           hardcoded here. Variables panel: Portée column + Persistante (globals only), min / max / step, one typed
+ *           control per `control` (valueInput), Réinitialiser = POST /api/graph/vars/reset, live values (chrono = elapsed
+ *           seconds, refreshed by the 1 Hz poll); Listes: kind list / dict (key -> value sub-table), mode, max, scope,
+ *           persist. Inspector: typed `value` (by the chosen variable / list / dict), `time` (hh:mm), `multi` (week days),
+ *           `text` keys with $utterance / $variable, `number` with `min`, operators filtered by op_sets, args of any event
+ *           (timer_reached). Diagnostics: server `out_of_bounds` warnings on the faulty node, client type mismatch hints,
+ *           persisted values refused at load (`store.ignored` of GET /api/graph/vars, fetched once at load and after save)
+ *           as global warnings. Tester: simulated variables grouped by scope (Système / Globales / Conversation),
+ *           conversation ones marked "remises à zéro à chaque nouvelle conversation".
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -345,12 +356,17 @@
     const snap = {}; (((V.variables || {}).lists) || []).forEach((l) => { snap[l.id] = l; });
     const lists = docVars().lists;
     return Object.keys(lists).map((id) => {
-      const l = lists[id] || {}, bound = !!(l.from || l.intent);
+      const l = lists[id] || {}, bound = !!(l.from || l.intent), kind = l.kind === 'dict' ? 'dict' : 'list';
+      // L12: a dict keeps its items as a {key: value} object; every other list is an array
+      const own = kind === 'dict' ? (l.items && typeof l.items === 'object' && !Array.isArray(l.items) ? l.items : {}) : (Array.isArray(l.items) ? l.items : []);
       return { id, type: l.type || 'string', description: l.description || '', readonly: bound,
         source: l.from ? { cfg: l.from } : l.intent ? { intent: l.intent } : null,
-        items: bound ? (((snap[id] || {}).items) || []) : (Array.isArray(l.items) ? l.items : []) };
+        kind, mode: l.mode || 'plain', max: l.max == null ? null : l.max, scope: l.scope || 'global', persist: !!l.persist,
+        items: bound ? (((snap[id] || {}).items) || []) : own };
     });
   }
+  // L12: number of entries of a list or a dict (dict items are an object).
+  const itemCount = (items) => (Array.isArray(items) ? items.length : items && typeof items === 'object' ? Object.keys(items).length : 0);
   const varDef = (id) => varDefs().find((v) => v.id === id) || null;
   const listDef = (id) => listDefs().find((l) => l.id === id) || null;
   const typeLabel = (t, lists) => ((byId(lists ? V.list_types : V.var_types, t) || {}).label || t);
@@ -369,8 +385,8 @@
     const out = [];
     ((doc || serialize()).nodes || []).forEach((n) => {
       const p = n.params || {}, a = p.args || {};
-      const hit = (n.kind === 'trigger' && p.name === id) || a.name === id || a.list === id
-        || [a.value, p.value].some((v) => v === '$' + id || (Array.isArray(v) && v.includes('$' + id)));
+      const hit = (n.kind === 'trigger' && p.name === id) || a.name === id || a.list === id || a.dict === id
+        || a.key === '$' + id || [a.value, p.value].some((v) => v === '$' + id || (Array.isArray(v) && v.includes('$' + id)));
       if (hit) out.push(n.id);
     });
     return out;
@@ -402,23 +418,75 @@
     return out;
   }
 
-  // var_compare: operator / value of the wrong type for the variable (lot L5 live check; the server stays the judge).
+  // L12: vocabulary entry of a variable type ({id, label, control, options, ops, choices?, range?, size?, default,
+  // nullable, persist}); an unknown type falls back to a plain text control.
+  const vtype = (t) => byId(V.var_types, t) || { id: t, label: t, control: 'text', options: [], ops: ['=', '!='] };
+  // Operators allowed on a type: vocabulary op_sets first (order operators for numbers, durations, dates, chronos).
+  const opsFor = (t) => ((V.op_sets || {})[t]) || vtype(t).ops || ['=', '!='];
+  const ordered = (t) => opsFor(t).includes('<');
+  const numericType = (t) => ['number', 'slider', 'timer'].includes(vtype(t).control);
+  // Choices of a select-typed variable [{v, l}]: its own `choices` (type choice) or the vocabulary ones (expression,
+  // gaze, media, intent_ref, list_ref, state_ref). Long labels (intent descriptions) fall back to the id.
+  const choicesOf = (def) => (def && def.type === 'choice' ? (def.choices || []).map((c) => ({ v: c, l: c }))
+    : (vtype(def && def.type).choices || []).map((c) => ({ v: c.id, l: c.label && c.label.length <= 40 ? c.label : c.id })));
+  // Bounds of a numeric variable: its own min / max / step (number, integer) or the vocabulary range (percent).
+  function boundsOf(def) {
+    const r = vtype(def && def.type).range || [];
+    const pick = (k, dv) => (def && def[k] != null && def[k] !== '' ? Number(def[k]) : dv == null ? null : dv);
+    return { min: pick('min', r[0]), max: pick('max', r[1]), step: pick('step', def && def.type === 'integer' ? 1 : null) };
+  }
+  const DT_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/;
+  // Problem of a constant against a variable definition: {level: 'err'} for a type mismatch, {level: 'warn'} for a
+  // number outside the bounds (the server says the same as `out_of_bounds`), null when fine. "$x" references are
+  // checked by the callers. Hints only: the server compiler stays the judge.
+  function valueIssue(def, v, label) {
+    if (!def || v == null || v === '' || (typeof v === 'string' && v.startsWith('$'))) return null;
+    const t = vtype(def.type), c = t.control, who = label || def.id;
+    const bad = (m) => ({ level: 'err', message: m });
+    if (numericType(def.type)) {
+      if (!(typeof v === 'number' || isNum(v))) return bad(`« ${v} » n’est pas un nombre (« ${who} » : ${typeLabel(def.type)}).`);
+      const n = Number(v), b = boundsOf(def);
+      if (def.type === 'integer' && !Number.isInteger(n)) return bad(`« ${v} » n’est pas un entier (« ${who} »).`);
+      if ((b.min != null && n < b.min) || (b.max != null && n > b.max)) return { level: 'warn', message: `${n} est hors des bornes de « ${who} » (${b.min == null ? '…' : b.min} à ${b.max == null ? '…' : b.max}) : la valeur sera bornée.` };
+      return null;
+    }
+    if (c === 'checkbox') return typeof v === 'boolean' || ['true', 'false'].includes(String(v)) ? null : bad(`« ${v} » n’est pas vrai / faux.`);
+    if (c === 'select') {
+      const cs = choicesOf(def).map((x) => x.v);
+      return !cs.length || cs.includes(v) ? null : bad(`« ${v} » n’est pas un des choix de « ${who} »${def.type === 'choice' ? ' (' + cs.join(', ') + ')' : ''}.`);
+    }
+    if (c === 'color') return /^#[0-9a-fA-F]{6}$/.test(String(v)) ? null : bad(`« ${v} » n’est pas une couleur #rrggbb.`);
+    if (c === 'vector') return Array.isArray(v) && v.length === (t.size || 2) && v.every((x) => typeof x === 'number' || isNum(x)) ? null : bad(`« ${who} » attend ${t.size || 2} nombres.`);
+    if (c === 'datetime') return DT_RE.test(String(v)) ? null : bad(`« ${v} » n’est pas une date AAAA-MM-JJTHH:MM.`);
+    return null;
+  }
+  // var_compare / date_compare / set_var: operator or value of the wrong type for the variable (lot L5 live check,
+  // generalised by L12 to every vocabulary type; the server stays the judge). `of` = the variable arg ('name').
   function compareIssues(a) {
     const out = [], d = a.name ? varDef(a.name) : null;
     if (!d || a.name === 'etat') return out;
-    const op = a.op || '=', v = a.value, num = ['number', 'duration'].includes(d.type);
-    if (ORDER_OPS.includes(op) && !num) out.push(`« ${opLabel(op)} » ne s’applique qu’aux nombres et aux durées (« ${a.name} » : ${typeLabel(d.type)}).`);
+    const op = a.op || '=', v = a.value;
+    if (ORDER_OPS.includes(op) && !ordered(d.type)) out.push(`« ${opLabel(op)} » ne s’applique qu’aux nombres, durées et dates (« ${a.name} » : ${typeLabel(d.type)}).`);
     if (v == null || v === '') return out;
+    if (v === '$utterance') return out;
     if (typeof v === 'string' && v.startsWith('$')) {
       const r = varDef(v.slice(1));
       if (!r) out.push(`Variable inconnue : « ${v.slice(1)} ».`);
-      else if (num !== ['number', 'duration'].includes(r.type) || (!num && r.type !== d.type)) out.push(`Types différents : « ${a.name} » (${typeLabel(d.type)}) comparée à « ${r.id} » (${typeLabel(r.type)}).`);
+      else if (numericType(d.type) !== numericType(r.type) || (!numericType(d.type) && r.type !== d.type && !(vtype(d.type).control === 'text' && vtype(r.type).control !== 'select' && ['text', 'textarea'].includes(vtype(r.type).control))))
+        out.push(`Types différents : « ${a.name} » (${typeLabel(d.type)}) comparée à « ${r.id} » (${typeLabel(r.type)}).`);
       return out;
     }
-    if (num && !(typeof v === 'number' || isNum(v))) out.push(`« ${v} » n’est pas un nombre (« ${a.name} » : ${typeLabel(d.type)}).`);
-    if (d.type === 'bool' && !(typeof v === 'boolean' || ['true', 'false'].includes(String(v)))) out.push(`« ${v} » n’est pas vrai / faux.`);
-    if (d.type === 'choice' && (d.choices || []).length && !d.choices.includes(v)) out.push(`« ${v} » n’est pas un des choix de « ${a.name} » (${d.choices.join(', ')}).`);
+    const iss = valueIssue(d, v, a.name);
+    if (iss && iss.level === 'err') out.push(iss.message);
     return out;
+  }
+  // L12: a constant item / dict value of the wrong type for the list or dict it goes into (list_add, dict_set,
+  // dict_value_compare). Type mismatch only; the server gives the final word.
+  function dictValueIssues(a) {
+    const ref = a.dict || a.list, l = ref ? listDef(ref) : null;
+    if (!l || a.value === undefined || l.readonly) return [];
+    const iss = valueIssue({ id: ref, type: l.type }, a.value, ref);
+    return iss && iss.level === 'err' ? [iss.message] : [];
   }
 
   // ---------- network ----------
@@ -883,12 +951,16 @@
         if (p.type === 'guard' && !byId(V.guards, p.guard)) add(id, 'err', 'Garde inconnue ou manquante.');
         else if (p.type === 'guard') {
           argIssues(byId(V.guards, p.guard), p.args || {}).forEach((msg) => add(id, 'err', msg));
-          if (p.guard === 'var_compare') compareIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
+          if (['var_compare', 'date_compare'].includes(p.guard)) compareIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
+          dictValueIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
         }
       } else if (m.kind === 'action') {
         if (!byId(V.actions, p.action)) add(id, 'err', 'Action inconnue ou manquante.');
         else {
           argIssues(byId(V.actions, p.action), p.args || {}).forEach((msg) => add(id, 'err', msg));
+          // L12: a constant of the wrong type for the variable / dict (bounds are the server's out_of_bounds warning)
+          if (p.action === 'set_var' && (p.args || {}).name !== 'etat') compareIssues(Object.assign({}, p.args, { op: '=' })).forEach((msg) => add(id, 'err', msg));
+          dictValueIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
           const need = REQUIRED_ARGS[p.action] || [];
           need.forEach((k) => { const v = (p.args || {})[k]; if (v == null || v === '') add(id, 'err', 'À remplir : ' + ((((byId(V.actions, p.action) || {}).args || []).find((x) => x.name === k)) || {}).label + '.'); });
         }
@@ -958,7 +1030,16 @@
       else if (e.note && !seenG.has(gkey)) globalIssues.push({ level: 'err', message: 'Post-it : ' + e.message });
       seenG.add(gkey);
     });
+    // L12: persisted values the robot refused at load (type changed / invalid): GET /api/graph/vars `store.ignored`
+    ((((varsUi.live || {}).store) || {}).ignored || []).forEach((g) => {
+      globalIssues.push({ level: 'warn', message: `Valeur enregistrée ignorée (${g.part === 'lists' ? 'liste' : 'variable'} « ${g.name} ») : ${g.reason}. Réinitialisez-la dans le panneau Variables.` });
+    });
     (fanInfo.warnings || []).forEach((w) => {
+      if (w.kind === 'out_of_bounds') {   // L12: a constant outside the variable's min / max: on the faulty node (`at`)
+        const at = [w.at, w.node].find((x) => x && nidToDf.has(x));
+        if (at) add(at, 'warn', w.message); else globalIssues.push({ level: 'warn', message: w.message });
+        return;
+      }
       (new Set([w.node].concat(w.nodes || []))).forEach((id) => {
         if (nidToDf.has(id)) add(id, 'warn', id === w.node ? w.message : "Cette destination est en concurrence avec une autre branche du même déclencheur : une seule changera l'état.");
       });
@@ -3404,11 +3485,18 @@
   const ORDER_OPS = ['<', '<=', '>', '>='];
   // Default value written when a variable / list is picked for a required `value` (so a checkbox or a select never
   // shows a value the document does not hold). Text has no default.
+  // L12: read from the vocabulary (var_types[].default / choices); text, dates and chronos have no default here.
   function defaultValueFor(type, choices) {
-    if (type === 'bool') return false;
-    if (type === 'number' || type === 'duration') return 0;
     if (type === 'choice') return (choices || [])[0];
-    return undefined;
+    const vt = byId(V.var_types, type);
+    if (!vt) return type === 'bool' ? false : (type === 'number' || type === 'duration') ? 0 : undefined;
+    if (['text', 'textarea', 'timer', 'datetime'].includes(vt.control)) return undefined;
+    if (vt.control === 'select') {
+      if (vt.nullable) return undefined;
+      const cs = (vt.choices || []).map((c) => c.id);
+      return cs.includes(vt.default) || !cs.length ? vt.default : cs[0];
+    }
+    return vt.default == null ? undefined : clone(vt.default);
   }
   // Controls for a vocabulary argument list. `cur` = current values, `set(name, value)` writes one ('' / null = remove).
   //   var   -> variables filtered by var_types; `writable` hides read-only ones (etat stays offered to set_var: it is
@@ -3418,6 +3506,10 @@
   //            duration), select (choice; etat = the states, a set of states with in / not_in), text (string, with a
   //            "$utterance" switch when the vocabulary offers it)
   //   enum  -> select with the vocabulary labels (op: = != in not_in on etat; order operators only for numbers)
+  // L12 additions: list args also filter by list_kinds (list / dict); `value` of a dict = the dict's value type; any
+  // vocabulary type gets its typed control (valueInput), numbers show their bounds; `time` = hh:mm field; `multi` =
+  // one checkbox per option (week days); `text` with `utterance` / `vars` = "$utterance" switch + "$variable" hints;
+  // `number` with `min` = number field; operators follow op_sets of the type of the variable (or dict) they compare.
   function argFields(box, specArgs, cur, set, ctx) {
     ctx = ctx || {};
     const stateOpts = V.states.map((s) => ({ v: s.id, l: s.label }));
@@ -3426,6 +3518,12 @@
       const ref = cur[arg.of];
       if (ref == null || ref === '') return null;
       return kindOf(arg.of) === 'list' ? listDef(ref) : varDef(ref);
+    };
+    // type compared by an `op`: the variable (name) or the dict / list values
+    const opType = () => {
+      if (cur.name) { const d = varDef(cur.name); return d ? d.type : null; }
+      const lref = cur.dict || cur.list; if (lref) { const l = listDef(lref); return l ? l.type : null; }
+      return null;
     };
     (specArgs || []).forEach((arg, i) => {
       const v = cur[arg.name], lab = arg.label || arg.name;
@@ -3444,16 +3542,19 @@
         const d = v ? varDef(v) : null;
         box.append(F(lab, sel, d ? (d.description || d.label || '') : (opts.length ? '' : 'Aucune variable de ce type : créez-en une dans le panneau Variables.')));
       } else if (arg.type === 'list') {
-        const opts = listDefs().filter((l) => (!(arg.list_types || []).length || arg.list_types.includes(l.type)) && (!arg.writable || !l.readonly));
-        const sel = selectCtl([{ v: '', l: '(choisir une liste)' }].concat(opts.map((l) => ({ v: l.id, l: l.id + ' — ' + typeLabel(l.type, true) + ' (' + l.items.length + ')' }))),
+        const opts = listDefs().filter((l) => (!(arg.list_types || []).length || arg.list_types.includes(l.type))
+          && (!(arg.list_kinds || []).length || arg.list_kinds.includes(l.kind)) && (!arg.writable || !l.readonly));
+        const dict = (arg.list_kinds || []).length === 1 && arg.list_kinds[0] === 'dict';
+        const sel = selectCtl([{ v: '', l: dict ? '(choisir un dictionnaire)' : '(choisir une liste)' }].concat(opts.map((l) => ({ v: l.id, l: l.id + ' — ' + typeLabel(l.type, true) + ' (' + itemCount(l.items) + ')' }))),
           v == null ? '' : v, (x) => pick(x, null));
         sel.classList.add('varsel');
-        box.append(F(lab, sel, opts.length ? '' : 'Aucune liste de ce type : créez-en une dans le panneau Variables.'));
+        box.append(F(lab, sel, opts.length ? '' : dict ? 'Aucun dictionnaire de ce type : créez-en un dans le panneau Variables (Listes, genre Dictionnaire).' : 'Aucune liste de ce type : créez-en une dans le panneau Variables.'));
       } else if (arg.type === 'value') {
         const d = refDef(arg), isList = kindOf(arg.of) === 'list';
         if (!d) { box.append(F(lab, h('div', { class: 'hint' }, isList ? "Choisir d'abord la liste." : "Choisir d'abord la variable."))); return; }
         const opt = !!arg.optional, none = opt ? '(toute valeur)' : '(choisir)';
-        let ctl;
+        const ctlType = vtype(d.type).control;
+        let ctl, hint = opt ? 'Facultatif.' : '';
         if (!isList && d.id === 'etat') {
           if (['in', 'not_in'].includes(cur.op)) {
             const chosen = Array.isArray(v) ? v : (v ? [v] : []);
@@ -3463,42 +3564,92 @@
               set(arg.name, V.states.map((x) => x.id).filter((x) => st.has(x)));
             }, stateIcon(s.id))));
           } else ctl = selectCtl([{ v: '', l: none }].concat(stateOpts), v == null ? '' : v, (x) => set(arg.name, x));
-        } else if (d.type === 'choice') {
-          ctl = selectCtl([{ v: '', l: none }].concat((d.choices || []).map((c) => ({ v: c, l: c }))), v == null ? '' : v, (x) => set(arg.name, x));
+        } else if (d.type === 'choice' || ctlType === 'select') {
+          ctl = selectCtl([{ v: '', l: none }].concat(choicesOf(d)), v == null ? '' : v, (x) => set(arg.name, x));
         } else if (d.type === 'bool') {
           if (opt) ctl = selectCtl([{ v: '', l: none }, { v: 'true', l: 'vrai' }, { v: 'false', l: 'faux' }], v == null ? '' : String(v), (x) => set(arg.name, x === '' ? '' : x === 'true'));
           else ctl = checkCtl('vrai', v === true || v === 'true', (c) => set(arg.name, c));
-        } else if (d.type === 'number' || d.type === 'duration') {
-          ctl = h('input', { type: 'number', step: 'any', min: d.type === 'duration' ? 0 : null });
+        } else if (ctlType === 'number' || ctlType === 'slider' || ctlType === 'timer') {
+          // a chrono compares as elapsed seconds; bounded numbers show their bounds (a constant outside = warning)
+          const b = ctlType === 'timer' ? { min: 0, max: null, step: null } : boundsOf(d);
+          ctl = h('input', { type: 'number', step: 'any', min: d.type === 'duration' || ctlType === 'timer' ? 0 : null });
           ctl.value = v == null ? '' : v;
           ctl.addEventListener('change', () => set(arg.name, ctl.value === '' ? '' : Number(ctl.value)));
+          if (b.min != null || b.max != null) hint = [hint, `Bornes : ${b.min == null ? '…' : b.min} à ${b.max == null ? '…' : b.max}.`].filter(Boolean).join(' ');
+          if (ctlType === 'timer') hint = [hint, 'En secondes écoulées depuis le départ du chrono.'].filter(Boolean).join(' ');
+          const vi = valueIssue(d, v, d.id);
+          if (vi && vi.level === 'warn') hint = vi.message;
+        } else if (ctlType === 'datetime') {
+          // date_compare: a fixed date, or "$heure" (now) / another date variable
+          const now = v === '$heure';
+          ctl = h('div', {});
+          if (!now) ctl.append(valueInput(d, v, (x) => set(arg.name, x == null ? '' : x)));
+          ctl.append(checkCtl('maintenant ($heure)', now, (c) => set(arg.name, c ? '$heure' : '')));
+        } else if (['color', 'vector'].includes(ctlType)) {
+          ctl = valueInput(d, v, (x) => set(arg.name, x));
         } else {
           const utt = arg.utterance && v === '$utterance';
           ctl = h('div', {});
-          if (!utt) ctl.append(textCtl(v, (x) => set(arg.name, x)));
+          if (!utt) ctl.append(ctlType === 'textarea' ? areaCtl(v, (x) => set(arg.name, x), 300) : textCtl(v, (x) => set(arg.name, x)));
           if (arg.utterance) ctl.append(checkCtl('la phrase entendue ($utterance)', utt, (c) => set(arg.name, c ? '$utterance' : '')));
         }
-        box.append(F(lab + (isList ? ' (' + typeLabel(d.type, true) + ')' : ' (' + typeLabel(d.type) + ')'), ctl, opt ? 'Facultatif.' : ''));
+        box.append(F(lab + (isList ? ' (' + typeLabel(d.type, true) + ')' : ' (' + typeLabel(d.type) + ')'), ctl, hint));
       } else if (arg.type === 'enum') {
         let options = (arg.options || []).slice();
         const labels = Object.assign({ in: 'parmi', not_in: 'hors de' }, arg.labels || {});
-        if (arg.name === 'op' && cur.name) {
-          const d = varDef(cur.name);
+        if (arg.name === 'op') {
+          const ot = opType();
           if (cur.name === 'etat') options = ['=', '!=', 'in', 'not_in'];
-          else if (d && !['number', 'duration'].includes(d.type)) options = options.filter((o) => !ORDER_OPS.includes(o));
+          else if (ot) { const allowed = opsFor(ot); options = options.filter((o) => allowed.includes(o)); }
         }
         const optLabel = (o) => (arg.name === 'op' ? opLabel(o) + '  ' : '') + (labels[o] || (byId(evs(), o) || {}).label || String(o));
         const required = (ctx.required || []).includes(arg.name) || arg.name === 'op';
         box.append(F(lab, selectCtl((arg.name === 'op' ? [] : [{ v: '', l: required ? '(à choisir)' : '(aucun)' }]).concat(options.map((o) => ({ v: o, l: optLabel(o) }))), v == null ? (arg.name === 'op' ? '=' : '') : v, (x) => set(arg.name, x)),
           arg.name === 'op' ? '' : required ? 'Obligatoire : choisir une valeur.' : 'Facultatif.'));
+      } else if (arg.type === 'time') {
+        // L12: hh:mm (time_between); the browser's time field gives "HH:MM"
+        const t = h('input', { type: 'time', step: 60, 'data-arg': arg.name });
+        t.value = typeof v === 'string' && /^\d{1,2}:\d{2}$/.test(v) ? v.padStart(5, '0') : '';
+        t.addEventListener('change', () => set(arg.name, t.value ? t.value.slice(0, 5) : ''));
+        box.append(F(lab, t, typeof v === 'string' && v && !/^\d{1,2}:\d{2}$/.test(v) ? `« ${v} » n’est pas une heure hh:mm.` : ''));
+      } else if (arg.type === 'multi') {
+        // L12: several options (weekday_in): one checkbox each, kept in the vocabulary order
+        const chosen = Array.isArray(v) ? v : (v ? [v] : []);
+        const wrap = h('div', { class: 'statechk multichk', 'data-arg': arg.name });
+        (arg.options || []).forEach((o) => {
+          const c = checkCtl((arg.labels || {})[o] || o, chosen.includes(o), (on) => {
+            const st = new Set(chosen); on ? st.add(o) : st.delete(o);
+            const out = (arg.options || []).filter((x) => st.has(x));
+            set(arg.name, out.length ? out : '');
+          });
+          c.querySelector('input').setAttribute('data-opt', o);
+          wrap.append(c);
+        });
+        box.append(F(lab, wrap, chosen.length ? '' : 'Au moins un choix.'));
+      } else if (arg.type === 'number' && arg.min != null && !(arg.options || []).length) {
+        // L12: plain number with a lower bound (seconds of elapsed_since / timer_reached)
+        const n = h('input', { type: 'number', step: 'any', min: arg.min, 'data-arg': arg.name });
+        n.value = v == null ? '' : v;
+        n.addEventListener('change', () => set(arg.name, n.value === '' ? '' : Number(n.value)));
+        box.append(F(lab, n, v != null && v !== '' && Number(v) < arg.min ? `${arg.min} au minimum.` : ''));
       } else if (arg.type === 'number') {
         const lid = 'dl-arg' + i;
         const dl = (arg.options || []).length ? h('datalist', { id: lid }, (arg.options || []).map((o) => h('option', { value: o }))) : null;
         box.append(F(lab + ((arg.options || []).length && !/clé/.test(lab) ? ' (nombre, ou clé de réglage)' : ''), textCtl(v, (x) => set(arg.name, x === '' ? '' : numOrKey(x)), 'text', dl ? lid : null)));
         if (dl) box.append(dl);
+      } else if (arg.utterance || arg.vars) {
+        // L12: dict keys: a fixed key, "$utterance" (a key heard in the sentence) or "$variable" (a text variable)
+        const utt = arg.utterance && v === '$utterance';
+        const lid = 'dl-vars' + i;
+        const wrap = h('div', {});
+        if (!utt) wrap.append(textCtl(v, (x) => set(arg.name, x.trim()), 'text', arg.vars ? lid : null));
+        if (arg.vars) wrap.append(h('datalist', { id: lid }, varDefs().filter((d) => ['text', 'textarea', 'select'].includes(vtype(d.type).control)).map((d) => h('option', { value: '$' + d.id }))));
+        if (arg.utterance) wrap.append(checkCtl('une clé de la phrase entendue ($utterance)', utt, (c) => set(arg.name, c ? '$utterance' : '')));
+        const ref = typeof v === 'string' && v.startsWith('$') && v !== '$utterance' ? v.slice(1) : null;
+        box.append(F(lab, wrap, ref && !varDef(ref) ? `Variable inconnue : « ${ref} ».` : arg.vars ? '« $nom » = la valeur de la variable texte nom.' : ''));
       } else if (arg.max_len > 100) {
-        box.append(F(lab, areaCtl(v, (x) => set(arg.name, x), arg.max_len), `${arg.max_len} caractères au plus.`));
-      } else box.append(F(lab, textCtl(v, (x) => set(arg.name, x))));
+        box.append(F(lab, areaCtl(v, (x) => set(arg.name, x), arg.max_len), `${arg.max_len} caractères au plus.` + (arg.optional ? ' Facultatif.' : '')));
+      } else box.append(F(lab, textCtl(v, (x) => set(arg.name, x)), arg.optional ? 'Facultatif.' : ''));
     });
   }
 
@@ -3544,6 +3695,11 @@
           if (k === 'name') delete mm.params.value;
         }, true), { id: 'var_changed' });
         if (p.name === 'etat') box.append(h('p', { class: 'hint' }, "« Quand etat devient X » = entrée dans l'état X : seulement des actions, ni condition ni changement d'état ; jamais désactivée."));
+      } else if (p.type === 'event' && ((byId(V.events, p.event) || {}).args || []).length) {
+        // L12: any other event with vocabulary args (timer_reached: name = chrono, value = seconds) keeps them in params
+        argFields(box, byId(V.events, p.event).args, p, (k, v) => edit((mm) => {
+          if (v === '' || v == null) delete mm.params[k]; else mm.params[k] = v;
+        }, true), { id: p.event });
       }
       if (!isEnter) {
         box.append(h('p', { class: 'hint' }, "Un déclencheur n'a pas d'entrée. Pour le limiter à un état, ajoutez juste après lui une condition « etat = … » (clic droit → Insérer après → Comparer une variable)."));
@@ -3743,6 +3899,8 @@
       if (m.kind === 'trigger' && p.name === old) { p.name = nu; hit = true; }
       if (a.name === old) { a.name = nu; hit = true; }
       if (a.list === old) { a.list = nu; hit = true; }
+      if (a.dict === old) { a.dict = nu; hit = true; }
+      if (a.key === '$' + old) { a.key = '$' + nu; hit = true; }
       ['value'].forEach((k) => { if (a[k] !== undefined && swap(a[k]) !== a[k]) { a[k] = swap(a[k]); hit = true; } if (p[k] !== undefined && m.kind === 'trigger' && swap(p[k]) !== p[k]) { p[k] = swap(p[k]); hit = true; } });
       if (hit) refreshNode(dfid);
     }
@@ -3761,22 +3919,50 @@
     toast(`« ${id} » supprimée.`, 'ok');
     varsChanged(true); return true;
   }
-  function liveText(v) {
+  // A value as shown in the panel / Tester. `type` (L12, optional) refines it: chrono = elapsed m:ss (null = stopped),
+  // vector = (x, y), date = "AAAA-MM-JJ HH:MM"; a list shows [count], a dict {count}.
+  function liveText(v, type) {
     if (v === undefined) return '—';
-    if (Array.isArray(v)) return '[' + v.length + ']';
+    const c = type ? vtype(type).control : '';
+    if (c === 'timer') {
+      if (v == null) return 'arrêté';
+      const n = Math.max(0, Math.floor(Number(v)) || 0);
+      return Math.floor(n / 60) + ':' + String(n % 60).padStart(2, '0');
+    }
+    if (Array.isArray(v)) return c === 'vector' ? '(' + v.join(', ') + ')' : '[' + v.length + ']';
+    if (v && typeof v === 'object') return '{' + Object.keys(v).length + '}';
     if (v === true) return 'vrai';
     if (v === false) return 'faux';
+    if (v == null) return c ? '(vide)' : 'null';
+    if (c === 'datetime') return String(v).replace('T', ' ').slice(0, 16);
     return String(v);
+  }
+  function paintLive() {
+    const j = varsUi.live || {};
+    document.querySelectorAll('#vars [data-live]').forEach((el) => {
+      const [kind, id] = el.dataset.live.split(':');
+      el.textContent = liveText(((j[kind] || {})[id]), el.dataset.ltype || '');
+    });
   }
   async function pollVars() {
     if (curTab !== 'vars') return;
     const r = await api('/api/graph/vars');
     if (!r.ok || !r.json) return;
+    const conflicts = (x) => JSON.stringify((((x || {}).store) || {}).ignored || []);
+    const was = conflicts(varsUi.live);
     varsUi.live = r.json;
-    document.querySelectorAll('#vars [data-live]').forEach((el) => {
-      const [kind, id] = el.dataset.live.split(':');
-      el.textContent = liveText(((r.json[kind] || {})[id]));
-    });
+    paintLive();               // the chrono "ticks": the robot sends its elapsed seconds on every poll
+    if (conflicts(r.json) !== was) { analyze(); renderVars(); }
+  }
+  // L12: one read of GET /api/graph/vars outside the panel (load / after save): the persisted-value conflicts
+  // (store.ignored) become global warnings even when the Variables tab is closed.
+  async function refreshVarStore() {
+    let r;
+    try { r = await api('/api/graph/vars'); } catch (e) { return; }
+    if (!r || !r.ok || !r.json) return;
+    varsUi.live = r.json;
+    analyze();
+    if (curTab === 'vars') renderVars();
   }
   function startVarsPoll() {
     if (varsUi.timer) return;
@@ -3784,16 +3970,109 @@
     varsUi.timer = setInterval(pollVars, 1000);       // <= 1 Hz, only while the tab is open
   }
   function stopVarsPoll() { clearInterval(varsUi.timer); varsUi.timer = null; }
-  // Typed input of a variable's initial value (or a list item): checkbox / number / select / text.
-  function valueInput(type, choices, value, onchange) {
-    if (type === 'bool') { const c = h('input', { type: 'checkbox' }); c.checked = value === true; c.addEventListener('change', () => onchange(c.checked)); return c; }
-    if (type === 'number' || type === 'duration') {
-      const i = h('input', { type: 'number', step: 'any', min: type === 'duration' ? 0 : null }); i.value = value == null ? '' : value;
-      i.addEventListener('change', () => onchange(i.value === '' ? 0 : Number(i.value))); return i;
+  // Initial value of a new variable / list item of type `t`: the vocabulary default (first choice for a select that
+  // cannot be empty, '' for text), never invented here.
+  function initialValue(t, choices) {
+    if (t === 'choice') return (choices || [])[0];
+    const vt = vtype(t);
+    if (vt.control === 'select' && !vt.nullable) {
+      const cs = (vt.choices || []).map((c) => c.id);
+      return cs.includes(vt.default) || !cs.length ? vt.default : cs[0];
     }
-    if (type === 'choice') return selectCtl((choices || []).map((c) => ({ v: c, l: c })), value, onchange);
+    if (vt.default !== undefined) return clone(vt.default);
+    return t === 'string' ? '' : defaultValueFor(t, choices);
+  }
+  // A value converted to type `t` when a list changes its item type (undefined = dropped).
+  function coerceItem(t, x) {
+    const vt = vtype(t), c = vt.control;
+    if (numericType(t)) { if (!isNum(x)) return 0; let n = Number(x); if (t === 'integer') n = Math.round(n); if (vt.range) n = Math.min(vt.range[1], Math.max(vt.range[0], n)); return n; }
+    if (c === 'checkbox') return x === true || x === 'true' || x === 'vrai';
+    if (c === 'vector') return Array.isArray(x) && x.length === (vt.size || 2) ? x.map(Number) : clone(vt.default);
+    if (c === 'color') return /^#[0-9a-fA-F]{6}$/.test(String(x)) ? x : (vt.default || '#ffffff');
+    if (c === 'datetime') return DT_RE.test(String(x)) ? x : undefined;
+    if (c === 'select') return (vt.choices || []).some((o) => o.id === x) ? x : initialValue(t);
+    return x == null ? '' : typeof x === 'object' ? JSON.stringify(x) : String(x);
+  }
+  // Typed input of a variable's initial value, a list item or a dict value, chosen by the vocabulary `control`
+  // (L12): checkbox, number (bounded = number + slider), slider (percent), text, textarea, select (own choices or the
+  // vocabulary ones; nullable = "(aucun)"), datetime (+ Maintenant / Vider), timer (no value: read-only hint), color,
+  // vector (2 / 3 numbers). `def` = {type, choices?, min?, max?, step?}. The element carries data-ctl = control; a
+  // text control is the <input> itself (callers read its value on Enter / Ajouter).
+  function valueInput(def, value, onchange) {
+    const t = vtype(def.type), c = t.control, nullable = !!t.nullable;
+    const tag = (e) => { e.setAttribute('data-ctl', c); return e; };
+    if (c === 'checkbox') {
+      const x = h('input', { type: 'checkbox' }); x.checked = value === true;
+      x.addEventListener('change', () => onchange(x.checked)); return tag(x);
+    }
+    if (c === 'number' || c === 'slider') {
+      const b = boundsOf(def);
+      const fix = (x) => { let n = Number(x); if (def.type === 'integer') n = Math.round(n); return n; };
+      const num = h('input', { type: 'number', step: b.step != null ? b.step : 'any', min: b.min != null ? b.min : def.type === 'duration' ? 0 : null, max: b.max });
+      num.value = value == null ? '' : value;
+      if (b.min == null || b.max == null) { num.addEventListener('change', () => onchange(num.value === '' ? 0 : fix(num.value))); return tag(num); }
+      // bounded number / percent: the number field and a slider kept in sync
+      const rng = h('input', { type: 'range', min: b.min, max: b.max, step: b.step != null ? b.step : def.type === 'number' ? 'any' : 1 });
+      rng.value = value == null ? b.min : value;
+      num.addEventListener('change', () => { const n = num.value === '' ? 0 : fix(num.value); rng.value = n; onchange(n); });
+      rng.addEventListener('input', () => { num.value = rng.value; });
+      rng.addEventListener('change', () => onchange(fix(rng.value)));
+      return tag(h('div', { class: 'vslider' }, num, rng));
+    }
+    if (c === 'select') {
+      const opts = choicesOf(def);
+      return tag(selectCtl((nullable || !opts.length ? [{ v: '', l: '(aucun)' }] : []).concat(opts), value == null ? '' : value, (x) => onchange(x === '' ? null : x)));
+    }
+    if (c === 'datetime') {
+      const i = h('input', { type: 'datetime-local' }); i.value = value ? String(value).slice(0, 16) : '';
+      i.addEventListener('change', () => onchange(i.value === '' ? null : i.value));
+      const now = h('button', { type: 'button', 'data-act': 'now', title: 'Date et heure de ce navigateur' }, 'Maintenant');
+      now.addEventListener('click', () => {
+        const d = new Date(), p2 = (n) => String(n).padStart(2, '0');
+        i.value = `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())}T${p2(d.getHours())}:${p2(d.getMinutes())}`;
+        onchange(i.value);
+      });
+      const kids = [i, now];
+      if (nullable) kids.push(h('button', { type: 'button', 'data-act': 'clear', title: 'Aucune date', onclick: () => { i.value = ''; onchange(null); } }, 'Vider'));
+      return tag(h('div', { class: 'addrow vdt' }, kids));
+    }
+    if (c === 'timer') return tag(h('div', { class: 'hint' }, ico('clock'), ' Chrono : arrêté au chargement ; l’action « Démarrer un chrono » le lance, la valeur lue = secondes écoulées.'));
+    if (c === 'color') {
+      const i = h('input', { type: 'color' }); i.value = /^#[0-9a-fA-F]{6}$/.test(String(value)) ? value : '#ffffff';
+      i.addEventListener('change', () => onchange(i.value)); return tag(i);
+    }
+    if (c === 'vector') {
+      const n = t.size || 2, cur = Array.isArray(value) && value.length === n ? value.slice() : new Array(n).fill(0);
+      const box = h('div', { class: 'vvec' });
+      ['x', 'y', 'z'].slice(0, n).forEach((ax, k) => {
+        const i = h('input', { type: 'number', step: 'any', title: ax, 'data-axis': ax }); i.value = cur[k];
+        i.addEventListener('change', () => { cur[k] = i.value === '' ? 0 : Number(i.value); onchange(cur.slice()); });
+        box.append(h('span', { class: 'vax' }, ax), i);
+      });
+      return tag(box);
+    }
+    if (c === 'textarea') {
+      const t2 = h('textarea', { rows: 2, maxlength: 300 }); t2.value = value == null ? '' : value;
+      t2.addEventListener('change', () => onchange(t2.value)); return tag(t2);
+    }
     const i = h('input', { type: 'text' }); i.value = value == null ? '' : value;
-    i.addEventListener('change', () => onchange(i.value)); return i;
+    i.addEventListener('change', () => onchange(i.value)); return tag(i);
+  }
+  // Réinitialiser (L12): POST /api/graph/vars/reset {name}: the robot puts the variable / list back to its initial
+  // value and forgets its saved one. 404 = unknown to the running graph (not saved yet), system or source-bound.
+  async function resetVar(id) {
+    let r;
+    try { r = await postJson('/api/graph/vars/reset', { name: id }); } catch (e) { r = { status: 0, json: null }; }
+    if (r.ok) {
+      if (r.json && r.json.vars && r.json.vars.names) varsUi.live = r.json.vars;
+      toast(`« ${id} » remise à sa valeur initiale sur le robot (valeur enregistrée oubliée).`, 'ok');
+      await refreshVarStore();
+      return true;
+    }
+    const why = (r.json && (r.json.error || r.json.message)) || ('erreur ' + r.status);
+    toast(r.status === 404 ? `Réinitialisation impossible pour « ${id} » : le robot ne la connaît pas (graphe pas encore enregistré, variable système ou liste liée). ${why}`
+      : `Réinitialisation refusée : ${why}`, 'err');
+    return false;
   }
   function usesBox(id) {
     if (!varsUi.uses || varsUi.uses.id !== id) return null;
@@ -3806,21 +4085,76 @@
     string: 'Texte libre (300 caractères au plus) ; comparé avec = ou ≠.',
     choice: 'Choix : une valeur parmi la liste de choix déclarée.',
     duration: 'Durée en secondes (≥ 0) : comme un nombre.',
+    // L12 (Variables v2)
+    integer: 'Entier : nombre sans décimale, bornes min / max / pas facultatives (les actions bornent la valeur).',
+    percent: 'Pourcentage de 0 à 100 (curseur).',
+    datetime: 'Date et heure (AAAA-MM-JJTHH:MM) ou vide ; « Noter la date et l’heure » la remplit, « Temps écoulé depuis » la teste.',
+    timer: 'Chrono : « Démarrer un chrono » le lance ; sa valeur = secondes écoulées ; « Un chrono atteint une durée » déclenche une chaîne.',
+    expression: 'Expression du visage (liste du vocabulaire du robot).',
+    gaze: 'Mode de regard du visage.',
+    phrase: 'Phrase à dire (300 caractères au plus), voix pré-calculée comme « Dire un texte ».',
+    media: 'Fichier du dossier media/ (chanson…) ou vide.',
+    intent_ref: 'Nom d’une intention (ou vide).',
+    list_ref: 'Nom d’une liste (ou vide).',
+    state_ref: 'Nom d’un état (ou vide).',
+    color: 'Couleur #rrggbb.',
+    vector2: 'Deux nombres [x, y].',
+    vector3: 'Trois nombres [x, y, z].',
   };
+  // L12: store facts of GET /api/graph/vars for one variable / list: saved in state/vars.json, refused at load.
+  const storeOf = () => (((varsUi.live || {}).store) || {});
+  const savedOnRobot = (part, id) => (((storeOf().saved || {})[part]) || []).includes(id);
+  const ignoredOf = (part, id) => (storeOf().ignored || []).filter((g) => g.part === part && g.name === id);
+  const scopeLabel = (sc) => ((byId(V.scopes, sc || 'global') || {}).label || sc || 'Globale');
+  // Portée + Persistante controls shared by names and lists (persist = globals only; conversation drops it).
+  function scopeFields(box, rec, canPersist) {
+    box.append(field('Portée', selectCtl((V.scopes || []).map((x) => ({ v: x.id, l: x.label })), rec.scope || 'global', (sc) => {
+      if (sc === 'global') delete rec.scope; else { rec.scope = sc; delete rec.persist; }
+      varsChanged(true);
+    }), ((byId(V.scopes, rec.scope || 'global') || {}).help) || ''));
+    box.lastChild.querySelector('select').setAttribute('data-opt', 'scope');
+    const glob = (rec.scope || 'global') === 'global';
+    const chk = checkCtl('Persistante (gardée au redémarrage du robot)', !!rec.persist, (c) => {
+      if (c) rec.persist = true; else delete rec.persist;
+      varsChanged(true);
+    });
+    const inp = chk.querySelector('input'); inp.setAttribute('data-opt', 'persist');
+    if (!glob || !canPersist) inp.disabled = true;
+    box.append(chk, h('div', { class: 'help' }, !canPersist ? 'Ce type ne se garde pas au redémarrage.'
+      : glob ? 'Valeur enregistrée sur le robot (state/vars.json) et relue au démarrage ; « Réinitialiser » l’oublie.'
+        : 'Seules les variables globales peuvent être persistantes.'));
+  }
+  // Réinitialiser + what the robot holds for it (live value, saved value, refused saved value).
+  function robotFields(box, part, id, type) {
+    const ign = ignoredOf(part, id);
+    box.append(h('div', { class: 'vrobot' }, h('span', {}, 'Sur le robot : '),
+      h('b', { 'data-live': part + ':' + id, 'data-ltype': part === 'names' ? type : '' }, liveText((((varsUi.live || {})[part]) || {})[id], part === 'names' ? type : '')),
+      savedOnRobot(part, id) ? h('span', { class: 'vbadge persist', 'data-tip': 'Une valeur est enregistrée dans state/vars.json.' }, 'enregistrée') : null,
+      h('button', { type: 'button', 'data-act': 'reset', title: 'Remettre la valeur initiale sur le robot et oublier la valeur enregistrée',
+        onclick: () => resetVar(id) }, ico('refresh'), ' Réinitialiser')));
+    ign.forEach((g) => box.append(h('div', { class: 'iss warn vconf' }, `Valeur enregistrée ignorée au chargement : ${g.reason}.`)));
+  }
   function renderVarNames(box) {
     const defs = varDefs(), names = docVars().names;
     const tbl = h('table', { class: 'vtable' }, h('thead', {}, h('tr', {}, h('th', { 'data-tip': 'Nom de la variable dans les nœuds (« $nom » dans une valeur = sa valeur).' }, 'Nom'),
-      h('th', { 'data-tip': 'Type : ce que la variable peut contenir (survoler un type pour le détail).' }, 'Type'), h('th', { 'data-tip': 'Valeur au chargement du graphe (et après chaque rechargement).' }, 'Initiale'),
+      h('th', { 'data-tip': 'Type : ce que la variable peut contenir (survoler un type pour le détail).' }, 'Type'),
+      h('th', { 'data-tip': 'Globale : garde sa valeur jusqu’au rechargement (ou plus si persistante). Conversation : revient à sa valeur initiale à chaque nouveau visiteur.' }, 'Portée'),
+      h('th', { 'data-tip': 'Valeur au chargement du graphe (et après chaque rechargement).' }, 'Initiale'),
       h('th', { title: 'Valeur actuelle sur le robot' }, 'Live'))));
     const tb = h('tbody', {});
     defs.forEach((d) => {
-      const init = d.system ? (d.id === 'etat' ? 'départ' : '—') : liveText(d.value);
-      const tr = h('tr', { class: 'vrow' + (varsUi.sel === d.id ? ' on' : '') + (d.readonly ? ' ro' : ''), 'data-var': d.id, title: d.description || '',
+      const init = d.system ? (d.id === 'etat' ? 'départ' : '—') : liveText(d.value, d.type);
+      const ign = ignoredOf('names', d.id).length;
+      const tr = h('tr', { class: 'vrow' + (varsUi.sel === d.id ? ' on' : '') + (d.readonly ? ' ro' : '') + (ign ? ' conf' : ''), 'data-var': d.id, title: d.description || '',
         onclick: () => { varsUi.sel = varsUi.sel === d.id ? null : d.id; varsUi.uses = null; renderVars(); } },
-        h('td', {}, d.readonly ? h('span', { class: 'lock', title: 'Variable système : lecture seule' }, ico('lock')) : null, h('code', {}, d.id)),
-        h('td', { 'data-tip': VAR_TYPE_TIP[d.type] || null }, typeLabel(d.type)), h('td', {}, init), h('td', { class: 'vlive', 'data-live': 'names:' + d.id }, liveText(((varsUi.live || {}).names || {})[d.id])));
+        h('td', {}, d.readonly ? h('span', { class: 'lock', title: 'Variable système : lecture seule' }, ico('lock')) : null, h('code', {}, d.id),
+          d.persist ? h('span', { class: 'vbadge persist', 'data-tip': 'Persistante : gardée au redémarrage (state/vars.json).' }, 'P') : null,
+          ign ? h('span', { class: 'vbadge conf', 'data-tip': 'La valeur enregistrée a été ignorée au chargement (voir le détail).' }, '!') : null),
+        h('td', { 'data-tip': VAR_TYPE_TIP[d.type] || null }, typeLabel(d.type)),
+        h('td', { class: 'vscope', 'data-scope': d.system ? 'system' : (d.scope || 'global'), 'data-tip': d.system ? 'Variable système : tenue par le robot.' : null }, d.system ? '—' : scopeLabel(d.scope)),
+        h('td', {}, init), h('td', { class: 'vlive', 'data-live': 'names:' + d.id, 'data-ltype': d.type }, liveText(((varsUi.live || {}).names || {})[d.id], d.type)));
       tb.append(tr);
-      if (d.description) tb.append(h('tr', { class: 'vdesc' }, h('td', { colspan: 4 }, d.description)));
+      if (d.description) tb.append(h('tr', { class: 'vdesc' }, h('td', { colspan: 5 }, d.description)));
     });
     tbl.append(tb);
     box.append(tbl);
@@ -3828,9 +4162,10 @@
     if (d && d.readonly) {
       box.append(h('div', { class: 'vedit' }, h('div', { class: 'insttitle' }, ico('lock'), h('code', {}, d.id), h('small', { class: 'hint' }, 'système')),
         h('p', { class: 'hint' }, (d.description || '') + (d.id === 'etat' ? ' Changer : action « Changer d’état » ; tester : condition « etat = … ».' : ' Lecture seule : tenue par le robot.')),
-        d.choices ? h('p', { class: 'hint' }, 'Valeurs : ' + d.choices.join(', ')) : null));
+        d.choices ? h('p', { class: 'hint' }, 'Valeurs : ' + d.choices.join(', ')) : null,
+        h('p', { class: 'hint' }, 'Sur le robot : ', h('b', { 'data-live': 'names:' + d.id, 'data-ltype': d.type }, liveText(((varsUi.live || {}).names || {})[d.id], d.type)))));
     } else if (d) {
-      const v = names[d.id];
+      const v = names[d.id], vt = vtype(v.type);
       const ed = h('div', { class: 'vedit' }, h('div', { class: 'insttitle' }, ico('text-caption'), h('code', {}, d.id)));
       const nm = h('input', { type: 'text', maxlength: 32, value: d.id });
       ed.append(field('Nom', h('div', { class: 'addrow' }, nm, h('button', { type: 'button', onclick: () => {
@@ -3841,8 +4176,11 @@
       } }, 'Renommer'))));
       ed.append(field('Type', selectCtl((V.var_types || []).map((t) => ({ v: t.id, l: t.label })), v.type, (t) => {
         v.type = t; if (t === 'choice') v.choices = v.choices && v.choices.length ? v.choices : ['a', 'b']; else delete v.choices;
-        v.value = t === 'string' ? '' : defaultValueFor(t, v.choices); varsChanged(true);
-      }), 'Changer le type remet la valeur initiale à zéro.'));
+        const nt = vtype(t);
+        ['min', 'max', 'step'].forEach((k) => { if (!(nt.options || []).includes(k)) delete v[k]; });
+        if (nt.persist === false) delete v.persist;
+        v.value = initialValue(t, v.choices); varsChanged(true);
+      }), (vt.label ? vt.label + ' — ' : '') + 'Changer le type remet la valeur initiale à zéro.'));
       if (v.type === 'choice') {
         const ci = h('input', { type: 'text', value: (v.choices || []).join(', ') });
         ci.addEventListener('change', () => {
@@ -3852,7 +4190,36 @@
         });
         ed.append(field('Valeurs possibles (séparées par des virgules)', ci));
       }
-      ed.append(field('Valeur initiale', valueInput(v.type, v.choices, v.value, (x) => { v.value = x; varsChanged(true); }), 'Valeur au chargement du graphe (les valeurs repartent de là à chaque chargement).'));
+      // the initial value control comes first among the number inputs (older tests and users type there)
+      const ini = valueInput(v, v.value, (x) => { v.value = x; varsChanged(true); });
+      ini.setAttribute('data-opt', 'value');
+      const vi = valueIssue(v, v.value, d.id);
+      ed.append(field('Valeur initiale', ini, vi ? vi.message : vt.control === 'timer' ? '' : 'Valeur au chargement du graphe (les valeurs repartent de là à chaque chargement).'));
+      if ((vt.options || []).length) {
+        const row = h('div', { class: 'addrow vbounds' });
+        const lab = { min: 'min', max: 'max', step: 'pas' };
+        (vt.options || []).forEach((k) => {
+          const i = h('input', { type: 'number', step: 'any', placeholder: lab[k] || k, title: lab[k] || k, 'data-opt': k });
+          i.value = v[k] == null ? '' : v[k];
+          i.addEventListener('change', () => {
+            const nv = i.value === '' ? null : Number(i.value);
+            const lo = k === 'min' ? nv : v.min, hi = k === 'max' ? nv : v.max;
+            if (lo != null && hi != null && lo > hi) { toast('Le minimum doit être inférieur ou égal au maximum.', 'err'); i.value = v[k] == null ? '' : v[k]; return; }
+            if (k === 'step' && nv != null && nv <= 0) { toast('Le pas doit être positif.', 'err'); i.value = v[k] == null ? '' : v[k]; return; }
+            if (nv == null) delete v[k]; else v[k] = nv;
+            // an initial value outside the new bounds is a server error: bring it back inside
+            if (typeof v.value === 'number') {
+              const n = Math.min(v.max != null ? v.max : Infinity, Math.max(v.min != null ? v.min : -Infinity, v.value));
+              if (n !== v.value) { v.value = n; toast(`Valeur initiale ramenée à ${n} (dans les bornes).`, ''); }
+            }
+            varsChanged(true);
+          });
+          row.append(h('span', { class: 'vax' }, lab[k] || k), i);
+        });
+        ed.append(field('Bornes (facultatives)', row, 'Les actions « Changer » / « Ajouter à » bornent la valeur ; une constante hors bornes est signalée.'));
+      }
+      scopeFields(ed, v, vt.persist !== false);
+      robotFields(ed, 'names', d.id, v.type);
       const ta = h('textarea', { rows: 2 }); ta.value = v.description || '';
       ta.addEventListener('change', () => { if (ta.value.trim()) v.description = ta.value.trim(); else delete v.description; varsChanged(false); });
       ed.append(field('Description', ta));
@@ -3871,65 +4238,142 @@
       if (why) { toast(why, 'err'); return; }
       const t = nt.value, v = { type: t };
       if (t === 'choice') v.choices = ['a', 'b'];
-      v.value = t === 'string' ? '' : defaultValueFor(t, v.choices);
+      v.value = initialValue(t, v.choices);
       docVars().names[id] = v; varsUi.sel = id;
       toast(`Variable « ${id} » créée.`, 'ok'); varsChanged(true);
     };
     nn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
     box.append(h('div', { class: 'sect' }, 'Nouvelle variable'), h('div', { class: 'addrow rowbtns' }, nn, nt, h('button', { type: 'button', class: 'primary', 'data-new': 'varadd', onclick: create }, 'Ajouter')));
   }
+  // Dict items (L12): key -> value sub-table (key text, typed value, remove) + an add row.
+  function renderDictItems(right, r) {
+    const items = r.items && typeof r.items === 'object' && !Array.isArray(r.items) ? r.items : (r.items = {});
+    const tbl = h('table', { class: 'vtable vdict' }, h('thead', {}, h('tr', {}, h('th', {}, 'Clé'), h('th', {}, 'Valeur'), h('th', {}, ''))));
+    const tb = h('tbody', {});
+    Object.keys(items).forEach((key) => {
+      const kin = h('input', { type: 'text', maxlength: 60, value: key, 'data-dkey': key });
+      kin.addEventListener('change', () => {
+        const nk = kin.value.trim();
+        if (nk === key) return;
+        if (!nk || nk.startsWith('$') || nk in items) { toast(!nk ? 'Clé vide.' : nk.startsWith('$') ? 'Une clé ne commence pas par $.' : 'Cette clé existe déjà.', 'err'); kin.value = key; return; }
+        const n2 = {}; Object.keys(items).forEach((k) => { n2[k === key ? nk : k] = items[k]; }); r.items = n2; varsChanged(true);
+      });
+      const val = valueInput({ type: r.type }, items[key], (x) => { items[key] = x; varsChanged(true); });
+      val.setAttribute('data-dval', key);
+      tb.append(h('tr', { class: 'drow', 'data-dict-key': key }, h('td', {}, kin), h('td', {}, val),
+        h('td', {}, h('button', { type: 'button', title: 'Retirer', onclick: () => { delete items[key]; varsChanged(true); } }, '×'))));
+    });
+    tbl.append(tb);
+    if (!Object.keys(items).length) right.append(h('p', { class: 'hint' }, 'Dictionnaire vide.'));
+    right.append(tbl);
+    const nk = h('input', { type: 'text', maxlength: 60, placeholder: 'clé', 'data-new': 'dkey', style: 'flex:0 0 30%;min-width:0' });
+    let nv = initialValue(r.type);
+    const vin = valueInput({ type: r.type }, nv, (x) => { nv = x; });
+    vin.setAttribute('data-new', 'dval');
+    const add = () => {
+      const k = nk.value.trim();
+      if (['text', 'textarea'].includes(vtype(r.type).control)) nv = vin.value.trim();
+      if (!k || k.startsWith('$')) { toast(!k ? 'Clé vide.' : 'Une clé ne commence pas par $.', 'err'); return; }
+      if (k in items) { toast('Cette clé existe déjà.', 'err'); return; }
+      if (nv === '' || nv == null) { toast('Valeur vide.', 'err'); return; }
+      items[k] = nv; varsChanged(true);
+    };
+    nk.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+    right.append(h('div', { class: 'addrow' }, nk, vin, h('button', { type: 'button', 'data-new': 'dadd', onclick: add }, 'Ajouter')));
+  }
   function renderVarLists(box) {
     const lists = listDefs(), raw = docVars().lists;
     const wrap = h('div', { class: 'vlists' });
     const left = h('div', { class: 'vlleft' });
-    lists.forEach((l) => left.append(h('button', { type: 'button', class: 'vlitem navok' + (varsUi.list === l.id ? ' on' : ''), 'data-list': l.id, title: l.description || '',
+    const modeMark = (l) => (l.kind === 'dict' ? ' {}' : l.mode === 'shuffle' ? ' sac' : l.mode === 'history' ? ' hist.' : '');
+    lists.forEach((l) => left.append(h('button', { type: 'button', class: 'vlitem navok' + (varsUi.list === l.id ? ' on' : '') + (ignoredOf('lists', l.id).length ? ' conf' : ''), 'data-list': l.id, 'data-kind': l.kind, title: l.description || '',
       onclick: () => { varsUi.list = l.id; varsUi.uses = null; renderVars(); } },
-      l.readonly ? h('span', { class: 'lock' }, ico('lock')) : null, h('code', {}, l.id), h('small', {}, ' ' + l.items.length))));
+      l.readonly ? h('span', { class: 'lock' }, ico('lock')) : null, h('code', {}, l.id), h('small', {}, ' ' + itemCount(l.items) + modeMark(l)))));
     if (!lists.length) left.append(h('p', { class: 'hint' }, 'Aucune liste.'));
     const right = h('div', { class: 'vlright' });
     const l = lists.find((x) => x.id === varsUi.list) || null;
     if (!l) right.append(h('p', { class: 'hint' }, 'Choisir une liste à gauche.'));
     else {
-      right.append(h('div', { class: 'insttitle' }, l.readonly ? ico('lock') : ico('text-caption'), h('code', {}, l.id), h('small', { class: 'hint' }, typeLabel(l.type, true))));
+      const r = raw[l.id];
+      right.append(h('div', { class: 'insttitle' }, l.readonly ? ico('lock') : ico('text-caption'), h('code', {}, l.id), h('small', { class: 'hint' }, typeLabel(l.type, true) + (l.kind === 'dict' ? ' · dictionnaire' : ''))));
       if (l.description) right.append(h('p', { class: 'hint' }, l.description));
       if (l.readonly) {
         right.append(h('div', { class: 'note' }, l.source && l.source.cfg ? `Liée à la configuration du robot (clé « ${l.source.cfg} ») : à modifier dans la configuration. Lecture seule ici.`
           : `Mots de l’intention « ${(l.source || {}).intent} » : à modifier dans le panneau Intentions. Lecture seule ici.`));
+        // a bound list only accepts the shuffle mode (contract L11)
+        const ms = selectCtl((V.list_modes || []).filter((m) => ['plain', 'shuffle'].includes(m.id)).map((m) => ({ v: m.id, l: m.label })), r.mode || 'plain', (m) => {
+          if (m === 'plain') delete r.mode; else r.mode = m; varsChanged(true);
+        });
+        ms.setAttribute('data-opt', 'mode');
+        right.append(field('Mode', ms, ((byId(V.list_modes, r.mode || 'plain') || {}).help) || ''));
       } else {
-        const r = raw[l.id];
         right.append(field('Type des éléments', selectCtl((V.list_types || []).map((t) => ({ v: t.id, l: t.label })), r.type || 'string', (t) => {
-          const conv = (x) => (t === 'number' ? (isNum(x) ? Number(x) : 0) : t === 'bool' ? (x === true || x === 'true' || x === 'vrai') : String(x));
-          r.type = t; r.items = (r.items || []).map(conv); varsChanged(true);
+          r.type = t;
+          if (r.kind === 'dict') { const n2 = {}; Object.keys(r.items || {}).forEach((k) => { const x = coerceItem(t, r.items[k]); if (x !== undefined) n2[k] = x; }); r.items = n2; }
+          else r.items = (r.items || []).map((x) => coerceItem(t, x)).filter((x) => x !== undefined);
+          varsChanged(true);
         })));
-      }
-      const ul = h('ol', { class: 'vitems' });
-      l.items.forEach((it, k) => {
-        const li = h('li', {}, h('span', { class: 'vit' }, liveText(it)));
-        if (!l.readonly) {
-          const items = raw[l.id].items;
-          const mv = (d) => { const j = k + d; if (j < 0 || j >= items.length) return; [items[k], items[j]] = [items[j], items[k]]; varsChanged(true); };
-          li.append(h('span', { class: 'vbtns' },
-            h('button', { type: 'button', title: 'Monter', disabled: k === 0, onclick: () => mv(-1) }, '↑'),
-            h('button', { type: 'button', title: 'Descendre', disabled: k === items.length - 1, onclick: () => mv(1) }, '↓'),
-            h('button', { type: 'button', title: 'Retirer', onclick: () => { items.splice(k, 1); varsChanged(true); } }, '×')));
+        const ks = selectCtl((V.list_kinds || [{ id: 'list', label: 'Liste' }]).map((k) => ({ v: k.id, l: k.label })), l.kind, (k) => {
+          if (k === 'dict') {   // list -> dict: items become cle1, cle2, ... (mode / max do not apply to a dict)
+            const n2 = {}; (Array.isArray(r.items) ? r.items : []).forEach((x, i) => { n2['cle' + (i + 1)] = x; });
+            r.kind = 'dict'; r.items = n2; delete r.mode; delete r.max;
+          } else { r.items = Object.values(r.items || {}); delete r.kind; }
+          varsChanged(true);
+        });
+        ks.setAttribute('data-opt', 'kind');
+        right.append(field('Genre', ks, ((byId(V.list_kinds, l.kind) || {}).help) || ''));
+        if (l.kind !== 'dict') {
+          const ms = selectCtl((V.list_modes || []).map((m) => ({ v: m.id, l: m.label })), r.mode || 'plain', (m) => {
+            if (m === 'plain') delete r.mode; else r.mode = m;
+            if (m === 'history' && r.max == null) { r.max = 10; toast('Historique : taille maximale réglée à 10 (modifiable).', ''); }
+            varsChanged(true);
+          });
+          ms.setAttribute('data-opt', 'mode');
+          right.append(field('Mode', ms, ((byId(V.list_modes, r.mode || 'plain') || {}).help) || ''));
+          const mx = h('input', { type: 'number', min: 1, max: 200, step: 1, placeholder: 'sans limite', 'data-opt': 'max' });
+          mx.value = r.max == null ? '' : r.max;
+          mx.addEventListener('change', () => {
+            if (mx.value === '') { if (r.mode === 'history') { toast('Le mode Historique demande une taille maximale.', 'err'); mx.value = r.max; return; } delete r.max; }
+            else { const n = Math.round(Number(mx.value)); if (!(n >= 1 && n <= 200)) { toast('Taille maximale : de 1 à 200.', 'err'); mx.value = r.max == null ? '' : r.max; return; } r.max = n; }
+            varsChanged(true);
+          });
+          right.append(field('Taille maximale', mx, 'Un ajout de trop retire le plus ancien élément.'));
         }
-        ul.append(li);
-      });
-      if (!l.items.length) right.append(h('p', { class: 'hint' }, 'Liste vide.'));
-      right.append(ul);
+      }
+      if (l.kind === 'dict' && !l.readonly) renderDictItems(right, r);
+      else {
+        const ul = h('ol', { class: 'vitems' });
+        (Array.isArray(l.items) ? l.items : []).forEach((it, k) => {
+          const li = h('li', {}, h('span', { class: 'vit' }, liveText(it, l.type)));
+          if (!l.readonly) {
+            const items = raw[l.id].items;
+            const mv = (d) => { const j = k + d; if (j < 0 || j >= items.length) return; [items[k], items[j]] = [items[j], items[k]]; varsChanged(true); };
+            li.append(h('span', { class: 'vbtns' },
+              h('button', { type: 'button', title: 'Monter', disabled: k === 0, onclick: () => mv(-1) }, '↑'),
+              h('button', { type: 'button', title: 'Descendre', disabled: k === items.length - 1, onclick: () => mv(1) }, '↓'),
+              h('button', { type: 'button', title: 'Retirer', onclick: () => { items.splice(k, 1); varsChanged(true); } }, '×')));
+          }
+          ul.append(li);
+        });
+        if (!itemCount(l.items)) right.append(h('p', { class: 'hint' }, 'Liste vide.'));
+        right.append(ul);
+      }
       right.append(h('p', { class: 'hint' }, 'Valeur live : ', h('span', { 'data-live': 'lists:' + l.id }, liveText(((varsUi.live || {}).lists || {})[l.id])), ' élément(s) sur le robot.'));
       if (!l.readonly) {
-        const r = raw[l.id];
-        let val = r.type === 'bool' ? false : r.type === 'number' ? 0 : '';
-        const inp = valueInput(r.type || 'string', null, val, (x) => { val = x; });
-        inp.setAttribute('data-new', 'item');
-        const add = () => {
-          if (r.type !== 'bool' && r.type !== 'number') val = inp.value.trim();
-          if (val === '' || val == null) { toast('Élément vide.', 'err'); return; }
-          r.items = (r.items || []).concat([val]); varsChanged(true);
-        };
-        if (inp.tagName === 'INPUT' && inp.type === 'text') inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
-        right.append(h('div', { class: 'addrow' }, inp, h('button', { type: 'button', 'data-new': 'itemadd', onclick: add }, 'Ajouter')));
+        if (l.kind !== 'dict') {
+          let val = initialValue(r.type || 'string');
+          const inp = valueInput({ type: r.type || 'string' }, val, (x) => { val = x; });
+          inp.setAttribute('data-new', 'item');
+          const add = () => {
+            if (['text', 'textarea'].includes(vtype(r.type || 'string').control)) val = inp.value.trim();
+            if (val === '' || val == null) { toast('Élément vide.', 'err'); return; }
+            r.items = (r.items || []).concat([clone(val)]); varsChanged(true);
+          };
+          if (inp.tagName === 'INPUT' && inp.type === 'text') inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } });
+          right.append(h('div', { class: 'addrow' }, inp, h('button', { type: 'button', 'data-new': 'itemadd', onclick: add }, 'Ajouter')));
+        }
+        scopeFields(right, r, true);
+        robotFields(right, 'lists', l.id, r.type);
         const nm = h('input', { type: 'text', maxlength: 32, value: l.id });
         right.append(field('Nom', h('div', { class: 'addrow' }, nm, h('button', { type: 'button', onclick: () => {
           const nu = nm.value.trim(); if (nu === l.id) return;
@@ -3949,20 +4393,27 @@
     const nn = h('input', { type: 'text', placeholder: 'nom_de_liste', maxlength: 32, style: 'flex:1;width:auto;min-width:0', 'data-new': 'list' });
     const nt = selectCtl((V.list_types || []).map((t) => ({ v: t.id, l: t.label })), 'string', () => {});
     nt.setAttribute('data-new', 'listtype');
+    const nk = selectCtl((V.list_kinds || [{ id: 'list', label: 'Liste' }]).map((k) => ({ v: k.id, l: k.label })), 'list', () => {});
+    nk.setAttribute('data-new', 'listkind');
     const create = () => {
       const id = nn.value.trim(), why = checkNewName(id, null);
       if (why) { toast(why, 'err'); return; }
-      docVars().lists[id] = { type: nt.value, items: [] }; varsUi.list = id;
-      toast(`Liste « ${id} » créée.`, 'ok'); varsChanged(true);
+      docVars().lists[id] = nk.value === 'dict' ? { type: nt.value, kind: 'dict', items: {} } : { type: nt.value, items: [] };
+      varsUi.list = id;
+      toast(`${nk.value === 'dict' ? 'Dictionnaire' : 'Liste'} « ${id} » créé${nk.value === 'dict' ? '' : 'e'}.`, 'ok'); varsChanged(true);
     };
     nn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } });
-    box.append(h('div', { class: 'sect' }, 'Nouvelle liste'), h('div', { class: 'addrow rowbtns' }, nn, nt, h('button', { type: 'button', class: 'primary', 'data-new': 'listadd', onclick: create }, 'Ajouter')));
+    box.append(h('div', { class: 'sect' }, 'Nouvelle liste'), h('div', { class: 'addrow rowbtns' }, nn, nk, nt, h('button', { type: 'button', class: 'primary', 'data-new': 'listadd', onclick: create }, 'Ajouter')));
   }
   function renderVars() {
     const box = $('#vars'); if (!box) return;
     const keep = box.scrollTop;
     box.innerHTML = '';
-    box.append(h('p', { class: 'hint' }, 'Variables du graphe (comme les variables locales de Game Creator 2) : les déclencheurs « Une variable change » les écoutent, les actions les changent, les conditions les testent. Enregistrées avec le graphe ; leurs valeurs repartent de la valeur initiale à chaque chargement.'));
+    box.append(h('p', { class: 'hint' }, 'Variables du graphe (comme les variables locales de Game Creator 2) : les déclencheurs « Une variable change » les écoutent, les actions les changent, les conditions les testent. Enregistrées avec le graphe ; leurs valeurs repartent de la valeur initiale à chaque chargement (portée Globale), à chaque nouvelle conversation (portée Conversation) ou sont gardées au redémarrage (Persistante).'));
+    // L12: saved values the robot refused at load (type changed, invalid value): one line each, clickable
+    (storeOf().ignored || []).forEach((g) => box.append(h('div', { class: 'iss warn vconf', 'data-conf': g.part + ':' + g.name,
+      onclick: () => { if (g.part === 'lists') { varsUi.tab = 'lists'; varsUi.list = g.name; } else { varsUi.tab = 'names'; varsUi.sel = g.name; } renderVars(); } },
+    `Valeur enregistrée ignorée : ${g.part === 'lists' ? 'liste' : 'variable'} « ${g.name} » (${g.reason}).`)));
     const nV = varDefs().length, nL = listDefs().length;
     box.append(h('div', { class: 'vtabs' },
       h('button', { type: 'button', class: 'navok' + (varsUi.tab === 'names' ? ' on' : ''), 'data-vtab': 'names', onclick: () => { varsUi.tab = 'names'; renderVars(); } }, `Noms (${nV})`),
@@ -4026,6 +4477,7 @@
       savedSnap = snap();
       liveChains = computeChains(doc);
       if (curTab === 'versions') loadVersions();
+      setTimeout(refreshVarStore, 1500);    // L12: the robot reloads the graph, then reads its saved values again
       toast(r.json.message || 'Enregistré.', r.json.applied ? 'ok' : '');
       const b = $('#banner');
       b.hidden = r.json.applied !== false;
@@ -4069,6 +4521,7 @@
     else if (vis.json.pending) { b.hidden = false; b.className = ''; b.textContent = "Un graphe enregistré attend la prochaine veille pour s'appliquer."; }
     else b.hidden = true;
     updateBar();
+    refreshVarStore();          // L12: persisted-value conflicts (store.ignored) become global warnings
     return vis.json;
   }
 
@@ -4236,13 +4689,30 @@
       const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
       const grid = h('div', { class: 'simvars', title: 'Variables simulées après ce pas (en couleur : changées par ce pas)' },
         h('span', { class: 'svlab' }, sim.trace[sim.sel] ? 'Variables après la ligne choisie :' : 'Variables à la fin :'));
+      // L12: grouped by scope; conversation ones are marked: a new conversation (new visitor) puts them back
+      const sysIds = new Set(sysVars().map((v) => v.id)), dn = docVars().names, dl = docVars().lists;
+      const scopeOf = (k, isList) => (!isList && sysIds.has(k) ? 'system' : (((isList ? dl : dn)[k] || {}).scope || 'global'));
+      const groups = { system: [], global: [], conversation: [] };
       Object.keys(cur.names || {}).forEach((k) => {
-        const v = cur.names[k], chg = !!prev && !same(v, (prev.names || {})[k]);
-        grid.append(h('span', { class: 'sv' + (chg ? ' chg' : ''), 'data-svar': k }, h('code', {}, k), ' = ', k === 'etat' ? stateLabel(v) : liveText(v)));
+        const v = cur.names[k], chg = !!prev && !same(v, (prev.names || {})[k]), sc = scopeOf(k, false);
+        const tp = (varDef(k) || {}).type;
+        (groups[sc] || groups.global).push(h('span', { class: 'sv' + (chg ? ' chg' : '') + (sc === 'conversation' ? ' conv' : ''), 'data-svar': k, 'data-scope': sc,
+          title: sc === 'conversation' ? 'Remise à sa valeur initiale à chaque nouvelle conversation' : null },
+        h('code', {}, k), ' = ', k === 'etat' ? stateLabel(v) : liveText(v, tp), sc === 'conversation' ? h('span', { class: 'svreset' }, ' ↺') : null));
       });
       Object.keys(cur.lists || {}).forEach((k) => {
-        const v = cur.lists[k], chg = !!prev && !same(v, (prev.lists || {})[k]);
-        grid.append(h('span', { class: 'sv list' + (chg ? ' chg' : ''), 'data-svar': k, title: (v || []).join(' · ') }, h('code', {}, k), ' ', liveText(v)));
+        const v = cur.lists[k], chg = !!prev && !same(v, (prev.lists || {})[k]), sc = scopeOf(k, true), ld = listDef(k) || {};
+        const isDict = v && typeof v === 'object' && !Array.isArray(v);
+        const tip = isDict ? Object.keys(v).map((x) => x + ' → ' + liveText(v[x], ld.type)).join(' · ') : (v || []).map((x) => liveText(x, ld.type)).join(' · ');
+        const mark = isDict ? ' dict' : ld.mode === 'shuffle' ? ' sac' : ld.mode === 'history' ? ' hist.' : '';
+        (groups[sc] || groups.global).push(h('span', { class: 'sv list' + (isDict ? ' dict' : '') + (chg ? ' chg' : '') + (sc === 'conversation' ? ' conv' : ''), 'data-svar': k, 'data-scope': sc,
+          'data-mode': isDict ? 'dict' : (ld.mode || 'plain'), title: tip + (sc === 'conversation' ? ' (remise à zéro à chaque nouvelle conversation)' : '') },
+        h('code', {}, k), ' ', liveText(v), h('small', {}, mark), sc === 'conversation' ? h('span', { class: 'svreset' }, ' ↺') : null));
+      });
+      const GLAB = { system: 'Système', global: 'Globales', conversation: 'Conversation ↺ (remises à zéro à chaque nouvelle conversation)' };
+      ['system', 'global', 'conversation'].forEach((sc) => {
+        if (!groups[sc].length) return;
+        grid.append(h('div', { class: 'svgroup', 'data-group': sc }, h('span', { class: 'svglab' }, GLAB[sc] + ' :'), groups[sc]));
       });
       $('#simStatus').append(grid);
     }
@@ -4551,7 +5021,9 @@
     dfMap: () => Object.fromEntries(nidToDf), fanInfo: () => fanInfo,   // test hooks (headless checks)
     notes, addNote, selectNote, deleteNote, editNote, selNote: () => selNote, paintWires, openContextFor, closeCtx, addAt, linkNodes, copyNode, pasteNode,
     linkMeta: () => Object.fromEntries(linkMeta), clipboard: () => clipboard, ctxOpen: () => !!ctx,
-    meta: () => meta, journal: () => journal, renderVars, varsUi, varDefs, listDefs, varUses, noInputRefusals: () => noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
+    meta: () => meta, journal: () => journal, renderVars, varsUi, varDefs, listDefs, varUses,
+    analyze, globalIssues: () => globalIssues, refreshVarStore, resetVar,      // L12 test hooks
+    noInputRefusals: () => noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
     nav: () => ({ locked: navLocked, hand: navHand, space: navSpace, zoom: editor.zoom, x: editor.canvas_x, y: editor.canvas_y }),
     setHand, setLock, toggleHelp, save,
     menuTree, menuItems, issues: () => Object.fromEntries(issues), diagNodes, diagCycle, checkErrors: () => checkErrors, runCheck, freshCheck, clearJumpbar, setNoteDisplay, hideTip,
