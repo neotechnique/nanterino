@@ -10,3 +10,6 @@ song/build/
 
 # Persistent graph variables (lot L11): live values, machine-specific
 state/
+
+# Graph PNG exports (lot L14): cache of the editor "Exporter l'image" captures, regenerated on demand
+exports/

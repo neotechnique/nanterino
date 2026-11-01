@@ -559,3 +559,12 @@ input[type=color]{width:56px;height:28px;padding:0 2px;background:transparent;bo
 .svglab{color:var(--mut);font-size:11px;margin-right:2px}
 .sv.conv{border-style:dashed}
 .svreset{color:var(--trigger)}
+/* L14: "Exporter l'image" options popover (fixed under the toolbar button) */
+.exportpop{position:fixed;z-index:40;width:310px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 12px;box-shadow:0 6px 18px #000a}
+.exportpop[hidden]{display:none}
+.exportpop .extitle{font-weight:600;margin-bottom:6px}
+.exportpop fieldset{border:0;margin:0 0 6px;padding:0}
+.exportpop legend{color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.05em;padding:0;margin-bottom:2px}
+.exportpop .exopt{display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer}
+.exportpop .exhint{font-size:12px;color:var(--mut);margin:6px 0 8px}
+.exportpop .exbtns{display:flex;gap:8px;justify-content:flex-end}

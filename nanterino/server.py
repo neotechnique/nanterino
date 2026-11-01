@@ -7,6 +7,11 @@ Graph editor routes follow Notes/graph-visual-format.md; lot L1 (2026-10-31) add
 of the graph variables, read from Brain.var_snapshot()). Lot L11 (2026-11-01): the live Brain gets the persistent variable
 store (state/vars.json, flushed at exit), GET /api/graph/vars adds `store` (Brain.var_store_info) and
 POST /api/graph/vars/reset {"name"} puts a variable / list back to its initial value and forgets its saved value.
+Lot L14 (2026-11-01): full-resolution PNG export of the graph: POST /api/graph/snapshot starts ONE capture job
+(nanterino/snapshot_jobs.py runs tools/graph_snapshot.py with /usr/bin/python3 under `nice`, in its own thread and
+process group: neither the event loop nor the robot loop waits for it), GET /api/graph/snapshot/status reports it,
+GET /api/graph/snapshot.png serves the PNG as an attachment. GET /api/graph/visual?source=default serves the packaged
+graph with its automatic layout (read-only; the capture of `--doc default` loads it into its own headless page).
 """
 import asyncio
 import atexit
@@ -32,6 +37,7 @@ from . import sim
 from .engines import LLM, STT, TTS
 from .log import log
 from .metrics import Metrics
+from .snapshot_jobs import SnapshotJobs, files_signature, snapshot_key
 from .var_store import DEFAULT_PATH as VARS_STATE_PATH, VarStore
 from .vision import Vision
 
@@ -207,13 +213,28 @@ async def graph_vars_reset(body: dict):
     return {"ok": True, "name": name, "vars": brain.var_snapshot()}
 
 
-@app.get("/api/graph/visual")
-def graph_visual_get():
-    """Node document of the active graph (positions from graph.layout.json, else automatic)."""
+def _visual_doc(source: str = "saved") -> dict:
+    """Node document as GET /api/graph/visual serves it. `saved` = the active graph (positions from graph.layout.json,
+    else automatic); `default` (L14) = the packaged graph (graph_mod.DEFAULT_PATH) with its shipped / automatic layout,
+    whatever override is active. Pure read: nothing is written or applied."""
+    start = "eteint" if cfg.get("power") == "off" else "veille"
+    if source == "default":
+        raw = graph_visual.load_raw(graph_mod.DEFAULT_PATH)
+        layout = graph_visual.load_layout(graph_visual.layout_path_for(graph_mod.DEFAULT_PATH))
+        return {**graph_visual.to_visual(raw, layout, start), "error": None, "pending": False}
     raw = graph_visual.load_raw(brain.engine.graph.source)
     layout = graph_visual.load_layout(_graph_paths()[1])
-    doc = graph_visual.to_visual(raw, layout, "eteint" if cfg.get("power") == "off" else "veille")
+    doc = graph_visual.to_visual(raw, layout, start)
     return {**doc, "error": brain.graph_error, "pending": brain.graph_pending}
+
+
+@app.get("/api/graph/visual")
+def graph_visual_get(source: str = "saved"):
+    """Node document of the active graph (positions from graph.layout.json, else automatic);
+    `?source=default` = the packaged default graph (L14, read-only)."""
+    if source not in ("saved", "default"):
+        return JSONResponse({"ok": False, "error": "source: saved | default"}, status_code=400)
+    return _visual_doc(source)
 
 
 @app.post("/api/graph/visual")
@@ -307,6 +328,95 @@ async def graph_version_restore(vid: str):
 def graph_trace():
     """Live journal: the last chains that fired (oldest first)."""
     return {"trace": brain.trace(), "max": JOURNAL_MAX}
+
+
+# ---- lot L14: full-resolution PNG export of the graph (editor button "Exporter l'image", tools/Get-GraphSnapshot.ps1)
+SNAPSHOT_TOOL = os.path.join(config.ROOT, "tools", "graph_snapshot.py")
+SNAPSHOT_DIR = os.path.join(config.ROOT, "exports", "graph-snapshots")   # gitignored cache (<key>.png + <key>.json)
+SNAPSHOT_PYTHON = "/usr/bin/python3"       # system Python: the venv has no PIL
+_SNAPSHOT_CODE = [os.path.join(WEB, n) for n in ("editor.html", "editor.js", "editor.css")] + [SNAPSHOT_TOOL]
+_SNAP_CROP = re.compile(r"^column=[A-Za-z0-9_-]{1,60}$")
+
+
+def _snapshot_cmd(opts: dict, out_path: str) -> list:
+    """Low priority (nice 19) capture of the local server; the tool drives its own geckodriver (port 4466)."""
+    cmd = ["nice", "-n", "19", SNAPSHOT_PYTHON, SNAPSHOT_TOOL, "--out", out_path, "--scale", str(opts["scale"]),
+           "--theme", opts["theme"], "--doc", opts["doc"], "--base", "http://127.0.0.1:%s" % cfg["http_port"]]
+    if opts.get("crop"):
+        cmd += ["--crop", opts["crop"]]
+    return cmd
+
+
+snapshots = SnapshotJobs(SNAPSHOT_DIR, _snapshot_cmd, timeout_s=360, keep=12)
+
+
+def _snapshot_options(body) -> tuple[dict | None, str | None]:
+    body = body if isinstance(body, dict) else {}
+    try:
+        scale = float(body.get("scale", 1.0))
+    except (TypeError, ValueError):
+        return None, "scale: nombre attendu."
+    if not 0.1 <= scale <= 2.0:
+        return None, "scale: entre 0.1 et 2."
+    theme, doc, crop = body.get("theme", "dark"), body.get("doc", "saved"), body.get("crop") or None
+    if theme not in ("dark", "light"):
+        return None, "theme: dark | light."
+    if doc not in ("saved", "default"):
+        return None, "doc: saved | default."
+    if crop is not None and not (isinstance(crop, str) and _SNAP_CROP.match(crop)):
+        return None, "crop: column=<id>."
+    return {"scale": round(scale, 3), "theme": theme, "doc": doc, "crop": crop}, None
+
+
+def _snapshot_view(job: dict | None) -> dict:
+    if not job:
+        return {"ok": True, "job": None}
+    j = dict(job)
+    if job["state"] == "done":
+        j["url"] = "/api/graph/snapshot.png?key=" + job["key"]
+        j["filename"] = "nanterino-graph-%s.png" % (job.get("created") or time.strftime("%Y%m%d-%H%M"))
+    return {"ok": True, "job": j}
+
+
+@app.post("/api/graph/snapshot")
+async def graph_snapshot_start(request: Request):
+    """Start the PNG capture (single-flight: while one runs, its job is returned). Same document + options + code
+    as a cached PNG = `done` at once with `cache_hit`. Body (all optional): {scale: 1 | 0.5, theme: dark | light,
+    doc: saved | default, crop: "column=<state>"}. Never touches the robot (read-only capture of /editor)."""
+    try:
+        body = await request.json()
+    except ValueError:
+        body = {}
+    opts, err = _snapshot_options(body)
+    if err:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+
+    def start():
+        key = snapshot_key(_visual_doc(opts["doc"]), opts, files_signature(_SNAPSHOT_CODE))
+        return snapshots.start(key, opts)
+    return _snapshot_view(await run_in_threadpool(start))
+
+
+@app.get("/api/graph/snapshot/status")
+def graph_snapshot_status():
+    """Current / last capture job: state running | done | failed, progress 0-1, seconds, size, url when done."""
+    return _snapshot_view(snapshots.status())
+
+
+@app.get("/api/graph/snapshot.png")
+def graph_snapshot_png(key: str = ""):
+    """The PNG of `key` (default: the last finished job) as an attachment nanterino-graph-YYYYMMDD-HHMM.png."""
+    if not key:
+        job = snapshots.status()
+        key = job["key"] if job and job["state"] == "done" else ""
+    if not re.fullmatch(r"[0-9a-f]{24}", key or ""):
+        return JSONResponse({"ok": False, "error": "Aucune image prête."}, status_code=404)
+    meta = snapshots.cached(key)
+    if meta is None:
+        return JSONResponse({"ok": False, "error": "Image inconnue ou effacée."}, status_code=404)
+    name = "nanterino-graph-%s.png" % (meta.get("created") or "export")
+    return FileResponse(snapshots.png_path(key), media_type="image/png", filename=name,
+                        headers={"Cache-Control": "no-cache", "Content-Disposition": 'attachment; filename="%s"' % name})
 
 
 @app.get("/api/live")
