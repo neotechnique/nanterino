@@ -41,6 +41,10 @@ nb_visiteurs_jour counter from the heartbeat (`_persist_tick`, the store limits 
 back at load are type-checked (`graph.persisted_ok`), a mismatch is ignored with a warning (`var_store_info`).
 `reset_var` (POST /api/graph/vars/reset) restores the initial value and forgets the saved one.
 
+Node modules (lot M1, 2026-11-01): the action closures moved to nanterino/nodes/actions/<id>.py (one module per
+action: metadata + run(ctx, **args)); _build_engine binds each one to this brain with a NodeContext. Guards stay here
+until lot M2. Shared runtime helpers (list_push, match_key) live in nanterino/nodes/helpers.py.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -58,6 +62,8 @@ import threading
 import time
 
 from . import graph as graph_mod
+from . import nodes
+from .nodes import NodeContext, helpers as node_helpers
 from .audio import AudioIn, find_device
 from . import hours as hours_mod
 from .log import log
@@ -419,59 +425,15 @@ class Brain:
     def _build_engine(self) -> "graph_mod.GraphEngine":
         """Load the active graph (override file or default) and bind it to this brain's capabilities.
 
-        The dicts below are the CLOSED vocabulary implemented here; graph.ACTION_SPECS / GUARDS list the
-        names a graph file may use and GraphEngine refuses to start if one is missing.
+        The guards dict below is the CLOSED guard vocabulary implemented here; the actions come from the node registry
+        (nanterino.nodes.ACTIONS, lot M1), the same source graph.ACTION_SPECS is derived from. GraphEngine refuses to
+        start if a name of graph.ACTION_SPECS / GUARDS is missing.
         """
         cfg = self.cfg
         if self._fixed_graph is not None:   # simulator: the graph is given in memory, nothing is read from disk
             graph, self.graph_error = self._fixed_graph, None
         else:
             graph, self.graph_error = graph_mod.load_active(cfg)
-
-        def clear_conversation(kw):
-            self.history.clear(); self.turns = 0; self.subtitle = ""
-            self._reset_scope(graph, "conversation")   # lot L11: conversation-scoped variables and lists
-
-        def reset_silence(kw):
-            self.last_speech = self.now()
-
-        def speak_relance(kw):
-            text, self._relance_text = self._relance_text or cfg["relance"], None  # one-shot repair text
-            self._speak_then(text, "relance_done")
-
-        def schedule(kw, event, delay):
-            d = float(delay if isinstance(delay, (int, float)) else cfg[delay])
-            with self._sched_lock:  # gen captured now: stop/off before the due time drops the event
-                self._scheduled.append((self.now() + d, event, self.gen))
-
-        def count_turn(kw):
-            self.turns += 1
-
-        def count_repair(kw):
-            self.repairs += 1
-
-        def set_relance_text(kw):
-            self._relance_text = cfg.get("repair_text") or cfg["relance"]
-
-        def start_answer(kw):
-            if not self._threaded:   # simulator: a fixed fake answer, finished after SIM_ANSWER_S virtual seconds
-                self.subtitle = "(réponse simulée)"
-                self.llm.simulate_answer()   # the simulator's fake LLM records that an answer started
-                self._schedule_at(self.now() + SIM_ANSWER_S, "answer_done")
-                return
-            threading.Thread(target=self._answer, args=(kw["text"], kw["t_end"], self.gen), daemon=True).start()
-
-        def start_sing(kw):
-            if not self._threaded:
-                self._schedule_at(self.now() + SIM_SONG_S, "answer_done")
-                return
-            threading.Thread(target=self._sing, args=(self.gen,), daemon=True).start()
-
-        def set_expression(kw, name, seconds):
-            self._expression = (name, self.now() + float(seconds))
-
-        def set_gaze(kw, mode):
-            self.gaze_mode = mode
 
         # ---- variables (lot L1 + L11): values reset from the graph at every load, then the persisted ones read back
         self._graph = graph
@@ -481,74 +443,12 @@ class Brain:
         self._timer_watch, self._timer_fired, self._bags = graph.timer_watches(), set(), {}
         self._load_persisted(graph)
 
-        def set_var(kw, name, value):
-            self._set_var(name, graph_mod.fit_value(graph.variables[name], self._resolve(value, kw)))
-
-        def add_var(kw, name, delta):
-            v = self.vars.get(name, 0) + delta
-            if graph.variables[name].type == "duration":
-                v = max(0, v)   # a duration never goes negative
-            self._set_var(name, graph_mod.fit_value(graph.variables[name], v))   # integer / percent / min / max
-
-        def list_push(name, value):
-            items = self.lists.setdefault(name, [])
-            items.append(value)
-            cap = graph.lists[name].maxlen
-            if cap and len(items) > cap:
-                del items[:len(items) - cap]   # history / max: the oldest items go first
-
-        def list_add(kw, list, value):  # noqa: A002 (argument name fixed by the graph vocabulary)
-            list_push(list, self._resolve(value, kw))
-
-        def remember_utterance(kw, list):  # noqa: A002
-            text = self._resolve("$utterance", kw)
-            if isinstance(text, str) and text.strip():
-                list_push(list, text.strip())
-
-        def list_remove(kw, list, value):  # noqa: A002
-            v = self._resolve(value, kw)
-            self.lists[list] = [x for x in self.lists.get(list, []) if x != v]
-
-        def say_random(kw, list):  # noqa: A002
-            items = [x for x in self.list_items(list) if isinstance(x, str) and x.strip()]
-            if not items:
-                log.info("say_random: list %s is empty, nothing said", list)
-                return
-            li = graph.lists.get(list)
-            pick = self._bag_pick(list, items) if li is not None and li.mode == "shuffle" else self.rng.choice(items)
-            self._speak_then(pick, "say_done")
-
+        # ---- guard helpers (guards move to nanterino/nodes/conditions/ in lot M2)
         def var_compare(kw, name, op, value):
             return self._compare(self.var_value(name), op, self._resolve(value, kw), self._var_type(name))
 
-        # ---- dictionaries (lot L11): self.lists[name] is a {key: value} dict
-        def match_key(kw, name, key):
-            """Key of a dictionary call: a literal / `$<var>`, or for `$utterance` the first key found in the sentence."""
-            d = self.lists.get(name) or {}
-            if key == "$utterance":
-                text = str(self._resolve(key, kw) or "").lower()
-                return next((k for k in d if k.strip() and k.lower() in text), None)
-            k = self._resolve(key, kw)
-            return k if isinstance(k, str) and k in d else None
-
-        def dict_set(kw, dict, key, value):  # noqa: A002
-            k = self._resolve(key, kw)
-            if isinstance(k, str) and k.strip():
-                self.lists.setdefault(dict, {})[k.strip()[:graph_mod.KEY_MAX]] = self._resolve(value, kw)
-
-        def dict_remove(kw, dict, key):  # noqa: A002
-            k = self._resolve(key, kw)
-            (self.lists.get(dict) or {}).pop(k, None)
-
-        def say_dict(kw, dict, key, fallback):  # noqa: A002
-            k = match_key(kw, dict, key)
-            text = (self.lists.get(dict) or {}).get(k) if k is not None else None
-            if not (isinstance(text, str) and text.strip()):
-                text = fallback
-            if isinstance(text, str) and text.strip():
-                self._speak_then(text, "say_done")
-            else:
-                log.info("say_dict: no value for key %r in %s and no fallback, nothing said", key, dict)
+        def match_key(kw, name, key):   # dictionaries (lot L11): self.lists[name] is a {key: value} dict
+            return node_helpers.match_key(self, kw, name, key)
 
         def dict_value_compare(kw, dict, key, op, value):  # noqa: A002
             k = match_key(kw, dict, key)
@@ -557,13 +457,6 @@ class Brain:
             return self._compare(self.lists[dict][k], op, self._resolve(value, kw), graph.lists[dict].type)
 
         # ---- time (lot L11): wall clock only through self.wall / _wall_dt (injectable)
-        def say_var(kw, name):
-            text = self.var_value(name)
-            if isinstance(text, str) and text.strip():
-                self._speak_then(text, "say_done")
-            else:
-                log.info("say_var: %s is empty, nothing said", name)
-
         def elapsed_since(kw, name, op, seconds):
             e = self._elapsed(name)
             return e is not None and self._compare(e, op, seconds)
@@ -580,42 +473,17 @@ class Brain:
                 return any(str(x).lower() in text for x in items if str(x).strip())
             return self._resolve(value, kw) in items
 
-        def as_utterance(kw):  # typed text (dashboard "ask") handled exactly like a spoken one
-            self.engine.dispatch("utterance", {"text": kw["text"], "t_end": kw.get("t_end") or self.now()})
+        # ---- actions (lot M1, 2026-11-01): one module per action (nanterino/nodes/actions/<id>.py), bound here.
+        # The engine calls fn(kw, **args); each call gets a NodeContext with THIS brain and the cfg / graph captured now
+        # (as the former closures did), so an old engine finishing its `then` actions after a pending-graph swap still
+        # works on the graph it was built from. Brain attributes are looked up at call time (tests wrap methods).
+        def bind(node):
+            def call(kw, **args):
+                return node.run(NodeContext(self, kw, cfg, graph), **args)
+            call.__name__ = call.__qualname__ = "action_" + node.id
+            return call
 
-        actions = {
-            "cancel_all": lambda kw: self._cancel_all(),
-            "mic_on": lambda kw: self._mic_on(),
-            "mic_off": lambda kw: self.mic.stop(),
-            # Without echo cancellation the robot would hear itself, unless barge-in is wanted.
-            "mic_off_no_barge_in": lambda kw: None if cfg["barge_in"] else self.mic.stop(),
-            "clear_conversation": clear_conversation,
-            "clear_history": lambda kw: self.history.clear(),
-            "reset_repairs": lambda kw: setattr(self, "repairs", 0),
-            "reset_silence": reset_silence,
-            "subtitle_listening": lambda kw: setattr(self, "subtitle", "Je vous écoute"),
-            "count_turn": count_turn, "count_repair": count_repair, "set_relance_text": set_relance_text,
-            "speak_phrase": lambda kw, text, done: self._speak_then(cfg[text], done),
-            "speak_relance": speak_relance,
-            "schedule": schedule,
-            "emit": lambda kw, event: self.engine.dispatch(event, {}),
-            "start_answer": start_answer, "start_sing": start_sing, "as_utterance": as_utterance,
-            "say_text": lambda kw, text: self._speak_then(text, "say_done"),
-            "set_expression": set_expression, "gaze": set_gaze,
-            "wait": lambda kw, seconds: None,   # handled by GraphEngine._exec (it needs the rest of the chain)
-            "set_var": set_var,
-            "add_var": add_var,
-            "toggle_var": lambda kw, name: self._set_var(name, not self.vars.get(name)),
-            "list_add": list_add, "list_remove": list_remove,
-            "list_clear": lambda kw, list: self.lists.__setitem__(list, []),
-            "say_random": say_random,
-            # lot L11
-            "set_now": lambda kw, name: self._set_var(name, self._now_iso()),
-            "timer_start": lambda kw, name: self._set_var(name, round(self.wall(), 3)),
-            "timer_reset": lambda kw, name: self._set_var(name, None),
-            "say_var": say_var, "remember_utterance": remember_utterance,
-            "dict_set": dict_set, "dict_remove": dict_remove, "say_dict": say_dict,
-        }
+        actions = {name: bind(node) for name, node in nodes.ACTIONS.items()}
         guards = {
             "auto_greet_on_face": lambda kw: bool(cfg.get("auto_greet_on_face")),
             "barge_in": lambda kw: bool(cfg.get("barge_in")),

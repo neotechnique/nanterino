@@ -12,7 +12,8 @@ Boundary
       `brain._go(state, reason)`, `brain.state / since / last_speech`. brain.py implements them.
     - The vocabulary is CLOSED and declared here (EVENTS, ACTION_SPECS, GUARDS). A name the file
       uses that is not declared is a load error with a clear message, never a runtime surprise.
-      Adding a capability = add the name here AND implement it in brain.py.
+      Adding an event / guard = add the name here AND implement it in brain.py. Adding an ACTION = drop one
+      module into nanterino/nodes/actions/ (lot M1: metadata + run() in that file; see nanterino/nodes).
 
 File format (see nanterino/graph.yaml, the commented default)
     states.<name>: description, on_enter [actions], transitions [..]
@@ -78,8 +79,15 @@ Invariants
     - An invalid override file never stops the robot: `load_active` logs the error (errors.log) and
       falls back to the default graph shipped with the code.
 
+Node modules (lot M1, 2026-11-01)
+    - Actions live in nanterino/nodes/actions/<id>.py (one class each: label, help, icon, theme, args, run()).
+      ACTION_DOC / ACTION_SPECS / ACTION_ICON / ACTION_THEME are views of nanterino.nodes.ACTIONS (palette order =
+      the modules' `order`); /api/graph/vocab is byte-identical to the former tables (tests/golden/vocab-*.json).
+      ARG_KINDS lists the argument kinds a module may use; check_family() refuses an unknown theme or kind at import.
+
 How to test
     python -m tests.test_brain_graph      (parity traces + invalid-graph / watchdog / heartbeat tests)
+    python -m tests.test_nodes_registry   (node discovery, drop-a-file, broken module, vocab golden)
 """
 import datetime
 import os
@@ -90,6 +98,7 @@ from dataclasses import dataclass
 import yaml
 
 from .log import log
+from . import nodes as _nodes
 
 DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph.yaml")
 
@@ -131,69 +140,12 @@ EVENT_DOC = {
 EVENTS = frozenset(EVENT_DOC)
 INTERNAL_EVENTS = frozenset(k for k, v in EVENT_DOC.items() if v[2])
 
-# Action name -> (label, help, {argument name: (kind, label)}).
-# kinds: cfgkey (a config key), event, delay (seconds or cfg key).
-ACTION_DOC = {
-    "cancel_all": ("Se taire", "Coupe immédiatement le son et annule toute réponse en cours.", {}),
-    "mic_on": ("Ouvrir le micro", "Le robot se remet à écouter (sauf mode sourd).", {}),
-    "mic_off": ("Couper le micro", "Le robot n'écoute plus.", {}),
-    "mic_off_no_barge_in": ("Couper le micro (sauf interruption)", "Coupe le micro, sauf si l'interruption est activée dans la configuration.", {}),
-    "clear_conversation": ("Oublier la conversation", "Efface l'historique, le compteur de tours et le sous-titre.", {}),
-    "clear_history": ("Effacer l'historique", "Efface seulement l'historique des échanges.", {}),
-    "reset_repairs": ("Remettre à zéro les demandes de répétition", "Le compteur de « pardon ? » repart de zéro.", {}),
-    "reset_silence": ("Redémarrer le chrono de silence", "La dernière parole est considérée comme étant maintenant.", {}),
-    "subtitle_listening": ("Afficher « Je vous écoute »", "Met le sous-titre de l'écran sur « Je vous écoute ».", {}),
-    "count_turn": ("Compter un tour de parole", "Ajoute un échange au compteur de la conversation.", {}),
-    "count_repair": ("Compter une demande de répétition", "Ajoute un « pardon ? » au compteur.", {}),
-    "set_relance_text": ("Préparer la phrase « répétez »", "La prochaine relance dira la phrase de demande de répétition.", {}),
-    "speak_relance": ("Dire la relance", "Dit la phrase de relance (ou de répétition si elle est préparée), puis relance_done.", {}),
-    "start_answer": ("Répondre à la question", "Lance la recherche et la réponse à la phrase du visiteur.", {}),
-    "start_sing": ("Chanter", "Lance la chanson de Nanterino.", {}),
-    "as_utterance": ("Traiter la question tapée", "Traite le texte tapé comme s'il avait été dit.", {}),
-    "speak_phrase": ("Dire une phrase fixe", "Dit une phrase de la configuration, puis déclenche l'événement indiqué.",
-                     {"text": ("cfgkey", "Phrase à dire"), "done": ("event", "Événement à la fin")}),
-    "schedule": ("Programmer un événement", "Déclenche un événement après un délai (annulé si le robot est arrêté entre-temps).",
-                 {"event": ("event", "Événement à déclencher"), "delay": ("delay", "Délai (secondes ou clé de configuration)")}),
-    "emit": ("Déclencher un événement", "Envoie tout de suite un événement au graphe.", {"event": ("event", "Événement à déclencher")}),
-    "say_text": ("Dire un texte", "Dit une phrase libre (voix calculée à l'avance au chargement du graphe ; muet = reste muet), puis déclenche say_done.",
-                 {"text": ("text", "Phrase à dire")}),
-    "set_expression": ("Changer l'expression du visage", "Affiche une expression (content, surpris, réfléchit, triste, neutre) pendant un nombre de secondes, puis revient à l'expression de l'état.",
-                       {"name": ("expression", "Expression"), "seconds": ("seconds", "Durée (secondes)")}),
-    "wait": ("Attendre", "Pause sans bloquer le robot : la suite de la chaîne reprend après le délai, les autres événements continuent d'être traités.",
-             {"seconds": ("delay", "Durée (secondes ou clé de configuration)")}),
-    "gaze": ("Régler le regard", "Le regard du visage suit le visiteur, regarde devant lui, ou erre ; reste jusqu'au prochain réglage (retour à « suivre » en veille).",
-             {"mode": ("gazemode", "Regard")}),
-    # variables (lot L1): `var`/`numvar`/`boolvar` = a writable user variable of a fitting type, `wlist` = a writable
-    # user list, `rlist` = any string list, `value` = a literal of the variable's / list's type (or "$<var>")
-    "set_var": ("Changer une variable", "Donne une nouvelle valeur à une variable (« etat » : change d'état).",
-                {"name": ("var", "Variable"), "value": ("value", "Valeur")}),
-    "add_var": ("Ajouter à une variable", "Ajoute un nombre (négatif pour retirer) à une variable nombre ou durée.",
-                {"name": ("numvar", "Variable"), "delta": ("number", "Quantité")}),
-    "toggle_var": ("Inverser une variable", "Une variable vrai/faux passe à l'autre valeur.", {"name": ("boolvar", "Variable")}),
-    "list_add": ("Ajouter à une liste", "Ajoute un élément à la fin d'une liste.",
-                 {"list": ("wlist", "Liste"), "value": ("value", "Élément")}),
-    "list_remove": ("Retirer d'une liste", "Retire un élément d'une liste (toutes ses occurrences).",
-                    {"list": ("wlist", "Liste"), "value": ("value", "Élément")}),
-    "list_clear": ("Vider une liste", "Retire tous les éléments d'une liste.", {"list": ("wlist", "Liste")}),
-    "say_random": ("Dire une phrase au hasard", "Dit une phrase tirée au hasard dans une liste de textes (voix calculée à l'avance comme « Dire un texte » ; muet = reste muet), puis say_done.",
-                   {"list": ("rlist", "Liste de phrases")}),
-    # variables v2 (lot L11): time, phrase variables, history lists, dictionaries
-    "set_now": ("Noter la date et l'heure", "Met une variable date et heure à maintenant.", {"name": ("datetimevar", "Variable date")}),
-    "timer_start": ("Démarrer un chrono", "Démarre (ou redémarre à zéro) un chronomètre ; ses déclencheurs « Un chrono atteint une durée » sont réarmés.",
-                    {"name": ("timervar", "Chrono")}),
-    "timer_reset": ("Arrêter un chrono", "Arrête et remet à zéro un chronomètre : il ne déclenche plus rien jusqu'au prochain départ.",
-                    {"name": ("timervar", "Chrono")}),
-    "say_var": ("Dire une variable phrase", "Dit le texte d'une variable phrase ou texte (voix calculée à l'avance pour les phrases écrites dans le graphe ; muet = reste muet), puis say_done. Variable vide : rien n'est dit.",
-                {"name": ("textvar", "Variable")}),
-    "remember_utterance": ("Retenir la phrase du visiteur", "Ajoute la dernière phrase du visiteur à une liste de textes (en mode historique, seules les N dernières restent).",
-                           {"list": ("wtextlist", "Liste")}),
-    "dict_set": ("Écrire dans un dictionnaire", "Associe une valeur à une clé d'un dictionnaire (remplace l'ancienne valeur).",
-                 {"dict": ("wdict", "Dictionnaire"), "key": ("dictkey", "Clé"), "value": ("value", "Valeur")}),
-    "dict_remove": ("Retirer une clé d'un dictionnaire", "Retire une clé (et sa valeur) d'un dictionnaire.",
-                    {"dict": ("wdict", "Dictionnaire"), "key": ("dictkey", "Clé")}),
-    "say_dict": ("Dire la valeur d'une clé", "Dit le texte associé à une clé d'un dictionnaire de textes ; avec « $utterance », la première clé contenue dans la phrase entendue. Clé absente : dit le texte de repli (rien s'il est vide), puis say_done.",
-                 {"dict": ("rtextdict", "Dictionnaire de textes"), "key": ("dictkey", "Clé (ou $utterance)"), "fallback": ("optext", "Texte de repli")}),
-}
+# Actions (lot M1, 2026-11-01): one module per action under nanterino/nodes/actions/, discovered by
+# nanterino.nodes (closed: that package only). The tables below are VIEWS of that registry, in palette order;
+# there is no second list of actions here. ACTION_DOC: name -> (label, help, {argument name: Arg(kind, label)}).
+# kinds: cfgkey (a config key), event, delay (seconds or cfg key) ... (ARG_KINDS lists them all).
+_ACTION_NODES = _nodes.ACTIONS
+ACTION_DOC = {n.id: (n.label, n.help, dict(n.args)) for n in _ACTION_NODES.values()}
 EXPRESSIONS = {"content": "Content", "surpris": "Surpris", "reflechit": "Réfléchit", "triste": "Triste", "neutre": "Neutre"}
 GAZE_MODES = {"suivre": "Suivre le visiteur", "devant": "Regarder devant", "errer": "Errer"}
 TEXT_MAX = 300      # say_text.text length limit (it is synthesised once at graph load)
@@ -297,6 +249,11 @@ LIST_KIND_RULES = {
     "wtextlist": (True, frozenset({"string", "phrase"}), "list"),
     "wdict": (True, None, "dict"), "rdict": (False, None, "dict"), "rtextdict": (False, frozenset({"string", "phrase"}), "dict"),
 }
+# Every argument kind a node module may declare (checked by nanterino.nodes.check_family below): the kinds the
+# _Parser checks and vocabulary() renders. An unknown kind would silently render as a delay: refused at import.
+ARG_KINDS = frozenset(VAR_KIND_TYPES) | frozenset(LIST_KIND_RULES) | frozenset({
+    "cfgkey", "event", "delay", "text", "expression", "seconds", "gazemode", "value", "listvalue", "op", "number",
+    "dictkey", "seconds0", "hhmm", "weekdays", "optext"})
 WATCH_EVENTS = ("var_changed", "timer_reached")   # events whose transitions carry `var:` / `value:`
 # Read-only views of the brain's own state: (type, label, help). `etat` gets the state names as choices, `jour` the
 # WEEKDAYS ids. Lot L11 adds the clock / face / audio views after the five counters (their order is part of the API).
@@ -474,18 +431,8 @@ EVENT_ICON = {
     "personnes_multiples": "users", "ouverture": "lock-open", "fermeture": "lock", "inactivite_longue": "hourglass",
     "say_done": "text-caption", "var_changed": "circle-dot", "timer_reached": "hourglass",
 }
-ACTION_ICON = {
-    "cancel_all": "x", "mic_on": "microphone", "mic_off": "microphone-off", "mic_off_no_barge_in": "microphone-off",
-    "clear_conversation": "eraser", "clear_history": "eraser", "reset_repairs": "refresh", "reset_silence": "clock",
-    "subtitle_listening": "ear", "count_turn": "plus", "count_repair": "plus", "set_relance_text": "message",
-    "speak_relance": "volume", "start_answer": "message", "start_sing": "music", "as_utterance": "keyboard",
-    "speak_phrase": "volume", "schedule": "clock", "emit": "bolt", "say_text": "text-caption",
-    "set_expression": "mood-smile", "wait": "hourglass", "gaze": "eye",
-    "set_var": "arrow-right", "add_var": "plus", "toggle_var": "refresh", "list_add": "plus", "list_remove": "x",
-    "list_clear": "eraser", "say_random": "volume",
-    "set_now": "calendar-time", "timer_start": "player-play", "timer_reset": "refresh", "say_var": "text-caption",
-    "remember_utterance": "microphone", "dict_set": "plus", "dict_remove": "x", "say_dict": "volume",
-}
+# Icon of each action: declared by its module (nanterino/nodes/actions/<id>.py `icon`), lot M1.
+ACTION_ICON = {n.id: n.icon for n in _ACTION_NODES.values()}
 GUARD_ICON = {
     "auto_greet_on_face": "scan-eye", "barge_in": "hand-stop", "not_busy": "circle-dot", "mic_active": "microphone",
     "not_speaking": "volume-off", "repairs_left": "refresh", "turns_left": "message", "dans_les_horaires": "calendar-time",
@@ -519,6 +466,9 @@ THEME_DOC = {
     "systeme": ("Tableau de bord & système", "power", "Les boutons du tableau de bord et les commandes tapées."),
     "evenements": ("Événements", "bolt", "Événements programmés ou envoyés par le graphe lui-même."),
 }
+# A node module with an unknown theme / argument kind stops the start here (NodeRegistryError naming the file),
+# before the generic theme asserts below.
+_nodes.check_family(_ACTION_NODES, "actions", THEME_DOC, ARG_KINDS)
 EVENT_THEME = {
     "stop": "systeme", "off": "systeme", "on": "systeme", "start": "systeme", "ask": "systeme",
     "visage": "vision", "visage_perdu": "vision", "personnes_multiples": "vision",
@@ -530,22 +480,8 @@ EVENT_THEME = {
     "ouverture": "temps", "fermeture": "temps", "inactivite_longue": "temps",
     "var_changed": "variables", "timer_reached": "temps",
 }
-ACTION_THEME = {
-    "cancel_all": "parole", "speak_relance": "parole", "set_relance_text": "parole", "speak_phrase": "parole",
-    "say_text": "parole", "say_random": "parole", "start_sing": "parole",
-    "mic_on": "micro", "mic_off": "micro", "mic_off_no_barge_in": "micro", "reset_silence": "micro",
-    "subtitle_listening": "micro",
-    "clear_conversation": "conversation", "clear_history": "conversation", "reset_repairs": "conversation",
-    "count_turn": "conversation", "count_repair": "conversation", "start_answer": "conversation",
-    "as_utterance": "systeme",
-    "set_expression": "vision", "gaze": "vision",
-    "wait": "temps", "schedule": "temps",
-    "emit": "evenements",
-    "set_var": "variables", "add_var": "variables", "toggle_var": "variables",
-    "list_add": "listes", "list_remove": "listes", "list_clear": "listes",
-    "set_now": "temps", "timer_start": "temps", "timer_reset": "temps", "say_var": "parole", "say_dict": "parole",
-    "remember_utterance": "listes", "dict_set": "listes", "dict_remove": "listes",
-}
+# Theme of each action: declared by its module (nanterino/nodes/actions/<id>.py `theme`), lot M1.
+ACTION_THEME = {n.id: n.theme for n in _ACTION_NODES.values()}
 GUARD_THEME = {
     "auto_greet_on_face": "vision", "barge_in": "micro", "not_busy": "micro", "mic_active": "micro",
     "not_speaking": "parole", "repairs_left": "conversation", "turns_left": "conversation",
