@@ -1,9 +1,12 @@
-"""Node registry: auto-discovery of the graph's node modules (lot M1, 2026-11-01).
+"""Node registry: auto-discovery of the graph's node modules (lot M1 actions, lot M2 conditions + triggers).
 
 Purpose
     The graph vocabulary (what a graph.yaml may use and what the visual editor offers) is built from one Python
-    file per node. graph.py derives its validation tables (ACTION_DOC / ACTION_SPECS / ACTION_ICON / ACTION_THEME)
-    and the /api/graph/vocab entries from ACTIONS; brain.py binds each node's run() to the live Brain.
+    file per node, in three flat family folders: actions/ (`do:` steps), conditions/ (`when:` guards) and
+    triggers/ (`on:` events). graph.py derives its validation tables (ACTION_* / GUARD_* / EVENT_*) and the
+    /api/graph/vocab entries from ACTIONS / CONDITIONS / TRIGGERS; brain.py binds each action's run() and each
+    condition's test() to the live Brain; the engine asks an argument-carrying trigger's match() whether an event
+    fits a transition.
 
 How to add an action (drop a file)
     1. Create nanterino/nodes/actions/<id>.py (file name = action id, lower snake case; a leading `_` = skipped).
@@ -24,6 +27,23 @@ How to add an action (drop a file)
     3. Add its tests (tests/test_nodes_registry.py checks the metadata; behaviour goes to the graph suites).
     Nothing else changes: graph.py, brain.py and the editor pick it up at the next start.
 
+How to add a condition / a trigger (same rules, other folder and base class)
+    conditions/<id>.py: one nanterino.nodes.base.Condition subclass with `def test(self, ctx, <args>)` returning
+    a truthy value (the engine applies `{not: ...}`); optional `as_vars` (French reading as variables).
+    triggers/<id>.py: one Trigger subclass; a plain event needs metadata only (`internal = True` for engine-only
+    events). An event that carries the transition's `var:` / `value:` declares `args` and implements match(),
+    editor_args() (exact inspector schema), check() (parser validation) and subscribe() (what the brain watches);
+    the brain still POSTS the event (see base.Trigger).
+
+Generated entries (data, not modules; decision of lot M2)
+    graph.vocabulary() also builds palette entries from the ACTIVE GRAPH, not from code: one trigger per intent
+    (`intent.<name>` events, intents are graph data edited in the Intentions panel), the delay trigger (`after:` +
+    `since:`, a transition field, not an event), and per state the "etat becomes X" trigger / "etat = X"
+    condition / "Changer d'état -> X" action (states are graph data). They have no module because their set
+    changes with the graph; their themes are graph.THEME_SLOTS. The var_changed / timer_reached anti-loop
+    (depth = MAX_VAR_CASCADE) and their posting stay in brain.py (event producers), the triggers' modules own
+    their matching, validation, subscription and editor schema.
+
 Boundary / security
     The vocabulary stays CLOSED: discovery scans only the packages named in PACKAGES (code constants), never a
     name read from YAML, a request or the environment. scan() accepts another package name only so the tests can
@@ -33,7 +53,9 @@ Invariants (checked at import; a violation raises NodeRegistryError, which stops
 former theme asserts, with the offending file in the message)
     - a module defines exactly one node class of its family, whose `id` equals the module name;
     - ids are unique; label / help / icon / theme are non-empty strings; args is {name: Arg(str, str)};
-    - run() takes exactly the declared argument names (no *args / **kwargs);
+    - run() / test() / match() (after `ctx, event`) take exactly the declared argument names (no *args /
+      **kwargs; a trigger argument may have a default, ANY); a trigger with args implements match() and
+      editor_args(); a condition implements test();
     - theme and argument kinds are checked against graph.py's tables by check_family() (called by graph.py, which
       owns THEME_DOC and ARG_KINDS).
     Order of the registry = (order, id) with unnumbered nodes last: it is the editor's palette order.
@@ -46,10 +68,11 @@ import inspect
 import pkgutil
 import re
 
-from .base import Action, Arg, Condition, Node, NodeContext, Trigger  # noqa: F401 (re-exported)
+from .base import ANY, Action, Arg, Condition, Node, NodeContext, Trigger  # noqa: F401 (re-exported)
 
-# Family -> package scanned in production. Lot M2 adds "conditions" / "triggers" here.
-PACKAGES = {"actions": "nanterino.nodes.actions"}
+# Family -> package scanned in production (closed list: code constants only).
+PACKAGES = {"actions": "nanterino.nodes.actions", "conditions": "nanterino.nodes.conditions",
+            "triggers": "nanterino.nodes.triggers"}
 BASES = {"actions": Action, "conditions": Condition, "triggers": Trigger}
 NODE_ID = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
@@ -82,16 +105,25 @@ def _check_node(cls, modname: str, where: str):
             _fail(where, "%s: argument name %r is not a lower snake case name" % (nid, a))
         if not (isinstance(d, Arg) and isinstance(d.kind, str) and d.kind and isinstance(d.label, str) and d.label):
             _fail(where, "%s.%s must be Arg(kind, label) with non-empty strings" % (nid, a))
-    entry = {"actions": "run", "conditions": "test", "triggers": "match"}[cls.family]
-    if cls.family == "actions":   # M2: check the condition / trigger entry points the same way
-        fn = getattr(cls, entry)
-        if fn is BASES[cls.family].__dict__[entry]:
-            _fail(where, "%s does not implement %s()" % (nid, entry))
-        params = list(inspect.signature(fn).parameters.values())[2:]   # drop self, ctx
-        if any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in params):
-            _fail(where, "%s.%s() must name its arguments (no *args / **kwargs)" % (nid, entry))
-        if [p.name for p in params] != list(cls.args):
-            _fail(where, "%s.%s() arguments %s differ from args %s" % (nid, entry, [p.name for p in params], list(cls.args)))
+    family = cls.family
+    if family == "conditions" and not (cls.as_vars is None or (isinstance(cls.as_vars, str) and cls.as_vars.strip())):
+        _fail(where, "%s.as_vars must be None or a non-empty string" % nid)
+    if family == "triggers" and not isinstance(cls.internal, bool):
+        _fail(where, "%s.internal must be True or False" % nid)
+    entry, skip = {"actions": ("run", 2), "conditions": ("test", 2), "triggers": ("match", 3)}[family]
+    fn = getattr(cls, entry)
+    inherited = fn is BASES[family].__dict__[entry]
+    if family == "triggers" and inherited and not cls.args:
+        return   # a plain event: the base match() (event name equality) is right, nothing to check
+    if inherited:
+        _fail(where, "%s does not implement %s()" % (nid, entry))
+    if family == "triggers" and cls.args and cls.editor_args is Trigger.editor_args:
+        _fail(where, "%s has args but does not implement editor_args() (its inspector schema)" % nid)
+    params = list(inspect.signature(fn).parameters.values())[skip:]   # drop self, ctx (and event for a trigger)
+    if any(p.kind in (p.VAR_POSITIONAL, p.VAR_KEYWORD) for p in params):
+        _fail(where, "%s.%s() must name its arguments (no *args / **kwargs)" % (nid, entry))
+    if [p.name for p in params] != list(cls.args):
+        _fail(where, "%s.%s() arguments %s differ from args %s" % (nid, entry, [p.name for p in params], list(cls.args)))
 
 
 def scan(package_name: str, family: str) -> dict:
@@ -144,3 +176,5 @@ def check_family(nodes: dict, family: str, themes, kinds) -> None:
 
 
 ACTIONS = scan(PACKAGES["actions"], "actions")
+CONDITIONS = scan(PACKAGES["conditions"], "conditions")
+TRIGGERS = scan(PACKAGES["triggers"], "triggers")

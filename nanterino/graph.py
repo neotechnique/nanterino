@@ -12,8 +12,8 @@ Boundary
       `brain._go(state, reason)`, `brain.state / since / last_speech`. brain.py implements them.
     - The vocabulary is CLOSED and declared here (EVENTS, ACTION_SPECS, GUARDS). A name the file
       uses that is not declared is a load error with a clear message, never a runtime surprise.
-      Adding an event / guard = add the name here AND implement it in brain.py. Adding an ACTION = drop one
-      module into nanterino/nodes/actions/ (lot M1: metadata + run() in that file; see nanterino/nodes).
+      Adding an action / condition (guard) / trigger (event) = drop one module into nanterino/nodes/actions/,
+      conditions/ or triggers/ (lots M1, M2: metadata + run() / test() / match() in that file; see nanterino/nodes).
 
 File format (see nanterino/graph.yaml, the commented default)
     states.<name>: description, on_enter [actions], transitions [..]
@@ -84,6 +84,12 @@ Node modules (lot M1, 2026-11-01)
       ACTION_DOC / ACTION_SPECS / ACTION_ICON / ACTION_THEME are views of nanterino.nodes.ACTIONS (palette order =
       the modules' `order`); /api/graph/vocab is byte-identical to the former tables (tests/golden/vocab-*.json).
       ARG_KINDS lists the argument kinds a module may use; check_family() refuses an unknown theme or kind at import.
+    - Lot M2: guards live in nanterino/nodes/conditions/<id>.py (test()), events in nanterino/nodes/triggers/<id>.py.
+      GUARD_DOC / GUARD_ARGS / GUARD_SPECS / GUARD_AS_VARS / GUARD_ICON / GUARD_THEME and EVENT_DOC / EVENTS /
+      INTERNAL_EVENTS / WATCH_EVENTS / EVENT_ICON / EVENT_THEME are views of CONDITIONS / TRIGGERS. The
+      var_changed / timer_reached modules own their `var:` / `value:` check (parser), match (engine), subscription
+      (Graph.watched_vars / timer_watches) and inspector schema (vocabulary). Data-derived palette entries
+      (intents, `after:`, per-state entries) stay generated here from the graph (nanterino/nodes/__init__.py).
 
 How to test
     python -m tests.test_brain_graph      (parity traces + invalid-graph / watchdog / heartbeat tests)
@@ -92,6 +98,7 @@ How to test
 import datetime
 import os
 import re
+import sys
 import types
 from dataclasses import dataclass
 
@@ -106,37 +113,13 @@ DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph.y
 # Events a transition may react to (`on:`). `utterance` and `tick` are engine-internal: an utterance
 # is classified into an `intent.*` event, a tick drives `after:` delays.
 #
-# SINGLE SOURCE of the vocabulary: each registry below carries the French label + help shown by the
-# visual editor (`vocabulary()` -> GET /api/graph/vocab). EVENTS / ACTION_SPECS / GUARDS are derived
-# from them, so a name cannot exist for the validator without being documented for the editor.
-# value = (label, help); events add an `internal` flag.
-EVENT_DOC = {
-    "stop": ("Bouton Stop", "Le bouton Stop du tableau de bord est pressé : se taire et revenir en veille.", False),
-    "off": ("Bouton Éteindre", "Le bouton Éteindre est pressé : le robot s'éteint (micro coupé).", False),
-    "on": ("Bouton Allumer", "Le bouton Allumer est pressé : le robot sort de l'état éteint.", False),
-    "start": ("Bouton Démarrer", "Le bouton Démarrer du tableau de bord, ou un appui sur le visage de l'écran.", False),
-    "visage": ("Un visage apparaît", "La caméra voit un visage alors qu'il n'y en avait plus.", False),
-    "visage_perdu": ("Le visage disparaît", "Plus aucun visage vu depuis lost_face_s (10 s). Le graphe par défaut n'en a qu'un exemple désactivé.", False),
-    "greeting_done": ("Salutation terminée", "Le robot a fini de dire la phrase d'accueil.", False),
-    "relance_done": ("Relance terminée", "Le robot a fini de dire la phrase de relance (ou de demande de répétition).", False),
-    "goodbye_done": ("Au revoir terminé", "Le robot a fini de dire au revoir.", False),
-    "cloture_done": ("Pause de clôture terminée", "Le délai programmé après l'au revoir est écoulé (action « Programmer un événement »).", False),
-    "answer_done": ("Réponse terminée", "Le robot a fini de répondre (ou de chanter).", False),
-    "hush": ("« Tais-toi »", "Le visiteur ou le bouton demande au robot de se taire.", False),
-    "barge_in": ("Le visiteur coupe la parole", "Le visiteur parle pendant que le robot répond (interruption activée dans la configuration).", False),
-    "sing": ("Demande de chanson", "Le bouton Chanson ou le visiteur demande à Nanterino de chanter.", False),
-    "not_understood": ("Parole non comprise", "Du bruit ou une parole inexploitable a été entendu.", False),
-    "ask": ("Question tapée", "Une question est tapée sur le tableau de bord (test sans micro).", False),
-    "personnes_multiples": ("Plusieurs personnes", "Au moins 2 visages restent visibles pendant 1 s (posté une fois, ré-armé quand il y en a moins de 2).", False),
-    "ouverture": ("Ouverture", "L'heure d'ouverture de la configuration `opening_hours` vient de passer (jamais si les horaires sont vides).", False),
-    "fermeture": ("Fermeture", "L'heure de fermeture de la configuration `opening_hours` vient de passer (jamais si les horaires sont vides).", False),
-    "inactivite_longue": ("Longue inactivité", "Aucun visage ni parole depuis idle_long_s (300 s) ; posté une seule fois jusqu'à la prochaine activité.", False),
-    "say_done": ("Phrase libre terminée", "Le robot a fini de dire la phrase de l'action « Dire un texte » (ou « Dire une phrase au hasard »).", False),
-    "var_changed": ("Une variable change", "La valeur d'une variable vient de changer (valeur précise facultative). Une chaîne lancée par ce déclencheur qui change encore une variable ne relance pas de déclencheur (anti-boucle).", False),
-    "timer_reached": ("Un chrono atteint une durée", "Un chronomètre (variable de type chrono) atteint le nombre de secondes indiqué depuis son départ ; une seule fois par départ (« Démarrer un chrono » le réarme). Une chaîne lancée par ce déclencheur qui change une variable ne relance pas de déclencheur (anti-boucle).", False),
-    "utterance": ("Phrase du visiteur", "Interne : une phrase transcrite, classée en événement intent.*.", True),
-    "tick": ("Battement de coeur", "Interne : le battement de coeur (10 Hz) qui fait avancer les délais.", True),
-}
+# SINGLE SOURCE of the vocabulary: the node modules of nanterino/nodes/ (lots M1, M2) carry the French label +
+# help + icon + theme shown by the visual editor (`vocabulary()` -> GET /api/graph/vocab). The tables below are
+# VIEWS of the registries, in palette order (the modules' `order`), so a name cannot exist for the validator
+# without being documented for the editor.
+# Events (lot M2): nanterino/nodes/triggers/<id>.py. EVENT_DOC: name -> (label, help, internal flag).
+_TRIGGER_NODES = _nodes.TRIGGERS
+EVENT_DOC = {n.id: (n.label, n.help, n.internal) for n in _TRIGGER_NODES.values()}
 EVENTS = frozenset(EVENT_DOC)
 INTERNAL_EVENTS = frozenset(k for k, v in EVENT_DOC.items() if v[2])
 
@@ -152,45 +135,15 @@ TEXT_MAX = 300      # say_text.text length limit (it is synthesised once at grap
 SECONDS_MAX = 3600  # set_expression.seconds upper bound
 ACTION_SPECS = {n: {a: kd[0] for a, kd in spec[2].items()} for n, spec in ACTION_DOC.items()}
 
-GUARD_DOC = {
-    "auto_greet_on_face": ("L'accueil automatique est activé", "Réglage « accueil automatique » de la configuration."),
-    "barge_in": ("L'interruption est activée", "Réglage « barge_in » : le visiteur peut couper la parole du robot."),
-    "not_busy": ("Aucune transcription en cours", "Le robot n'est pas en train de transcrire une phrase."),
-    "mic_active": ("Le micro est ouvert", "Le micro écoute en ce moment."),
-    "not_speaking": ("Le robot ne parle pas", "Aucun son n'est en cours de lecture."),
-    "repairs_left": ("Il reste des demandes de répétition", "Le robot a demandé de répéter moins de 2 fois de suite."),
-    "turns_left": ("Il reste des tours de parole", "La conversation n'a pas atteint le nombre maximal d'échanges."),
-    "dans_les_horaires": ("Dans les horaires d'ouverture", "Les horaires `opening_hours` de la configuration sont en cours (toujours vrai s'ils sont vides)."),
-    "var_compare": ("Comparer une variable", "Compare une variable à une valeur (=, ≠ ; <, ≤, >, ≥ pour les nombres et durées)."),
-    "var_true": ("Une variable est vraie", "Une variable vrai/faux vaut vrai."),
-    "list_contains": ("Une liste contient", "La liste contient la valeur ; avec « $utterance », un élément de la liste est contenu dans la phrase entendue."),
-    "list_empty": ("Une liste est vide", "La liste n'a aucun élément."),
-    # lot L11
-    "elapsed_since": ("Temps écoulé depuis", "Secondes écoulées depuis une date ou depuis le départ d'un chrono, comparées à un nombre (faux si la date est vide ou le chrono arrêté)."),
-    "time_between": ("Entre deux heures", "L'heure actuelle est entre le début (inclus) et la fin (exclue) ; une fin avant le début passe minuit (22:00 → 06:00)."),
-    "weekday_in": ("Jour de la semaine", "Aujourd'hui est l'un des jours choisis."),
-    "date_compare": ("Comparer une date", "Compare une variable date et heure à une date (ou à « $heure », maintenant) : avant, après, égale."),
-    "dict_has": ("Un dictionnaire a la clé", "Le dictionnaire contient la clé ; avec « $utterance », une de ses clés est contenue dans la phrase entendue."),
-    "dict_value_compare": ("Comparer une valeur de dictionnaire", "Compare la valeur d'une clé à une valeur (faux si la clé est absente)."),
-}
+# Guards (lot M2): nanterino/nodes/conditions/<id>.py. GUARD_DOC: name -> (label, help); GUARD_ARGS: the guards
+# with arguments (same kinds as ACTION_DOC; `anyvar` = any variable, system ones included, `op` = OPS).
+_CONDITION_NODES = _nodes.CONDITIONS
+GUARD_DOC = {n.id: (n.label, n.help) for n in _CONDITION_NODES.values()}
 GUARDS = frozenset(GUARD_DOC)
-# Guards with arguments (same kinds as ACTION_DOC; `anyvar` = any variable, system ones included, `op` = OPS).
-GUARD_ARGS = {
-    "var_compare": {"name": ("anyvar", "Variable"), "op": ("op", "Opérateur"), "value": ("value", "Valeur")},
-    "var_true": {"name": ("anyboolvar", "Variable")},
-    "list_contains": {"list": ("rlist_any", "Liste"), "value": ("listvalue", "Valeur (ou $utterance)")},
-    "list_empty": {"list": ("rlist_any", "Liste")},
-    "elapsed_since": {"name": ("timeref", "Date ou chrono"), "op": ("op", "Opérateur"), "seconds": ("seconds0", "Secondes")},
-    "time_between": {"start": ("hhmm", "Début (hh:mm)"), "end": ("hhmm", "Fin (hh:mm)")},
-    "weekday_in": {"days": ("weekdays", "Jours")},
-    "date_compare": {"name": ("datevar_any", "Date"), "op": ("op", "Opérateur"), "value": ("value", "Date (ou $heure)")},
-    "dict_has": {"dict": ("rdict", "Dictionnaire"), "key": ("dictkey", "Clé (ou $utterance)")},
-    "dict_value_compare": {"dict": ("rdict", "Dictionnaire"), "key": ("dictkey", "Clé (ou $utterance)"), "op": ("op", "Opérateur"),
-                           "value": ("value", "Valeur")},
-}
+GUARD_ARGS = {n.id: dict(n.args) for n in _CONDITION_NODES.values() if n.args}
 GUARD_SPECS = {g: {a: kd[0] for a, kd in GUARD_ARGS.get(g, {}).items()} for g in GUARD_DOC}
 # Display of the counter guards as variable comparisons (the compiled guard does not change: parity).
-GUARD_AS_VARS = {"turns_left": "tours < max_tours", "repairs_left": "reparations < max_reparations"}
+GUARD_AS_VARS = {n.id: n.as_vars for n in _CONDITION_NODES.values() if n.as_vars}
 OPS = {"=": "égal à", "!=": "différent de", "<": "inférieur à", "<=": "inférieur ou égal à", ">": "supérieur à",
        ">=": "supérieur ou égal à"}
 ORDER_OPS = frozenset({"<", "<=", ">", ">="})   # allowed on ORDERED_TYPES only (numbers, durations, dates)
@@ -254,7 +207,8 @@ LIST_KIND_RULES = {
 ARG_KINDS = frozenset(VAR_KIND_TYPES) | frozenset(LIST_KIND_RULES) | frozenset({
     "cfgkey", "event", "delay", "text", "expression", "seconds", "gazemode", "value", "listvalue", "op", "number",
     "dictkey", "seconds0", "hhmm", "weekdays", "optext"})
-WATCH_EVENTS = ("var_changed", "timer_reached")   # events whose transitions carry `var:` / `value:`
+# Events whose transitions carry `var:` / `value:` (lot M2: the triggers that declare args; a tuple, in order).
+WATCH_EVENTS = tuple(n.id for n in _TRIGGER_NODES.values() if n.args)
 # Read-only views of the brain's own state: (type, label, help). `etat` gets the state names as choices, `jour` the
 # WEEKDAYS ids. Lot L11 adds the clock / face / audio views after the five counters (their order is part of the API).
 SYSTEM_VARS = {
@@ -423,23 +377,11 @@ KIND_DOC = {  # editor node kinds
 # (input count, output ports, legacy) per kind: a trigger has NO input (lot L1); goto is import-only (legacy).
 KIND_PORTS = {"start": (0, ("out",), False), "trigger": (0, ("out",), False), "condition": (1, ("true", "false"), False),
               "action": (1, ("out",), False), "goto": (1, (), True), "end": (1, (), False)}
-EVENT_ICON = {
-    "stop": "hand-stop", "off": "power", "on": "power", "start": "player-play", "visage": "scan-eye",
-    "visage_perdu": "user-off", "greeting_done": "hand-move", "relance_done": "refresh", "goodbye_done": "door-exit",
-    "cloture_done": "clock", "answer_done": "message", "hush": "volume-off", "barge_in": "microphone",
-    "sing": "music", "not_understood": "question-mark", "ask": "keyboard", "utterance": "microphone", "tick": "clock",
-    "personnes_multiples": "users", "ouverture": "lock-open", "fermeture": "lock", "inactivite_longue": "hourglass",
-    "say_done": "text-caption", "var_changed": "circle-dot", "timer_reached": "hourglass",
-}
+# Icon of each event / guard: declared by its module (nanterino/nodes/triggers|conditions/<id>.py `icon`), lot M2.
+EVENT_ICON = {n.id: n.icon for n in _TRIGGER_NODES.values()}
 # Icon of each action: declared by its module (nanterino/nodes/actions/<id>.py `icon`), lot M1.
 ACTION_ICON = {n.id: n.icon for n in _ACTION_NODES.values()}
-GUARD_ICON = {
-    "auto_greet_on_face": "scan-eye", "barge_in": "hand-stop", "not_busy": "circle-dot", "mic_active": "microphone",
-    "not_speaking": "volume-off", "repairs_left": "refresh", "turns_left": "message", "dans_les_horaires": "calendar-time",
-    "var_compare": "git-branch", "var_true": "circle-dot", "list_contains": "eye", "list_empty": "square",
-    "elapsed_since": "hourglass", "time_between": "clock", "weekday_in": "calendar-time", "date_compare": "calendar-time",
-    "dict_has": "eye", "dict_value_compare": "git-branch",
-}
+GUARD_ICON = {n.id: n.icon for n in _CONDITION_NODES.values()}
 STATE_ICON = {"veille": "moon", "accueil": "hand-move", "ecoute": "ear", "reponse": "message", "relance": "refresh",
               "cloture": "door-exit", "eteint": "power"}
 INTENT_ICON = {"appel": "bell", "au_revoir": "hand-move", "chanson": "music", "question": "question-mark"}
@@ -469,27 +411,13 @@ THEME_DOC = {
 # A node module with an unknown theme / argument kind stops the start here (NodeRegistryError naming the file),
 # before the generic theme asserts below.
 _nodes.check_family(_ACTION_NODES, "actions", THEME_DOC, ARG_KINDS)
-EVENT_THEME = {
-    "stop": "systeme", "off": "systeme", "on": "systeme", "start": "systeme", "ask": "systeme",
-    "visage": "vision", "visage_perdu": "vision", "personnes_multiples": "vision",
-    "greeting_done": "conversation", "relance_done": "conversation", "goodbye_done": "conversation",
-    "answer_done": "conversation", "not_understood": "conversation",
-    "cloture_done": "evenements",
-    "hush": "parole", "sing": "parole", "say_done": "parole",
-    "barge_in": "micro", "utterance": "micro", "tick": "temps",
-    "ouverture": "temps", "fermeture": "temps", "inactivite_longue": "temps",
-    "var_changed": "variables", "timer_reached": "temps",
-}
+_nodes.check_family(_CONDITION_NODES, "conditions", THEME_DOC, ARG_KINDS)
+_nodes.check_family(_TRIGGER_NODES, "triggers", THEME_DOC, ARG_KINDS)
+# Theme of each event / guard: declared by its module (`theme` attribute, never the folder), lot M2.
+EVENT_THEME = {n.id: n.theme for n in _TRIGGER_NODES.values()}
 # Theme of each action: declared by its module (nanterino/nodes/actions/<id>.py `theme`), lot M1.
 ACTION_THEME = {n.id: n.theme for n in _ACTION_NODES.values()}
-GUARD_THEME = {
-    "auto_greet_on_face": "vision", "barge_in": "micro", "not_busy": "micro", "mic_active": "micro",
-    "not_speaking": "parole", "repairs_left": "conversation", "turns_left": "conversation",
-    "dans_les_horaires": "temps", "var_compare": "variables", "var_true": "variables",
-    "list_contains": "listes", "list_empty": "listes",
-    "elapsed_since": "temps", "time_between": "temps", "weekday_in": "temps", "date_compare": "temps",
-    "dict_has": "listes", "dict_value_compare": "listes",
-}
+GUARD_THEME = {n.id: n.theme for n in _CONDITION_NODES.values()}
 # Theme of the entries the editor builds from DATA (not from a registry): one trigger per intent, the delay trigger,
 # one "etat becomes X" trigger / "etat = X" condition / "Changer d'état → X" action per state.
 THEME_SLOTS = {"intent": "intentions", "after": "temps", "state_enter": "etat", "state_test": "etat", "state_move": "etat"}
@@ -679,14 +607,14 @@ class Graph:
     diagnostics: tuple = ()   # lot L11: non-blocking (where, message, kind) remarks, e.g. kind "out_of_bounds"
 
     def timer_watches(self) -> tuple:
-        """(timer variable, seconds) pairs some enabled `timer_reached` transition waits for (polled by the heartbeat)."""
-        trs = list(self.globals) + [t for s in self.states.values() for t in s.transitions]
-        return tuple(dict.fromkeys((t.var, t.value) for t in trs if t.enabled and t.on == "timer_reached" and t.var))
+        """(timer variable, seconds) pairs some enabled `timer_reached` transition waits for (polled by the heartbeat).
+        Owned by nanterino/nodes/triggers/timer_reached.py (subscribe)."""
+        return _TRIGGER_NODES["timer_reached"].subscribe(self)
 
     def watched_vars(self) -> frozenset:
-        """Variables some enabled `var_changed` transition listens to (the brain posts only those changes)."""
-        trs = list(self.globals) + [t for s in self.states.values() for t in s.transitions]
-        return frozenset(t.var for t in trs if t.enabled and t.on == "var_changed" and t.var)
+        """Variables some enabled `var_changed` transition listens to (the brain posts only those changes).
+        Owned by nanterino/nodes/triggers/var_changed.py (subscribe)."""
+        return _TRIGGER_NODES["var_changed"].subscribe(self)
 
     def variables_raw(self) -> dict:
         """The `variables:` block as plain data (to_dict, vocabulary)."""
@@ -1129,20 +1057,8 @@ class _Parser:
         elif since is not None:
             self.err(where, "`since:` only goes with `after:`")
         var, value = t.get("var"), t.get("value", NOVALUE)
-        if on == "var_changed":
-            info = self.var_info(var) if isinstance(var, str) else None
-            if var == "etat":
-                self.err(where, "var_changed on etat: use the state's on_enter")
-            elif info is None:
-                self.err(where, "`on: var_changed` needs `var:` = a declared variable, got %r" % (var,))
-            elif value is not NOVALUE:
-                self.check_value(where, "value", info[0], info[1], value)
-        elif on == "timer_reached":   # lot L11: `var:` = a user timer, `value:` = seconds since its start
-            info = self.var_info(var) if isinstance(var, str) else None
-            if info is None or info[0] != "timer" or var in SYSTEM_VARS:
-                self.err(where, "`on: timer_reached` needs `var:` = a timer variable, got %r" % (var,))
-            elif not (_num(value) and 0 < value <= 10 ** 7):
-                self.err(where, "`on: timer_reached` needs `value:` = a number of seconds > 0")
+        if on in WATCH_EVENTS:   # lot M2: the trigger module checks its own `var:` / `value:`
+            _TRIGGER_NODES[on].check(self, where, var, value)
         elif var is not None or value is not NOVALUE:
             self.err(where, "`var:` / `value:` only go with `on: var_changed` / `on: timer_reached`")
         when = []
@@ -1316,17 +1232,11 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
     ev = [{"id": k, "label": v[0], "help": v[1], "icon": EVENT_ICON[k], "theme": EVENT_THEME[k]}
           for k, v in EVENT_DOC.items() if not v[2]]
     ev_ids = [e["id"] for e in ev if e["id"] not in WATCH_EVENTS]   # they need arguments: never emitted by name
+    _self_mod = sys.modules[__name__]
     for e in ev:
-        if e["id"] == "var_changed":
-            e["args"] = [{"name": "name", "type": "var", "var_types": list(VAR_TYPES), "writable": False, "label": "Variable",
-                          "help": "Variable surveillée : la chaîne démarre quand sa valeur change."},
-                         {"name": "value", "type": "value", "of": "name", "optional": True, "label": "Valeur (facultative)",
-                          "help": "Seulement quand la variable prend cette valeur ; vide = à chaque changement."}]
-        elif e["id"] == "timer_reached":   # lot L11: `var:` + `value:` (seconds) on the transition, like var_changed
-            e["args"] = [{"name": "name", "type": "var", "var_types": ["timer"], "writable": False, "label": "Chrono",
-                          "help": "Chrono surveillé (variable de type chrono)."},
-                         {"name": "value", "type": "number", "options": [], "min": 0, "label": "Secondes",
-                          "help": "Secondes écoulées depuis le départ du chrono ; la chaîne démarre une fois par départ."}]
+        ea = _TRIGGER_NODES[e["id"]].editor_args(_self_mod)   # lot M2: var_changed / timer_reached own their schema
+        if ea is not None:
+            e["args"] = ea
 
     def var_arg(a, kind, alabel):
         """Argument schema of the variable kinds (lot L1); None for the older kinds."""
@@ -1577,12 +1487,16 @@ class GraphEngine:
             return False
         return all(bool(self.guards[g.name](kw, **g.args)) != g.negate for g in tr.when)
 
-    @staticmethod
-    def _var_match(tr: Transition, kw: dict) -> bool:
-        """`var_changed` / `timer_reached` transitions only react to their variable (and value / seconds)."""
+    def _var_match(self, tr: Transition, kw: dict) -> bool:
+        """`var_changed` / `timer_reached` transitions only react to their variable (and value / seconds): the
+        trigger module's match() decides (lot M2). `var:` -> name, `value:` -> value; a missing value is left out
+        (the module's default ANY)."""
         if tr.on not in WATCH_EVENTS:
             return True
-        return tr.var == kw.get("name") and (tr.value is NOVALUE or tr.value == kw.get("value"))
+        args = {"name": tr.var}
+        if tr.value is not NOVALUE:
+            args["value"] = tr.value
+        return bool(_TRIGGER_NODES[tr.on].match(_nodes.NodeContext(self.brain, kw, self.cfg, self.graph), tr.on, **args))
 
     def _fire(self, tr: Transition, kw: dict, event: str | None, done: dict | None = None):
         """Run one chain: its `do` actions, the move, its `then` actions.

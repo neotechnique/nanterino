@@ -1,4 +1,4 @@
-"""Node base classes and argument descriptors (lot M1, 2026-11-01).
+"""Node base classes and argument descriptors (lot M1, 2026-11-01; conditions / triggers lot M2).
 
 Purpose
     One class per node, one file per node, modelled on Game Creator 2 (Instructions / Conditions / Events). A node
@@ -13,14 +13,26 @@ Boundary
 Invariants
     - `args` maps argument name -> Arg(kind, label), the exact shape of the former graph.ACTION_DOC tuples; the
       kinds are the graph.py argument kinds (graph.ARG_KINDS, checked at import of graph.py).
-    - Action.run(self, ctx, **args) accepts exactly the declared argument names (checked at discovery).
-    - Families: actions (M1, migrated). Condition / Trigger are sketched for lot M2 (guards / events), not used yet.
+    - Action.run(self, ctx, **args) / Condition.test(self, ctx, **args) / Trigger.match(self, ctx, event, **args)
+      accept exactly the declared argument names (checked at discovery).
+    - Families: actions (M1), conditions = guards and triggers = events (M2), all migrated.
 
 How to test
     .venv/bin/python -m tests.test_nodes_registry
 """
 from dataclasses import dataclass
 from typing import Any, NamedTuple
+
+
+class _Any:
+    """Sentinel: a trigger argument the transition left out (e.g. `var_changed` without `value:` = any change)."""
+    __slots__ = ()
+
+    def __repr__(self):
+        return "ANY"
+
+
+ANY = _Any()
 
 
 class Arg(NamedTuple):
@@ -70,26 +82,41 @@ class Action(Node):
 
 
 class Condition(Node):
-    """Lot M2 sketch: a guard (`when:`). test() returns a bool; no module of this family exists yet."""
+    """A guard (`when:` item, lot M2). test() answers truthy / falsy; the engine applies `{not: ...}` itself."""
     family = "conditions"
-    as_vars = None     # optional French reading as variables (graph.GUARD_AS_VARS)
+    as_vars = None     # optional French reading as variables (graph.GUARD_AS_VARS), e.g. "tours < max_tours"
 
     def test(self, ctx: NodeContext, **args) -> bool:
+        """Evaluate the guard on the brain loop thread. Must be fast and side-effect free."""
         raise NotImplementedError
 
 
 class Trigger(Node):
-    """Lot M2 sketch: an event a transition reacts to (`on:`); no module of this family exists yet.
+    """An event a transition reacts to (`on:`, lot M2).
 
-    `internal` events (utterance, tick) are engine-only. match() lets an argument-carrying trigger (var_changed,
-    timer_reached) decide whether an arriving event fits a transition; subscribe() names what it watches.
+    `internal` events (utterance, tick) are engine-only: valid names, never offered by the editor nor accepted in
+    `on:`. A plain trigger has no args. An argument-carrying trigger (var_changed, timer_reached) declares `args`
+    (the transition's `var:` -> `name`, `value:` -> `value`; a left-out one arrives as ANY) and implements:
+      match()       does an arriving event (payload in ctx.kw) fit THIS transition's arguments?
+      subscribe()   what it watches in a graph (the brain only posts / polls those);
+      check()       parser-side validation of `var:` / `value:`;
+      editor_args() the exact inspector schema the vocabulary exposes (events[].args).
+    The event itself is POSTED by the brain (_set_var / _timers_tick, anti-loop depth): producers stay engine code.
     """
     family = "triggers"
     internal = False
 
-    def subscribe(self, graph) -> set:
-        """Names (variables, timers ...) this trigger watches in `graph`; empty for plain events."""
-        return set()
+    def subscribe(self, graph):
+        """What this trigger watches in `graph` (variables, (timer, seconds) pairs ...); empty for plain events."""
+        return frozenset()
 
     def match(self, ctx: NodeContext, event: str, **args) -> bool:
+        """Default for a plain event: the transition's `on:` already equals `event`, so it always fits."""
         return event == self.id
+
+    def check(self, parser, where: str, name, value) -> None:
+        """Parser check of the transition's `var:` / `value:` (argument-carrying triggers only)."""
+
+    def editor_args(self, g):
+        """Inspector schema of the arguments (list of dicts) given the graph module `g`; None = no args key."""
+        return None

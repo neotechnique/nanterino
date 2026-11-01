@@ -42,8 +42,10 @@ back at load are type-checked (`graph.persisted_ok`), a mismatch is ignored with
 `reset_var` (POST /api/graph/vars/reset) restores the initial value and forgets the saved one.
 
 Node modules (lot M1, 2026-11-01): the action closures moved to nanterino/nodes/actions/<id>.py (one module per
-action: metadata + run(ctx, **args)); _build_engine binds each one to this brain with a NodeContext. Guards stay here
-until lot M2. Shared runtime helpers (list_push, match_key) live in nanterino/nodes/helpers.py.
+action: metadata + run(ctx, **args)); _build_engine binds each one to this brain with a NodeContext. Lot M2: the guard closures moved
+the same way to nanterino/nodes/conditions/<id>.py (test()); var_changed / timer_reached matching lives in their
+trigger modules (nanterino/nodes/triggers/), while posting them (+ the anti-loop depth) stays here. Shared runtime
+helpers (list_push, match_key) live in nanterino/nodes/helpers.py.
 
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
@@ -63,7 +65,7 @@ import time
 
 from . import graph as graph_mod
 from . import nodes
-from .nodes import NodeContext, helpers as node_helpers
+from .nodes import NodeContext
 from .audio import AudioIn, find_device
 from . import hours as hours_mod
 from .log import log
@@ -425,9 +427,9 @@ class Brain:
     def _build_engine(self) -> "graph_mod.GraphEngine":
         """Load the active graph (override file or default) and bind it to this brain's capabilities.
 
-        The guards dict below is the CLOSED guard vocabulary implemented here; the actions come from the node registry
-        (nanterino.nodes.ACTIONS, lot M1), the same source graph.ACTION_SPECS is derived from. GraphEngine refuses to
-        start if a name of graph.ACTION_SPECS / GUARDS is missing.
+        Actions and guards come from the node registry (nanterino.nodes.ACTIONS, lot M1; nanterino.nodes.CONDITIONS,
+        lot M2), the same source graph.ACTION_SPECS / GUARDS are derived from. GraphEngine refuses to start if a name
+        of graph.ACTION_SPECS / GUARDS is missing.
         """
         cfg = self.cfg
         if self._fixed_graph is not None:   # simulator: the graph is given in memory, nothing is read from disk
@@ -443,68 +445,21 @@ class Brain:
         self._timer_watch, self._timer_fired, self._bags = graph.timer_watches(), set(), {}
         self._load_persisted(graph)
 
-        # ---- guard helpers (guards move to nanterino/nodes/conditions/ in lot M2)
-        def var_compare(kw, name, op, value):
-            return self._compare(self.var_value(name), op, self._resolve(value, kw), self._var_type(name))
-
-        def match_key(kw, name, key):   # dictionaries (lot L11): self.lists[name] is a {key: value} dict
-            return node_helpers.match_key(self, kw, name, key)
-
-        def dict_value_compare(kw, dict, key, op, value):  # noqa: A002
-            k = match_key(kw, dict, key)
-            if k is None:
-                return False
-            return self._compare(self.lists[dict][k], op, self._resolve(value, kw), graph.lists[dict].type)
-
-        # ---- time (lot L11): wall clock only through self.wall / _wall_dt (injectable)
-        def elapsed_since(kw, name, op, seconds):
-            e = self._elapsed(name)
-            return e is not None and self._compare(e, op, seconds)
-
-        def time_between(kw, start, end):
-            now = self._wall_dt()
-            m, a, b = now.hour * 60 + now.minute, int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:])
-            return a <= m < b if a <= b else (m >= a or m < b)   # end before start: the range wraps past midnight
-
-        def list_contains(kw, list, value):  # noqa: A002
-            items = self.list_items(list)
-            if value == "$utterance":   # an item of the list appears in the sentence (like the intent words)
-                text = str(self._resolve(value, kw) or "").lower()
-                return any(str(x).lower() in text for x in items if str(x).strip())
-            return self._resolve(value, kw) in items
-
         # ---- actions (lot M1, 2026-11-01): one module per action (nanterino/nodes/actions/<id>.py), bound here.
         # The engine calls fn(kw, **args); each call gets a NodeContext with THIS brain and the cfg / graph captured now
         # (as the former closures did), so an old engine finishing its `then` actions after a pending-graph swap still
         # works on the graph it was built from. Brain attributes are looked up at call time (tests wrap methods).
-        def bind(node):
+        def bind(node, entry):
             def call(kw, **args):
-                return node.run(NodeContext(self, kw, cfg, graph), **args)
-            call.__name__ = call.__qualname__ = "action_" + node.id
+                return getattr(node, entry)(NodeContext(self, kw, cfg, graph), **args)
+            call.__name__ = call.__qualname__ = "%s_%s" % ("action" if entry == "run" else "guard", node.id)
             return call
 
-        actions = {name: bind(node) for name, node in nodes.ACTIONS.items()}
-        guards = {
-            "auto_greet_on_face": lambda kw: bool(cfg.get("auto_greet_on_face")),
-            "barge_in": lambda kw: bool(cfg.get("barge_in")),
-            "not_busy": lambda kw: not self._busy,
-            "mic_active": lambda kw: bool(self.mic.active),
-            "not_speaking": lambda kw: not self.out.busy,
-            "repairs_left": lambda kw: self.repairs < MAX_REPAIRS,  # "pardon ?" at most twice in a row
-            "turns_left": lambda kw: self.turns < MAX_TURNS,       # looked up at call time (tests patch it)
-            "dans_les_horaires": lambda kw: hours_mod.is_open(hours_mod.safe_parse(cfg.get("opening_hours")),
-                                                              self._wall_dt()),
-            "var_compare": var_compare,
-            "var_true": lambda kw, name: self.var_value(name) is True,
-            "list_contains": list_contains,
-            "list_empty": lambda kw, list: not self.list_items(list),
-            # lot L11
-            "elapsed_since": elapsed_since, "time_between": time_between,
-            "weekday_in": lambda kw, days: self._weekday() in days,
-            "date_compare": lambda kw, name, op, value: self._compare(self.var_value(name), op, self._resolve(value, kw), "datetime"),
-            "dict_has": lambda kw, dict, key: match_key(kw, dict, key) is not None,
-            "dict_value_compare": dict_value_compare,
-        }
+        actions = {name: bind(node, "run") for name, node in nodes.ACTIONS.items()}
+        # ---- guards (lot M2): one module per condition (nanterino/nodes/conditions/<id>.py), bound the same way; the
+        # engine calls fn(kw, **args) and applies `{not: ...}`. Wall clock / counters are read through this brain
+        # (self.wall / _wall_dt injectable, brain.MAX_TURNS / MAX_REPAIRS looked up at call time by the modules).
+        guards = {name: bind(node, "test") for name, node in nodes.CONDITIONS.items()}
         engine = graph_mod.GraphEngine(graph, self, actions, guards, cfg)
         # Pre-synthesise the graph's free phrases (say_text) like the fixed ones, off the loop thread.
         if self._threaded:
