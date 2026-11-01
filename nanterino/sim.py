@@ -17,6 +17,10 @@ Boundary
       (SPEAK_S, brain.SIM_ANSWER_S, brain.SIM_SONG_S).
     - Lot L1 (variables): every trace entry carries `vars` (values after its step, system variables included) and
       `final.vars`; `say_random` uses the brain's rng seeded with 0.
+    - Lot L11 (variables v2): time conditions, timers and `timer_reached` read the simulated wall clock
+      (`start_time` + virtual seconds), never the real one; the simulator has no var_store (persist = memory only).
+      Without `start_time` the wall-clock system views (heure, jour) are left out of `vars`, so two runs with the
+      same steps still give the same result.
 
 Invariants
     - Same inputs give the same trace (no real time, no randomness, no threads).
@@ -240,6 +244,7 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
     brain.rng.seed(0)                                     # say_random: same inputs, same trace
     marks.extend((e, 0, -1) for e in brain.journal)       # chains fired by the boot entry itself (emit in on_enter)
     step_vars = {}                                        # step -> variable values after it (lot L1)
+    volatile = bool(start_time)                           # lot L11: heure / jour only with a fixed start time
     brain.journal_hook = lambda e: marks.append((e, len(rec.events), cur["step"]))
 
     def tick_for(seconds):
@@ -250,7 +255,7 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
 
     try:
         brain.pump()
-        step_vars[-1] = brain.var_snapshot()
+        step_vars[-1] = brain.var_snapshot(volatile)
         for i, st in enumerate(steps):
             cur["step"] = i
             (k, v), = st.items()
@@ -264,7 +269,7 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
                 tick_for(v)
             else:
                 brain.pump()
-            step_vars[i] = brain.var_snapshot()
+            step_vars[i] = brain.var_snapshot(volatile)
     except RuntimeError as e:
         raise SimError([{"step": cur["step"], "message": str(e)}])
 
@@ -281,4 +286,4 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
     snap = brain.snapshot()
     return {"trace": trace, "final": {"state": brain.state, "turns": brain.turns,
                                       "expression": snap["expression"], "gaze_mode": snap["gaze_mode"],
-                                      "vars": brain.var_snapshot()}}
+                                      "vars": brain.var_snapshot(volatile)}}

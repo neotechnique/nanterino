@@ -122,7 +122,8 @@ def test_each_type_is_validated():
            ({"names": {"x": {"type": "string", "value": "x" * 301}}}, "not a valid string"),
            ({"names": {"x": {"type": "choice", "value": "z", "choices": ["a", "b"]}}}, "not a valid choice"),
            ({"names": {"x": {"type": "choice", "value": "a"}}}, "needs `choices:`"),
-           ({"names": {"x": {"type": "color", "value": "#fff"}}}, "type must be one of"),
+           # CHANGED (lot L11): `color` became a real type (tests/test_graph_vars2.py), an unknown type is still refused
+           ({"names": {"x": {"type": "texture", "value": "#fff"}}}, "type must be one of"),
            ({"names": {"x": {"type": "bool"}}}, "`value:` (initial value) is required"),
            ({"names": {"tours": {"type": "number", "value": 0}}}, "not be a system variable"),
            ({"names": {"Bad-Name": {"type": "number", "value": 0}}}, "must match"),

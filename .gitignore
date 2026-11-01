@@ -7,3 +7,6 @@ models/piper/*.onnx
 __pycache__/
 song/build/
 .venv/
+
+# Persistent graph variables (lot L11): live values, machine-specific
+state/

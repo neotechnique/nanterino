@@ -169,11 +169,15 @@ def test_vocabulary():
     counts = {k: len(x) for k, x in v.items()}
     # CHANGED (lot L1): + var_changed, 7 variable actions, 4 variable conditions, variable manager keys
     # CHANGED (lot L5): + the node-menu theme table (11 themes) and the 5 theme slots of the data-built entries
-    assert counts == {"events": 22, "actions": 30, "guards": 12, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
-                      "var_types": 5, "list_types": 3, "ops": 6, "themes": 11, "theme_slots": 5, "variables": 2}, counts
+    # CHANGED (lot L11): + timer_reached, 8 actions, 6 conditions, 14 variable types (17 list item types), the operator
+    # sets per type, scopes, list kinds / modes, weekdays; `media` lists the files of media/ (count depends on the disk)
+    assert isinstance(counts.pop("media"), int)
+    assert counts == {"events": 23, "actions": 38, "guards": 18, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
+                      "var_types": 19, "list_types": 17, "ops": 6, "op_sets": 19, "scopes": 2, "list_kinds": 2, "list_modes": 3,
+                      "weekdays": 7, "themes": 11, "theme_slots": 5, "variables": 2}, counts
     ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
     assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])
-    assert [x["id"] for x in v["variables"]["names"][:5]] == list(G.SYSTEM_VARS)
+    assert [x["id"] for x in v["variables"]["names"][:len(G.SYSTEM_VARS)]] == list(G.SYSTEM_VARS)   # CHANGED (lot L11): 13 system vars
     assert {x["id"] for x in v["variables"]["lists"]} == {"mots_refus", "mots_appel", "salutations"}
     assert {a["id"] for a in v["actions"]} == set(G.ACTION_SPECS)
     assert {x["id"] for x in v["guards"]} == set(G.GUARDS)

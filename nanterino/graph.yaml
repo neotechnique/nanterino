@@ -236,8 +236,25 @@ intents:
 #   lists : variables liste (string, number, bool) ; `from:` = liée à une clé de config.json, `intent:` = les mots d'une
 #           intention (ces deux sortes sont en lecture seule) ; `items:` = liste modifiable par les actions.
 # Variables système, toujours présentes et en lecture seule : etat, tours, max_tours, reparations, max_reparations.
+# Variables v2 (lot L11) :
+#   types en plus : integer, percent, datetime, timer (chrono), expression, gaze, phrase, media, intent_ref, list_ref,
+#           state_ref, color, vector2, vector3 ; number et integer acceptent min / max / step (valeur bornée).
+#   scope : global (par défaut) ou conversation (remise à la valeur initiale à chaque « Oublier la conversation ») ;
+#           persist: true (variables globales seulement) garde la valeur dans state/vars.json au redémarrage.
+#   lists : kind dict = dictionnaire clé → valeur ; mode plain / shuffle (sac mélangé) / history (avec max).
+#   Système en plus : heure, jour, derniere_phrase, visage_vu, volume, expression, regard, nb_visiteurs_jour.
+# Les exemples ci-dessous ne sont utilisés par aucune transition (comportement inchangé).
 variables:
-  names: {}
+  names:
+    chrono_visite:
+      type: timer
+      value: null
+      scope: conversation
+      description: "Exemple : chrono d'une visite (action « Démarrer un chrono », déclencheur « Un chrono atteint une durée »)."
+    humeur_visage:
+      type: expression
+      value: neutre
+      description: "Exemple : une expression du visage gardée en variable."
   lists:
     mots_refus:
       type: string
@@ -250,4 +267,5 @@ variables:
     salutations:
       type: string
       items: ["Bonjour !", "Bonjour, bienvenue !", "Bonjour, je suis Nanterino."]
-      description: "Exemple : phrases d'accueil pour l'action « Dire une phrase au hasard »."
+      mode: shuffle
+      description: "Exemple : phrases d'accueil pour l'action « Dire une phrase au hasard » (sac mélangé : pas de répétition avant d'avoir tout dit)."

@@ -57,6 +57,11 @@ Lot L4 (2026-11-01, "sans nœud Début"): the variables drawing emits NO `start`
     start their chains; the start state is fixed by the code). from_visual still accepts a legacy `start` node silently
     (display only, ignored); the hub / go-to drawings keep theirs for migration tests.
 
+Lot L11 (2026-11-01, "variables v2"): the `variables` block rides on the document unchanged, so the new keys (min / max /
+    step / scope / persist, list kind / mode / max, dictionary items) round-trip as data. A `timer_reached` trigger carries
+    `name` (timer) + `value` (seconds) like var_changed; dictionary values are coerced with the dictionary's type; the
+    validator's non-blocking diagnostics (`out_of_bounds`) are added to report["warnings"] with the node they are about.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -294,7 +299,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
             trig = {"type": "after", "delay": t["after"], "since": t.get("since") or "state"}
         else:
             trig = {"type": "event", "event": t.get("on")}
-            if t.get("on") == "var_changed":   # lot L1: the watched variable (and value) ride on the trigger
+            if t.get("on") in G.WATCH_EVENTS:   # lot L1 / L11: the watched variable (and value / seconds) ride on the trigger
                 trig["name"] = t.get("var")
                 if "value" in t:
                     trig["value"] = t["value"]
@@ -812,11 +817,12 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     def coerce_args(name, args, spec):
         """Editor text -> typed literals for the `value` / `number` arguments (type of the named variable / list)."""
         out = dict(args)
-        vt = var_types.get(args.get("name")) if "name" in args else list_types.get(args.get("list"))
+        vt = (var_types.get(args.get("name")) if "name" in args else list_types.get(args.get("list")) if "list" in args
+              else list_types.get(args.get("dict")))   # lot L11: dictionary values follow the dictionary's type
         for k, kind in spec.items():
             if k in out and kind in ("value", "listvalue") and vt:
                 out[k] = G.coerce_value(vt, out[k])
-            elif k in out and kind == "number":
+            elif k in out and kind in ("number", "seconds0"):
                 out[k] = G.coerce_value("number", out[k])
         return out
 
@@ -877,6 +883,10 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
             ev = p.get("event")
             if ev == "var_changed" and not (isinstance(p.get("name"), str) and p.get("name")):
                 err(tid, "« Une variable change » : choisir la variable.")
+            if ev == "timer_reached" and not (isinstance(p.get("name"), str) and p.get("name")):
+                err(tid, "« Un chrono atteint une durée » : choisir le chrono.")
+            elif ev == "timer_reached" and p.get("value") in (None, ""):
+                err(tid, "« Un chrono atteint une durée » : indiquer le nombre de secondes.")
             if not ((ev in G.EVENTS and ev != "tick") or (isinstance(ev, str) and ev.startswith("intent.") and ev[7:] in intent_names)):
                 err(tid, "Événement inconnu : %r." % (ev,))
         elif kind == "after":
@@ -1079,6 +1089,9 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                     t["var"] = p.get("name")
                     if "value" in p and p.get("value") not in (None, ""):
                         t["value"] = p["value"]
+                elif kind == "event" and p.get("event") == "timer_reached":   # lot L11: seconds may arrive as text
+                    t["var"] = p.get("name")
+                    t["value"] = G.coerce_value("number", p.get("value"))
                 if when:
                     t["when"] = when
                 if do:
@@ -1146,7 +1159,7 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
 
     if not errors:
         try:
-            G.parse_graph(raw, cfg, "<visual>")
+            parsed = G.parse_graph(raw, cfg, "<visual>")
         except G.GraphError as e:
             items = e.items or [("", str(e))]
             for where, msg in items:
@@ -1161,6 +1174,13 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                     err(nid, "%s : %s" % (where, msg) if where else msg, at=at, nodes=[nid, at])
                 else:
                     err(nid, "%s : %s" % (where, msg) if where else msg)
+        else:   # lot L11: non-blocking validator remarks (a constant outside a variable's bounds) become warnings
+            for where, msg, wkind in (parsed.diagnostics if report is not None else ()):
+                wkey = next((k for k in where_map if where == k or where.startswith(k + " ")), None)
+                nid = where_map.get(wkey)
+                at = _error_node(msg, where_nodes.get(wkey) or [], nodes) if wkey else None
+                report["warnings"].append({"node": nid, "nodes": [x for x in (nid, at) if x], "kind": wkind,
+                                           "message": "%s : %s" % (where, msg), **({"at": at} if at and at != nid else {})})
 
     layout = {"nodes": node_pos, "states": {s["id"]: s["color"] for s in states_doc if isinstance(s, dict) and s.get("color")}}
     if not any(n["kind"] in ("state", "goto") for n in nodes.values()):

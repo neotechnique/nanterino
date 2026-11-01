@@ -30,6 +30,17 @@ max_reparations) are read from the brain's own state (`var_value`). set_var / ad
 dropped (MAX_VAR_CASCADE = 1, logged once per variable). `say_random` speaks through `_speak_then` (cached voice,
 AudioOut keeps honouring `muted`). Random picks use `self.rng` (the simulator seeds it: deterministic traces).
 
+Variables v2 (lot L11, 2026-11-01): bounded numbers are clamped (graph.fit_value), `scope: conversation` values go back
+to their initial value in clear_conversation, `mode: shuffle` lists draw from a bag (`_bag_pick`), `history` / `max` lists
+drop their oldest item, dictionaries live in `lists` as {key: value}. Timers store their start as a WALL epoch (so a
+persisted timer keeps running across a restart) and read as elapsed seconds; the heartbeat posts `timer_reached` once
+per (timer, seconds, start) with depth = MAX_VAR_CASCADE (same anti-loop as var_changed). Every time reading uses the
+injectable `now` / `wall` clocks (simulator and tests are deterministic). Persistence: an optional `var_store`
+(nanterino/var_store.py, given by server.py only; tests pass a temp one) receives the `persist: true` values and the
+nb_visiteurs_jour counter from the heartbeat (`_persist_tick`, the store limits writes to one per 2 s); values read
+back at load are type-checked (`graph.persisted_ok`), a mismatch is ignored with a warning (`var_store_info`).
+`reset_var` (POST /api/graph/vars/reset) restores the initial value and forgets the saved one.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -70,6 +81,11 @@ SAY_TEXTS_MAX = 40     # free phrases pre-synthesised per graph (memory bound)
 # Single words Whisper typically invents on breath/noise; other single words are real answers
 # ("Parc ?", "Musée", "Horaires") and are now accepted (2026-10-16, user: interact better).
 SINGLE_NOISE = {"merci", "bon", "ah", "oh", "euh", "hum", "hein", "voilà", "bah", "ok"}
+
+
+def _fresh_items(li):
+    """A user list's initial items as a new mutable container (dict for kind dict)."""
+    return dict(li.items) if li.kind == "dict" else list(li.items)
 
 
 def is_phantom(text: str, keep_words=()) -> bool:
@@ -125,10 +141,12 @@ def build_messages(cfg: dict, sheets: list[dict], history: list[dict], question:
 
 class Brain:
     def __init__(self, cfg, out, stt, llm, tts, corpus, *, clock=None, wall=None, mic=None, graph=None,
-                 threaded=True, start_state=None):
+                 threaded=True, start_state=None, var_store=None):
         """`clock`/`wall`/`mic`/`graph`/`threaded` exist for the graph simulator (nanterino/sim.py): a manual
         monotonic clock, a simulated wall clock, a fake microphone, an in-memory Graph (no file read) and no
-        threads at all (events are processed by `pump()`). The live robot uses none of them."""
+        threads at all (events are processed by `pump()`). The live robot uses none of them.
+        `var_store` (lot L11): a nanterino.var_store.VarStore for the `persist: true` variables; None = no persistence
+        (simulator, tests unless they pass a temp store). Only server.py gives the live state/vars.json store."""
         self.cfg, self.out, self.stt, self.llm, self.tts, self.corpus = cfg, out, stt, llm, tts, corpus
         self.now = clock or time.monotonic
         self.wall = wall or time.time
@@ -184,6 +202,11 @@ class Brain:
         # Graph variables (lot L1): user values (reset at every graph load), last heard sentence ($utterance).
         self.vars, self.lists, self._watched = {}, {}, frozenset()
         self.last_text, self._var_depth, self._cascade_logged = "", 0, set()
+        # Lot L11: persistence, timers, shuffle bags, visitor counter (nb_visiteurs_jour = exits from veille today).
+        self._store, self._persist_seen, self._persist_ignored = var_store, {}, []
+        self._timer_watch, self._timer_fired, self._bags = (), set(), {}
+        self._visitors = {"date": "", "count": 0}
+        self._graph = None
         self.rng = random.Random()
         self.engine = self._build_engine()
         if self._threaded:
@@ -379,6 +402,9 @@ class Brain:
     # ------------------------------------------------------------------ state machine
     def _go(self, state: str, reason: str):
         log.info("%stransition %s -> %s reason=%s", "" if self._threaded else "[sim] ", self.state, state, reason)
+        if self.state == VEILLE and state not in (VEILLE, ETEINT):   # a conversation starts: one more visitor today
+            self._visitors_today()
+            self._visitors["count"] += 1
         self.state, self.since = state, self.now()
         if state in (VEILLE, ETEINT):
             self.gaze_mode = "suivre"   # a `gaze` command lasts for one conversation
@@ -404,6 +430,7 @@ class Brain:
 
         def clear_conversation(kw):
             self.history.clear(); self.turns = 0; self.subtitle = ""
+            self._reset_scope(graph, "conversation")   # lot L11: conversation-scoped variables and lists
 
         def reset_silence(kw):
             self.last_speech = self.now()
@@ -446,19 +473,37 @@ class Brain:
         def set_gaze(kw, mode):
             self.gaze_mode = mode
 
-        # ---- variables (lot L1): values reset from the graph at every load
+        # ---- variables (lot L1 + L11): values reset from the graph at every load, then the persisted ones read back
+        self._graph = graph
         self.vars = {n: v.value for n, v in graph.variables.items()}
-        self.lists = {n: list(li.items) for n, li in graph.lists.items() if not li.source}
+        self.lists = {n: _fresh_items(li) for n, li in graph.lists.items() if not li.source}
         self._watched, self._cascade_logged = graph.watched_vars(), set()
+        self._timer_watch, self._timer_fired, self._bags = graph.timer_watches(), set(), {}
+        self._load_persisted(graph)
+
+        def set_var(kw, name, value):
+            self._set_var(name, graph_mod.fit_value(graph.variables[name], self._resolve(value, kw)))
 
         def add_var(kw, name, delta):
             v = self.vars.get(name, 0) + delta
             if graph.variables[name].type == "duration":
                 v = max(0, v)   # a duration never goes negative
-            self._set_var(name, v)
+            self._set_var(name, graph_mod.fit_value(graph.variables[name], v))   # integer / percent / min / max
+
+        def list_push(name, value):
+            items = self.lists.setdefault(name, [])
+            items.append(value)
+            cap = graph.lists[name].maxlen
+            if cap and len(items) > cap:
+                del items[:len(items) - cap]   # history / max: the oldest items go first
 
         def list_add(kw, list, value):  # noqa: A002 (argument name fixed by the graph vocabulary)
-            self.lists.setdefault(list, []).append(self._resolve(value, kw))
+            list_push(list, self._resolve(value, kw))
+
+        def remember_utterance(kw, list):  # noqa: A002
+            text = self._resolve("$utterance", kw)
+            if isinstance(text, str) and text.strip():
+                list_push(list, text.strip())
 
         def list_remove(kw, list, value):  # noqa: A002
             v = self._resolve(value, kw)
@@ -469,18 +514,64 @@ class Brain:
             if not items:
                 log.info("say_random: list %s is empty, nothing said", list)
                 return
-            self._speak_then(self.rng.choice(items), "say_done")
+            li = graph.lists.get(list)
+            pick = self._bag_pick(list, items) if li is not None and li.mode == "shuffle" else self.rng.choice(items)
+            self._speak_then(pick, "say_done")
 
         def var_compare(kw, name, op, value):
-            a, b = self.var_value(name), self._resolve(value, kw)
-            if op == "=":
-                return a == b
-            if op == "!=":
-                return a != b
-            num = (int, float)
-            if not (isinstance(a, num) and isinstance(b, num)) or isinstance(a, bool) or isinstance(b, bool):
+            return self._compare(self.var_value(name), op, self._resolve(value, kw), self._var_type(name))
+
+        # ---- dictionaries (lot L11): self.lists[name] is a {key: value} dict
+        def match_key(kw, name, key):
+            """Key of a dictionary call: a literal / `$<var>`, or for `$utterance` the first key found in the sentence."""
+            d = self.lists.get(name) or {}
+            if key == "$utterance":
+                text = str(self._resolve(key, kw) or "").lower()
+                return next((k for k in d if k.strip() and k.lower() in text), None)
+            k = self._resolve(key, kw)
+            return k if isinstance(k, str) and k in d else None
+
+        def dict_set(kw, dict, key, value):  # noqa: A002
+            k = self._resolve(key, kw)
+            if isinstance(k, str) and k.strip():
+                self.lists.setdefault(dict, {})[k.strip()[:graph_mod.KEY_MAX]] = self._resolve(value, kw)
+
+        def dict_remove(kw, dict, key):  # noqa: A002
+            k = self._resolve(key, kw)
+            (self.lists.get(dict) or {}).pop(k, None)
+
+        def say_dict(kw, dict, key, fallback):  # noqa: A002
+            k = match_key(kw, dict, key)
+            text = (self.lists.get(dict) or {}).get(k) if k is not None else None
+            if not (isinstance(text, str) and text.strip()):
+                text = fallback
+            if isinstance(text, str) and text.strip():
+                self._speak_then(text, "say_done")
+            else:
+                log.info("say_dict: no value for key %r in %s and no fallback, nothing said", key, dict)
+
+        def dict_value_compare(kw, dict, key, op, value):  # noqa: A002
+            k = match_key(kw, dict, key)
+            if k is None:
                 return False
-            return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+            return self._compare(self.lists[dict][k], op, self._resolve(value, kw), graph.lists[dict].type)
+
+        # ---- time (lot L11): wall clock only through self.wall / _wall_dt (injectable)
+        def say_var(kw, name):
+            text = self.var_value(name)
+            if isinstance(text, str) and text.strip():
+                self._speak_then(text, "say_done")
+            else:
+                log.info("say_var: %s is empty, nothing said", name)
+
+        def elapsed_since(kw, name, op, seconds):
+            e = self._elapsed(name)
+            return e is not None and self._compare(e, op, seconds)
+
+        def time_between(kw, start, end):
+            now = self._wall_dt()
+            m, a, b = now.hour * 60 + now.minute, int(start[:2]) * 60 + int(start[3:]), int(end[:2]) * 60 + int(end[3:])
+            return a <= m < b if a <= b else (m >= a or m < b)   # end before start: the range wraps past midnight
 
         def list_contains(kw, list, value):  # noqa: A002
             items = self.list_items(list)
@@ -512,12 +603,18 @@ class Brain:
             "say_text": lambda kw, text: self._speak_then(text, "say_done"),
             "set_expression": set_expression, "gaze": set_gaze,
             "wait": lambda kw, seconds: None,   # handled by GraphEngine._exec (it needs the rest of the chain)
-            "set_var": lambda kw, name, value: self._set_var(name, self._resolve(value, kw)),
+            "set_var": set_var,
             "add_var": add_var,
             "toggle_var": lambda kw, name: self._set_var(name, not self.vars.get(name)),
             "list_add": list_add, "list_remove": list_remove,
             "list_clear": lambda kw, list: self.lists.__setitem__(list, []),
             "say_random": say_random,
+            # lot L11
+            "set_now": lambda kw, name: self._set_var(name, self._now_iso()),
+            "timer_start": lambda kw, name: self._set_var(name, round(self.wall(), 3)),
+            "timer_reset": lambda kw, name: self._set_var(name, None),
+            "say_var": say_var, "remember_utterance": remember_utterance,
+            "dict_set": dict_set, "dict_remove": dict_remove, "say_dict": say_dict,
         }
         guards = {
             "auto_greet_on_face": lambda kw: bool(cfg.get("auto_greet_on_face")),
@@ -533,6 +630,12 @@ class Brain:
             "var_true": lambda kw, name: self.var_value(name) is True,
             "list_contains": list_contains,
             "list_empty": lambda kw, list: not self.list_items(list),
+            # lot L11
+            "elapsed_since": elapsed_since, "time_between": time_between,
+            "weekday_in": lambda kw, days: self._weekday() in days,
+            "date_compare": lambda kw, name, op, value: self._compare(self.var_value(name), op, self._resolve(value, kw), "datetime"),
+            "dict_has": lambda kw, dict, key: match_key(kw, dict, key) is not None,
+            "dict_value_compare": dict_value_compare,
         }
         engine = graph_mod.GraphEngine(graph, self, actions, guards, cfg)
         # Pre-synthesise the graph's free phrases (say_text) like the fixed ones, off the loop thread.
@@ -630,7 +733,7 @@ class Brain:
             return  # late event from a cancelled thread
         if isinstance(kw.get("text"), str):
             self.last_text = kw["text"]     # `$utterance` of the variable conditions / actions
-        self._var_depth = kw.get("depth", 0) if kind == "var_changed" else 0
+        self._var_depth = kw.get("depth", 0) if kind in graph_mod.WATCH_EVENTS else 0   # anti-loop (L1, L11)
         try:
             self.engine.dispatch(kind, kw)
         finally:
@@ -649,23 +752,237 @@ class Brain:
             return self.repairs
         if name == "max_reparations":
             return MAX_REPAIRS
+        if name == "heure":            # lot L11 system views
+            return self._now_iso()
+        if name == "jour":
+            return self._weekday()
+        if name == "derniere_phrase":
+            return self.last_text
+        if name == "visage_vu":
+            return self.faces > 0
+        if name == "volume":
+            vol = getattr(self.out, "volume", self.cfg.get("volume", 0.8))
+            return int(min(100, max(0, round(float(vol) * 100)))) if isinstance(vol, (int, float)) else 0
+        if name == "expression":
+            expr = self._expression
+            return expr[0] if expr and expr[1] > self.now() else "neutre"
+        if name == "regard":
+            return self.gaze_mode
+        if name == "nb_visiteurs_jour":
+            return self._visitors_today()
+        if self._var_type(name) == "timer":
+            return self._elapsed(name)
         return self.vars.get(name)
 
+    # ------------------------------------------------------------------ variables v2 helpers (lot L11)
+    def _var_type(self, name: str):
+        if name in graph_mod.SYSTEM_VARS:
+            return graph_mod.SYSTEM_VARS[name][0]
+        v = self._graph.variables.get(name) if self._graph is not None else None
+        return v.type if v is not None else None
+
+    def _now_iso(self) -> str:
+        return self._wall_dt().replace(microsecond=0).isoformat()
+
+    def _weekday(self) -> str:
+        return list(graph_mod.WEEKDAYS)[self._wall_dt().weekday()]
+
+    def _elapsed(self, name: str):
+        """Seconds since a timer's start (None = stopped) or since a datetime variable (None = empty)."""
+        if self._var_type(name) == "timer":
+            start = self.vars.get(name)
+            return round(self.wall() - start, 3) if isinstance(start, (int, float)) and not isinstance(start, bool) else None
+        dt = graph_mod.parse_iso(self.var_value(name))
+        return (self._wall_dt() - dt).total_seconds() if dt is not None else None
+
+    def _visitors_today(self) -> int:
+        today = self._wall_dt().date().isoformat()
+        if self._visitors["date"] != today:   # midnight (or first use): a new day starts at 0
+            self._visitors = {"date": today, "count": 0}
+        return self._visitors["count"]
+
+    @staticmethod
+    def _compare(a, op, b, vtype=None) -> bool:
+        """var_compare / dict_value_compare / date_compare / elapsed_since: = and != on anything, order on numbers
+        (bools excluded) and, for vtype datetime, on parsed ISO dates."""
+        if vtype == "datetime":
+            da, db = graph_mod.parse_iso(a), graph_mod.parse_iso(b)
+            if da is not None and db is not None:
+                a, b = da, db
+            elif op in graph_mod.ORDER_OPS:
+                return False
+        if op == "=":
+            return a == b
+        if op == "!=":
+            return a != b
+        if isinstance(a, datetime.datetime) and isinstance(b, datetime.datetime):
+            return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+        num = (int, float)
+        if not (isinstance(a, num) and isinstance(b, num)) or isinstance(a, bool) or isinstance(b, bool):
+            return False
+        return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+
+    def _bag_pick(self, name: str, items: list):
+        """Shuffle-bag draw: nothing repeats until every item was said once; the bag refills (reshuffled with
+        self.rng) when it is empty or when the list content changed."""
+        sig, bag = self._bags.get(name, (None, []))
+        if sig != tuple(items) or not bag:
+            bag = list(items)
+            self.rng.shuffle(bag)
+        pick = bag.pop()
+        self._bags[name] = (tuple(items), bag)
+        return pick
+
+    def _reset_scope(self, graph, scope: str):
+        """Back to the initial values for every variable / user list of `scope` (no var_changed is posted)."""
+        for n, v in graph.variables.items():
+            if v.scope == scope:
+                self.vars[n] = v.value
+        for n, li in graph.lists.items():
+            if li.scope == scope and not li.source:
+                self.lists[n] = _fresh_items(li)
+                self._bags.pop(n, None)
+
+    def reset_var(self, name: str) -> bool:
+        """Variable manager button: initial value back, saved value forgotten. False for an unknown / read-only name."""
+        g = self._graph
+        if g is None:
+            return False
+        if name in g.variables:
+            part = "names"
+            self.vars[name] = g.variables[name].value
+        elif name in g.lists and not g.lists[name].source:
+            part = "lists"
+            self.lists[name] = _fresh_items(g.lists[name])
+            self._bags.pop(name, None)
+        else:
+            return False
+        self._persist_ignored = [x for x in self._persist_ignored if (x["part"], x["name"]) != (part, name)]
+        if self._store is not None:
+            self._store.drop(part, name)
+            self._persist_seen[(part, name)] = self._persist_entry(part, name)   # not written back by the next tick
+        log.info("graph variable %s reset to its initial value", name)
+        return True
+
+    def _timers_tick(self):
+        """Post `timer_reached` once per (timer, seconds, start); a restarted or reset timer re-arms its triggers."""
+        if not self._timer_watch:
+            return
+        wall, live = self.wall(), set()
+        for var, secs in self._timer_watch:
+            start = self.vars.get(var)
+            if not isinstance(start, (int, float)) or isinstance(start, bool):
+                continue
+            key = (var, secs, start)
+            live.add(key)
+            if key not in self._timer_fired and wall - start >= secs:
+                self._timer_fired.add(key)
+                self.post("timer_reached", name=var, value=secs, depth=MAX_VAR_CASCADE)
+        self._timer_fired &= live
+
+    # -- persistence (var_store): which values, read back at load, written from the heartbeat
+    def _persist_keys(self) -> list:
+        g = self._graph
+        return ([("names", n) for n, v in g.variables.items() if v.persist]
+                + [("lists", n) for n, li in g.lists.items() if li.persist and not li.source])
+
+    def _persist_entry(self, part: str, name: str) -> dict:
+        g = self._graph
+        if part == "names":
+            return {"type": g.variables[name].type, "value": self.vars.get(name)}
+        li, items = g.lists[name], self.lists.get(name)
+        return {"type": li.type, "kind": li.kind, "items": dict(items) if isinstance(items, dict) else list(items or [])}
+
+    def _ignore_persisted(self, part: str, name: str, entry, why: str):
+        log.warning("vars store: saved %s %r ignored (%s); the initial value is used", part[:-1], name, why)
+        self._persist_ignored.append({"part": part, "name": name, "reason": why, "stored": entry})
+
+    def _load_persisted(self, graph):
+        """Overlay the values saved in the store (if any) on the fresh graph values; type-checked."""
+        self._persist_seen, self._persist_ignored = {}, []
+        if self._store is None:
+            return
+        data = self._store.data
+        vis = data.get("system", {}).get("nb_visiteurs_jour")
+        if isinstance(vis, dict) and isinstance(vis.get("date"), str) and isinstance(vis.get("count"), int):
+            self._visitors = {"date": vis["date"], "count": vis["count"]}
+        for n, v in graph.variables.items():
+            e = data.get("names", {}).get(n) if v.persist else None
+            if e is None:
+                continue
+            if not isinstance(e, dict) or e.get("type") != v.type:
+                self._ignore_persisted("names", n, e, "type changed")
+            elif not graph_mod.persisted_ok(graph, v.type, e.get("value"), v.choices):
+                self._ignore_persisted("names", n, e, "invalid value")
+            else:
+                self.vars[n] = graph_mod.fit_value(v, e.get("value"))
+        for n, li in graph.lists.items():
+            e = data.get("lists", {}).get(n) if li.persist and not li.source else None
+            if e is None:
+                continue
+            items = e.get("items") if isinstance(e, dict) else None
+            if not isinstance(e, dict) or e.get("type") != li.type or e.get("kind", "list") != li.kind:
+                self._ignore_persisted("lists", n, e, "type changed")
+                continue
+            vals = list(items.values()) if li.kind == "dict" and isinstance(items, dict) else items if isinstance(items, list) else None
+            ok = vals is not None and len(vals) <= graph_mod.LIST_MAX and all(graph_mod.persisted_ok(graph, li.type, x) for x in vals)
+            if ok and li.kind == "dict":
+                ok = all(isinstance(k, str) and k.strip() for k in items)
+            if not ok:
+                self._ignore_persisted("lists", n, e, "invalid items")
+                continue
+            self.lists[n] = dict(items) if li.kind == "dict" else list(items)[-li.maxlen:] if li.maxlen else list(items)
+        for key in self._persist_keys():
+            self._persist_seen[key] = self._persist_entry(*key)   # what is in memory now is not a change to write
+        self._persist_seen[("system", "nb_visiteurs_jour")] = dict(self._visitors)
+
+    def _persist_tick(self, now: float):
+        """Hand changed persisted values to the store (polled from the heartbeat); the store writes <= 1x / 2 s."""
+        if self._store is None:
+            return
+        for key in self._persist_keys():
+            e = self._persist_entry(*key)
+            if self._persist_seen.get(key) != e:
+                self._persist_seen[key] = e
+                self._store.put(key[0], key[1], e)
+        vis, vkey = dict(self._visitors), ("system", "nb_visiteurs_jour")
+        if self._persist_seen.get(vkey) != vis and (vis["count"] > 0 or self._store.has(*vkey)):
+            self._persist_seen[vkey] = vis   # a bare date roll at 0 visitors never creates the file
+            self._store.put(vkey[0], vkey[1], vis)
+        self._store.maybe_flush(now)
+
+    def var_store_info(self) -> dict:
+        """Persistence and scope facts for the variable manager (GET /api/graph/vars `store`)."""
+        g = self._graph
+        st = self._store
+        return {"enabled": st is not None, "path": st.path if st is not None else None,
+                "persist": {"names": [n for n, v in g.variables.items() if v.persist],
+                            "lists": [n for n, li in g.lists.items() if li.persist]},
+                "saved": st.saved() if st is not None else {"names": [], "lists": [], "system": []},
+                "ignored": [{k: x[k] for k in ("part", "name", "reason")} for x in self._persist_ignored],
+                "scopes": {"names": {n: v.scope for n, v in g.variables.items()},
+                           "lists": {n: li.scope for n, li in g.lists.items()}}}
+
     def list_items(self, name: str) -> list:
-        li = self.engine.graph.lists.get(name) if hasattr(self, "engine") else None
+        li = self._graph.lists.get(name) if self._graph is not None else None
         if li is not None and li.source and li.source[0] == "cfg":
             return list(self.cfg.get(li.source[1]) or [])   # bound to config.json: always the live words
         if name in self.lists:
             return self.lists[name]
         return list(li.items) if li is not None else []
 
-    def var_snapshot(self) -> dict:
-        """Live values for GET /api/graph/vars and the simulator (system variables included)."""
-        from .graph import SYSTEM_VARS
-        names = {n: self.var_value(n) for n in SYSTEM_VARS}
-        names.update(dict(list(self.vars.items())))
-        graph = self.engine.graph
-        return {"names": names, "lists": {n: list(self.list_items(n)) for n in graph.lists}}
+    def var_snapshot(self, volatile: bool = True) -> dict:
+        """Live values for GET /api/graph/vars and the simulator (system variables included).
+
+        A timer shows its elapsed seconds (None = stopped), a dictionary a {key: value} object. `volatile=False` leaves
+        out the wall-clock views (heure, jour): the simulator does so when no start time makes them deterministic."""
+        names = {n: self.var_value(n) for n in graph_mod.SYSTEM_VARS if volatile or n not in graph_mod.VOLATILE_SYSTEM_VARS}
+        names.update({n: self.var_value(n) for n in list(self.vars)})
+        lists = {}
+        for n in self._graph.lists:
+            items = self.list_items(n)
+            lists[n] = dict(items) if isinstance(items, dict) else list(items)
+        return {"names": names, "lists": lists}
 
     def _resolve(self, value, kw):
         """A literal, `$utterance` (the sentence being handled, else the last one heard) or `$<variable>`."""
@@ -713,6 +1030,8 @@ class Brain:
         try:
             self._release_scheduled(now)
             self._sensors(now)
+            self._timers_tick()        # lot L11: timer_reached
+            self._persist_tick(now)    # lot L11: persisted variables -> var_store
             self.engine.tick(now)
         except Exception:
             if now - self._tick_err_at > 5:  # a systematic bug must not flood the log at 10 Hz

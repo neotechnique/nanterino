@@ -4,9 +4,12 @@ logging: robotlog via nanterino.log. Run: python -m nanterino.server (systemd us
 Access control: only localhost, Tailscale (100.64/10) and the USB-C link may connect; the robot
 is not exposed to the venue Wi-Fi.
 Graph editor routes follow Notes/graph-visual-format.md; lot L1 (2026-10-31) adds GET /api/graph/vars (live values
-of the graph variables, read from Brain.var_snapshot()).
+of the graph variables, read from Brain.var_snapshot()). Lot L11 (2026-11-01): the live Brain gets the persistent variable
+store (state/vars.json, flushed at exit), GET /api/graph/vars adds `store` (Brain.var_store_info) and
+POST /api/graph/vars/reset {"name"} puts a variable / list back to its initial value and forgets its saved value.
 """
 import asyncio
+import atexit
 import ipaddress
 import os
 import re
@@ -29,6 +32,7 @@ from . import sim
 from .engines import LLM, STT, TTS
 from .log import log
 from .metrics import Metrics
+from .var_store import DEFAULT_PATH as VARS_STATE_PATH, VarStore
 from .vision import Vision
 
 cfg = config.load()
@@ -42,7 +46,9 @@ out.start()
 speakers = SpeakerProfiles(cfg, out, config.save_overrides)
 out.muted = bool(cfg.get("muted", False))  # mute state is persisted like power
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"], cfg.get("llm_options")), Corpus(cfg["fiches_dir"]), Metrics()
-brain = Brain(cfg, out, stt, llm, tts, corpus)
+var_store = VarStore(VARS_STATE_PATH)   # lot L11: `persist: true` graph variables (written <= 1x / 2 s)
+atexit.register(var_store.flush)        # a service stop keeps the last values
+brain = Brain(cfg, out, stt, llm, tts, corpus, var_store=var_store)
 
 
 def _llm_warmer():
@@ -184,8 +190,21 @@ def graph_vocab():
 
 @app.get("/api/graph/vars")
 def graph_vars():
-    """Live values of the graph variables (system ones included) and lists, for the editor and its Tester."""
-    return brain.var_snapshot()
+    """Live values of the graph variables (system ones included) and lists, for the editor and its Tester; `store`
+    (lot L11) = persistence facts: enabled, persisted / saved names, ignored saved values, scope of each variable."""
+    return {**brain.var_snapshot(), "store": brain.var_store_info()}
+
+
+@app.post("/api/graph/vars/reset")
+async def graph_vars_reset(body: dict):
+    """Variable manager "Réinitialiser" (lot L11): initial value back + saved value forgotten. 404 = unknown or read-only."""
+    name = body.get("name") if isinstance(body, dict) else None
+    if not (isinstance(name, str) and name):
+        return JSONResponse({"ok": False, "error": "`name` manquant."}, status_code=400)
+    ok = await run_in_threadpool(brain.reset_var, name)
+    if not ok:
+        return JSONResponse({"ok": False, "error": "Variable inconnue ou en lecture seule : %s." % name}, status_code=404)
+    return {"ok": True, "name": name, "vars": brain.var_snapshot()}
 
 
 @app.get("/api/graph/visual")
