@@ -490,3 +490,11 @@ select.varsel{font-family:ui-monospace,Consolas,monospace;font-size:13px}
 
 /* L6: minimap diagnostic dots (red errors, amber warnings): the map stays opaque enough to read them while any exist */
 #minimap:is([data-err]:not([data-err="0"]),[data-warn]:not([data-warn="0"])){opacity:.85}
+
+/* L8: drop target of a dragged group / post-it (nested groups), minimap press-and-drag navigation */
+.frame.droptarget{outline:3px dashed #58a6ff;outline-offset:3px;background:color-mix(in srgb,#58a6ff 16%,transparent)}
+.frame.auto.droptarget{border-color:#58a6ff}
+#minimap canvas{touch-action:none;cursor:grab}
+#minimap.dragging,#minimap.dragging canvas{opacity:1;cursor:grabbing}
+#minimap,#jumpbar{user-select:none;-webkit-user-select:none}
+body.mini-drag,body.mini-drag *{user-select:none!important;-webkit-user-select:none!important}

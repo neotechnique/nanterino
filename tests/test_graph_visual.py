@@ -840,13 +840,80 @@ def test_hub_layout_has_no_overlap_and_global_area():
     assert all(n["x"] != 9999 for n in d2["nodes"]) and [f["id"] for f in d2["frames"]] == ["f1"]
 
 
+def test_nested_groups_parent_links():
+    """Lot L8: frames / post-its carry an optional `parent` frame id (nested groups); layout only, round trip,
+    invalid links dropped (dangling, self, cycle, on an automatic column), legacy layouts without `parent` unchanged."""
+    shutil.rmtree(TMP, ignore_errors=True)
+    os.makedirs(TMP)
+    gp, lp = os.path.join(TMP, "graph.yaml"), os.path.join(TMP, "graph.layout.json")
+    base = V.to_visual(default_raw())
+    col = base["frames"][0]["id"]                       # an automatic column frame (auto-veille)
+    fa = {"id": "fa", "title": "A", "color": "#4f8ef7", "x": 0, "y": 0, "w": 900, "h": 600, "parent": col}
+    fb = {"id": "fb", "title": "B", "color": "#56d364", "x": 40, "y": 60, "w": 400, "h": 300, "parent": "fa"}
+    fc = {"id": "fc", "title": "C", "color": "#e5534b", "x": 60, "y": 120, "w": 200, "h": 150, "parent": "fb"}
+    doc = copy.deepcopy(base)
+    doc["frames"] = base["frames"] + [fa, fb, fc]
+    doc["notes"] = [_note(1, parent="fc"), _note(2)]
+    raw0, _ = compile_ok(base)
+    raw1, layout = compile_ok(doc)
+    assert semantic(raw0) == semantic(raw1) and "parent" not in V.dump_yaml(raw1), "nesting must not change the compiled graph"
+    par = {f["id"]: f.get("parent") for f in layout["frames"]}
+    assert par["fa"] == col and par["fb"] == "fa" and par["fc"] == "fb" and par[col] is None, par
+    assert [n.get("parent") for n in layout["notes"]] == ["fc", None]
+    # save -> reload keeps the hierarchy
+    assert V.save(doc, CFG, gp, lp)[0]
+    back = V.to_visual(V.load_raw(gp), V.load_layout(lp))
+    assert {f["id"]: f.get("parent") for f in back["frames"]} == par
+    assert [(n["id"], n.get("parent")) for n in back["notes"]] == [("p1", "fc"), ("p2", None)]
+    with open(lp, encoding="utf-8") as f:
+        stored = json.load(f)
+    assert [n.get("parent") for n in stored["notes"]] == ["fc", None] and "parent" not in stored["notes"][1]
+    # invalid links are dropped, never an error (cosmetic): dangling, self, auto frame nested, cycle, note to nowhere
+    bad = copy.deepcopy(doc)
+    bad["frames"][0]["parent"] = "fa"                   # an automatic column is never nested
+    bad["frames"][-1]["parent"] = "zz"                  # fc -> missing frame
+    bad["frames"][-3]["parent"] = "fb"                  # fa -> fb while fb -> fa: cycle
+    bad["notes"][0]["parent"] = "nope"
+    raw2, lay2, errs = V.from_visual(bad, CFG)
+    assert errs == [], errs
+    p2 = {f["id"]: f.get("parent") for f in lay2["frames"]}
+    assert p2[col] is None and p2["fc"] is None and [p2["fa"], p2["fb"]].count(None) == 1, p2
+    assert "parent" not in lay2["notes"][0]
+    sf = copy.deepcopy(doc)
+    sf["frames"][-1]["parent"] = "fc"                   # self link
+    assert {f["id"]: f.get("parent") for f in V.from_visual(sf, CFG)[1]["frames"]}["fc"] is None
+    # a parent of the wrong type is refused with the item id
+    for item, key in (("frames", "frame"), ("notes", "note")):
+        wt = copy.deepcopy(doc)
+        wt[item][-1]["parent"] = 7
+        ok, errs = V.save(wt, CFG, gp, lp)
+        assert not ok and errs[0].get(key) == wt[item][-1]["id"], errs
+    # load side: a hand-edited layout with a dangling link shows the item top level
+    lay = V.load_layout(lp)
+    lay["frames"] = [f for f in lay["frames"] if f["id"] != "fb"]
+    shown = V.to_visual(V.load_raw(gp), lay)
+    assert {f["id"]: f.get("parent") for f in shown["frames"]}["fc"] is None
+    # legacy layout (no `parent` anywhere): loads exactly as before, flat
+    legacy = V.load_layout(lp)
+    for f in legacy["frames"]:
+        f.pop("parent", None)
+    for n in legacy["notes"]:
+        n.pop("parent", None)
+    old = V.to_visual(V.load_raw(gp), copy.deepcopy(legacy))
+    assert all("parent" not in f for f in old["frames"]) and all("parent" not in n for n in old["notes"])
+    assert [f["id"] for f in old["frames"]] == [f["id"] for f in legacy["frames"]]
+    assert old["frames"] == [f for f in legacy["frames"]] and old["notes"] == legacy["notes"]
+    shutil.rmtree(TMP, ignore_errors=True)
+
+
 FAST = [test_roundtrip_default, test_layout_bands_and_persistence, test_vocabulary, test_error_cases,
         test_negated_guard_compiles_and_evaluates, test_false_port_and_order, test_save_backups_and_reset,
         test_deferred_reload_applies_at_next_veille, test_frames_cosmetic_groups,
         test_sharing_lighter_and_equivalent, test_layout_no_overlap_and_few_crossings,
         test_merged_fan_trigger_reloads_as_one_node, test_sharing_keeps_independent_transitions_apart,
         test_state_nodes_compile, test_trigger_linked_from_several_states, test_state_node_link_rules,
-        test_legacy_goto_documents_compile_identically, test_notes_cosmetic_postits, test_hub_layout_has_no_overlap_and_global_area]
+        test_legacy_goto_documents_compile_identically, test_notes_cosmetic_postits, test_hub_layout_has_no_overlap_and_global_area,
+        test_nested_groups_parent_links]
 
 
 def parity_on_compiled_graph():

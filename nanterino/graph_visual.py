@@ -499,6 +499,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                          else GL.default_frames(nodes, pos))
     # post-it notes: cosmetic like frames (layout file only, never compiled); invalid entries are not shown
     doc["notes"] = [n for n in (layout.get("notes") or []) if isinstance(n, dict) and _note_problem(n) is None][:MAX_NOTES]
+    # lot L8: nested groups / post-its in groups; a link to a frame that is not shown (or a cycle) is dropped
+    doc["frames"], doc["notes"] = clean_parents(doc["frames"], doc["notes"])
     return doc
 
 
@@ -513,6 +515,41 @@ def _num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e7
 
 
+def _parent_ok(item: dict) -> bool:
+    """Lot L8: `parent` is absent / null / "" (top level) or a frame id string (<= 64 chars)."""
+    p = item.get("parent")
+    return p is None or (isinstance(p, str) and len(p) <= 64)
+
+
+def clean_parents(frames: list, notes: list) -> tuple:
+    """Lot L8 (nested groups): drop every `parent` link that cannot be drawn, never an error (layout is cosmetic).
+
+    A link survives only when it names another existing frame; automatic column frames (`auto`) stay top level;
+    a cycle (hand-edited file) is broken by dropping the link that closes it, in list order. Items are copied
+    only when a link is removed, so a clean list comes back equal (old files without `parent` are unchanged).
+    Returns (frames, notes)."""
+    ids = {f["id"] for f in frames}
+    out_f = []
+    for f in frames:
+        p = f.get("parent")
+        if "parent" in f and (not p or p not in ids or p == f["id"] or f.get("auto")):
+            f = {k: v for k, v in f.items() if k != "parent"}
+        out_f.append(f)
+    parent = {f["id"]: f.get("parent") for f in out_f}
+    for i, f in enumerate(out_f):     # walk up; a revisit means f's own link closes a cycle
+        seen, cur = {f["id"]}, parent.get(f["id"])
+        while cur:
+            if cur in seen:
+                out_f[i] = {k: v for k, v in f.items() if k != "parent"}
+                parent[f["id"]] = None
+                break
+            seen.add(cur)
+            cur = parent.get(cur)
+    out_n = [n if not ("parent" in n and (not n.get("parent") or n["parent"] not in ids))
+             else {k: v for k, v in n.items() if k != "parent"} for n in notes]
+    return out_f, out_n
+
+
 def _frame_problem(f: dict):
     """French message for the first problem of a frame dict, or None when it is valid."""
     if not isinstance(f.get("id"), str) or not f["id"] or len(f["id"]) > 64:
@@ -525,6 +562,8 @@ def _frame_problem(f: dict):
         return "La position et la taille du groupe doivent être numériques (largeur et hauteur > 0)."
     if "note" in f and f["note"] is not None and (not isinstance(f["note"], str) or len(f["note"]) > MAX_FRAME_NOTE):
         return "La note du groupe doit être un texte de %d caractères au plus." % MAX_FRAME_NOTE
+    if not _parent_ok(f):
+        return "Le parent du groupe doit être l'identifiant d'un groupe."
     return None
 
 
@@ -551,6 +590,8 @@ def clean_frames(frames):
             c["note"] = f["note"]
         if f.get("auto") is True:     # automatic column frame the user saved: keeps its muted drawing
             c["auto"] = True
+        if f.get("parent"):           # lot L8: enclosing group id (checked against the other frames by clean_parents)
+            c["parent"] = f["parent"]
         out.append(c)
     return out, errors
 
@@ -569,6 +610,8 @@ def _note_problem(n: dict):
         return "La position et la taille du post-it doivent être numériques (largeur et hauteur > 0)."
     if n.get("display") not in (None, "full", "compact"):   # lot L5: full text (default) or title / first line only
         return "L'affichage du post-it est « full » ou « compact »."
+    if not _parent_ok(n):
+        return "Le parent du post-it doit être l'identifiant d'un groupe."
     return None
 
 
@@ -595,6 +638,8 @@ def clean_notes(notes):
             c["title"] = n["title"]
         if n.get("display") == "compact":   # lot L5: only the non-default mode is stored (old files stay byte-identical)
             c["display"] = "compact"
+        if n.get("parent"):                 # lot L8: the group the post-it belongs to (moves with it)
+            c["parent"] = n["parent"]
         out.append(c)
     return out, errors
 
@@ -1062,10 +1107,11 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         layout["nodes"]["state/" + sid_] = {"x": nodes[nid_].get("x", 0), "y": nodes[nid_].get("y", 0)}
     frames, ferrors = clean_frames(doc.get("frames"))
     errors.extend(ferrors)
-    if frames:   # purely cosmetic: lives in the layout file only, never compiled into graph.yaml
-        layout["frames"] = frames
     notes, nerrors = clean_notes(doc.get("notes"))
     errors.extend(nerrors)
+    frames, notes = clean_parents(frames, notes)   # lot L8: dangling / cyclic / auto parent links dropped
+    if frames:   # purely cosmetic: lives in the layout file only, never compiled into graph.yaml
+        layout["frames"] = frames
     if notes:    # post-it notes: same story as frames (layout only, never compiled)
         layout["notes"] = notes
     return (None if errors else raw), layout, errors

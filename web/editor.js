@@ -37,6 +37,11 @@
  *           "Insérer" menus; one tooltip component (data-tip / borrowed title, #tip in <body>, long press / "i" icon on
  *           touch); post-it display modes (note.display 'compact' | absent = full, auto-grow); node diagnostics: badges
  *           from client checks + /api/graph/check errors (`at` = faulty node), toolbar counter #btnDiag cycling them.
+ *           L8 (2026-11-01): hover bubble on the whole node (nodeTipOf: kind + vocabulary help, settings, Category › Theme,
+ *           problems; never during a drag / wire / pan, swaps at once between a node and its own badge or ports);
+ *           minimap press-and-drag navigation (pointer capture, one rAF per frame, wheel = zoom); nested groups: frames
+ *           and post-its carry `parent` (frame id), drops re-parent with a drop-target outline, parents grow to fit
+ *           and never shrink below their children, deleting a group hands its children to its parent.
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -101,8 +106,10 @@
   const TIP_DELAY = 400;
   let tipEl = null, tipTimer = 0, tipFor = null, tipTouch = 0, tipOpenAt = null;
   function tipTarget(el) {
-    el = el && el.closest ? el.closest('[data-tip],[title]') : null;
+    // L8: a node is a tip target as a whole (its bubble text is built at hover time: diagnostics change)
+    el = el && el.closest ? el.closest('[data-tip],[title],.drawflow-node') : null;
     if (!el || el.id === 'tip') return null;
+    if (el.classList.contains('drawflow-node')) el.setAttribute('data-tip', nodeTipOf(el) || '');
     if (el.hasAttribute('title')) {
       const t = el.getAttribute('title');
       el.removeAttribute('title');
@@ -115,8 +122,18 @@
     if (!el.hasAttribute('title')) el.setAttribute('title', el.getAttribute('data-tip') || '');
     el.removeAttribute('data-tip'); el.removeAttribute('data-tip-own');
   }
+  // L8: no bubble while something is being dragged, wired or panned (the timer may fire mid-gesture).
+  function tipBusy() {
+    return !!(editor && (editor.drag || editor.connection || editor.drag_point)) || !!frameDrag || !!noteDrag || !!miniDrag
+      || document.body.classList.contains('nav-panning');
+  }
+  // Same Drawflow node (a node and its badge / ports / tags): moving between them swaps the bubble without a gap.
+  function sameNode(a, b) {
+    const n = a && a.closest ? a.closest('.drawflow-node') : null;
+    return !!n && !!b && !!b.closest && n === b.closest('.drawflow-node');
+  }
   function showTip(el) {
-    if (!tipEl || !el.isConnected) return;
+    if (!tipEl || !el.isConnected || tipBusy()) return;
     const txt = el.getAttribute('data-tip'); if (!txt) return;
     tipEl.textContent = txt; tipEl.hidden = false;
     const r = el.getBoundingClientRect(), t = tipEl.getBoundingClientRect(), W = innerWidth, H = innerHeight, g = 8;
@@ -142,11 +159,14 @@
       if (Date.now() - tipTouch < 800) return;            // compatibility mouse events right after a touch
       const t = e.buttons ? null : tipTarget(e.target);    // never while a button is held (drags, wires)
       if (t === tipFor) return;
+      const warm = !!(t && tipFor && tipEl && !tipEl.hidden && sameNode(t, tipFor));   // L8: shown bubble, same node
       hideTip();
       if (!t) return;
+      if (warm) { showTip(t); return; }
       tipFor = t; tipTimer = setTimeout(() => showTip(t), TIP_DELAY);
     }, true);
-    document.addEventListener('mouseout', (e) => { if (tipFor && !(e.relatedTarget && tipFor.contains(e.relatedTarget))) hideTip(); }, true);
+    // leaving for another part of the same node is decided by the next mouseover (no hide / re-show flicker)
+    document.addEventListener('mouseout', (e) => { if (tipFor && !(e.relatedTarget && (tipFor.contains(e.relatedTarget) || sameNode(tipFor, e.relatedTarget)))) hideTip(); }, true);
     ['mousedown', 'keydown', 'wheel', 'dragstart'].forEach((ev) => document.addEventListener(ev, () => hideTip(), true));
     document.addEventListener('scroll', () => hideTip(), true);
     let lp = 0;                                            // touch: long press shows, the next touch hides
@@ -468,7 +488,7 @@
     const scope = m.kind === 'trigger' && (m.params || {}).state && (m.params || {}).type !== 'enter'
       ? `<div class="nsum nscope">${icoHtml(stateIcon(m.params.state), stateColor(m.params.state))} dans : ${esc(stateLabel(m.params.state))}</div>` : '';
     const desc = m.description ? `<div class="nsum" style="color:var(--mut)">${esc(m.description)}</div>` : '';
-    return `<div class="nhead" data-tip="${esc(headTip(m))}">${icoHtml(iconOf(m), k.color)}<span class="ntitle">${esc(k.label)}</span>${off}${tag}</div><div class="nsum">${esc(summary(m))}</div>${scope}${desc}<div class="nmsg"></div>`;
+    return `<div class="nhead">${icoHtml(iconOf(m), k.color)}<span class="ntitle">${esc(k.label)}</span>${off}${tag}</div><div class="nsum">${esc(summary(m))}</div>${scope}${desc}<div class="nmsg"></div>`;
   }
   // Header tooltip (lot L5): what the kind does, then the help of the vocabulary entry the node uses.
   function headTip(m) {
@@ -478,6 +498,41 @@
     if (m.kind === 'condition' && p.type === 'guard') help = (byId(V.guards, p.guard) || {}).help || '';
     if (m.kind === 'action') help = (byId(V.actions, p.action) || {}).help || '';
     return (KIND_TIP[m.kind] || '') + (help ? '\n' + help : '');
+  }
+  // Lot L8: bubble of a whole node: what it does (kind + vocabulary help), its settings, Category › Theme (same theme
+  // as the node menu), its description and its problems. Built at hover time from the live model and `issues`.
+  function nodeTipOf(el) {
+    const dfid = el && el.id && el.id.startsWith('node-') ? el.id.slice(5) : null, m = dfid != null ? model(dfid) : null;
+    if (!m) return '';
+    const lines = [headTip(m) || (KINDS[m.kind] || {}).label];
+    const s = summary(m); if (s) lines.push('Réglages : ' + s);
+    const p = nodePath(m); if (p) lines.push(p);
+    if (m.description) lines.push('Note : ' + m.description);
+    (issues.get(m.id) || []).filter((i) => i.level !== 'todo').forEach((i) => lines.push((ISSUE_PREFIX[i.level] || '') + i.message));
+    return lines.filter(Boolean).join('\n');
+  }
+  // Theme of a node = the theme its node-menu entry uses (menuItems): vocabulary entry theme or a theme slot.
+  function nodeTheme(m) {
+    const p = m.params || {}, a = p.args || {};
+    if (m.kind === 'trigger') {
+      if (p.type === 'after') return slotTheme('after');
+      if (p.event === 'var_changed' && p.name === 'etat') return slotTheme('state_enter');
+      if (String(p.event || '').startsWith('intent.')) return slotTheme('intent');
+      const e = byId(evs(), p.event); return e ? e.theme : null;
+    }
+    if (m.kind === 'condition') {
+      if (p.type === 'state' || (p.guard === 'var_compare' && a.name === 'etat')) return slotTheme('state_test');
+      const g = byId(V.guards, p.guard); return g ? g.theme : null;
+    }
+    if (m.kind === 'action') {
+      if (p.action === 'set_var' && a.name === 'etat') return slotTheme('state_move');
+      const x = byId(V.actions, p.action); return x ? x.theme : null;
+    }
+    return null;
+  }
+  function nodePath(m) {
+    const c = CATS.find((x) => x.id === m.kind);
+    return c ? c.label + ' › ' + themeById(nodeTheme(m)).label : '';
   }
   function portTips(dfid) {
     const el = nodeEl(dfid), m = model(dfid); if (!el || !m) return;
@@ -577,6 +632,7 @@
     paintWires();
     drawFrames();
     drawNotes();
+    if (!keepView && adoptLegacy()) drawFrames();   // L8: old flat layout -> membership from geometry, once
     drawJumpbar(); zoomVars();
     if (!keepView) clearJumpbar();   // L6: the jump bar exists only now: measure it and free the column titles
     renderPalette();
@@ -1336,18 +1392,16 @@
       miniEl = h('div', { id: 'minimap' }, tog, cv);
       stopPress(miniEl);
       tog.onclick = () => { const open = !miniEl.classList.contains('open'); try { localStorage.setItem(MINI_KEY, open ? 'open' : 'closed'); } catch (e) { /* per page */ } miniEl.classList.toggle('open', open); drawMinimap(); };
-      cv.addEventListener('click', (e) => {
-        const m = miniEl._map; if (!m) return;
-        const r = cv.getBoundingClientRect(), x = m.x0 + (e.clientX - r.x) / m.s, y = m.y0 + (e.clientY - r.y) / m.s;
-        focusRect({ x0: x, y0: y, x1: x, y1: y }, editor.zoom);
-      });
+      // L8: press = centre the view there (or grab the viewport rectangle), drag = continuous pan (see miniDown)
+      cv.addEventListener('pointerdown', miniDown);
+      cv.addEventListener('wheel', (e) => { e.preventDefault(); zoomCentre(e.deltaY < 0 ? 1.15 : 1 / 1.15); }, { passive: false });
       miniEl.classList.toggle('open', miniOpen());
       editor.container.append(miniEl);
     }
     miniEl.querySelector('.mtog').textContent = miniEl.classList.contains('open') ? '▾ Carte' : '▸ Carte';
     if (!miniEl.classList.contains('open')) return;
     const cv = miniEl.querySelector('canvas'), ctx2 = cv.getContext('2d');
-    const rects = Object.entries(bandRects()), b = bbox();
+    const geo = (miniDrag && miniDrag.geo) || miniGeo(), rects = geo.rects, b = geo.b;   // L8: frozen while dragging
     if (!b) return;
     const pad = 30, x0 = b.x0 - pad, y0 = b.y0 - pad, s = Math.min(cv.width / (b.x1 - b.x0 + 2 * pad), cv.height / (b.y1 - b.y0 + 2 * pad));
     miniEl._map = { x0, y0, s };
@@ -1355,20 +1409,17 @@
     ctx2.fillStyle = '#0d1117cc'; ctx2.fillRect(0, 0, cv.width, cv.height);
     rects.forEach(([g, r]) => { ctx2.fillStyle = stateColor(g) + '88'; ctx2.fillRect((r.x0 - x0) * s, (r.y0 - y0) * s, (r.x1 - r.x0) * s, (r.y1 - r.y0) * s); });
     // viewport frame first: the diagnostic dots are drawn on top of it
-    const st = editor.container.getBoundingClientRect(), a = canvasPoint(st.x, st.y), c = canvasPoint(st.right, st.bottom);
+    let a, c;
+    if (miniDrag) { a = arithPoint(miniDrag, miniDrag.st.x, miniDrag.st.y); c = arithPoint(miniDrag, miniDrag.st.right, miniDrag.st.bottom); }
+    else { const st = editor.container.getBoundingClientRect(); a = canvasPoint(st.x, st.y); c = canvasPoint(st.right, st.bottom); }
+    miniEl._view = { x0: a.x, y0: a.y, x1: c.x, y1: c.y };   // viewport in canvas coordinates (grab test, checks)
     ctx2.strokeStyle = '#ffffff'; ctx2.lineWidth = 1.5;
     ctx2.strokeRect((a.x - x0) * s, (a.y - y0) * s, (c.x - a.x) * s, (c.y - a.y) * s);
     // L6: one dot per node with a problem (same levels as the node badges): amber warnings first, red errors on top.
     // miniEl._dots keeps their canvas positions (tests, debugging); data-err / data-warn hold the counts.
     const dots = [];
-    issues.forEach((list, nid) => {
-      const df = nidToDf.get(nid); if (df == null || !nodeEl(df)) return;
-      const lvl = list.some((i) => i.level === 'err') ? 'err' : list.some((i) => i.level === 'warn') ? 'warn' : null;
-      if (!lvl) return;
-      const nb = nodeBox(df);
-      const cl = (v, max) => Math.max(4, Math.min(max - 4, v));   // a node on the graph's edge keeps a whole dot
-      dots.push({ nid, level: lvl, x: cl(((nb.x0 + nb.x1) / 2 - x0) * s, cv.width), y: cl(((nb.y0 + nb.y1) / 2 - y0) * s, cv.height) });
-    });
+    const cl = (v, max) => Math.max(4, Math.min(max - 4, v));   // a node on the graph's edge keeps a whole dot
+    geo.marks.forEach((g) => dots.push({ nid: g.nid, level: g.level, x: cl((g.cx - x0) * s, cv.width), y: cl((g.cy - y0) * s, cv.height) }));
     ['warn', 'err'].forEach((lvl) => dots.filter((d) => d.level === lvl).forEach((d) => {
       ctx2.beginPath(); ctx2.arc(d.x, d.y, 3.5, 0, Math.PI * 2);
       ctx2.fillStyle = lvl === 'err' ? '#ff3b30' : '#ffb020'; ctx2.fill();
@@ -1377,6 +1428,82 @@
     miniEl._dots = dots;
     miniEl.dataset.err = String(dots.filter((d) => d.level === 'err').length);
     miniEl.dataset.warn = String(dots.filter((d) => d.level === 'warn').length);
+  }
+  // Geometry the minimap draws: column rects, graph box, problem nodes (centre + level). Cached for a whole drag.
+  function miniGeo() {
+    const marks = [];
+    issues.forEach((list, nid) => {
+      const df = nidToDf.get(nid); if (df == null || !nodeEl(df)) return;
+      const lvl = list.some((i) => i.level === 'err') ? 'err' : list.some((i) => i.level === 'warn') ? 'warn' : null;
+      if (!lvl) return;
+      const nb = nodeBox(df);
+      marks.push({ nid, level: lvl, cx: (nb.x0 + nb.x1) / 2, cy: (nb.y0 + nb.y1) / 2 });
+    });
+    return { rects: Object.entries(bandRects()), b: bbox(), marks };
+  }
+  // ---------- minimap navigation (lot L8) ----------
+  // Pointer events + pointer capture on the minimap canvas (mouse, pen and touch alike; the release may happen anywhere,
+  // even outside the minimap). The press never reaches the canvas (stopPress: no Drawflow pan). Moves only record the
+  // pointer; one requestAnimationFrame per frame pans arithmetically (no layout read per move) and redraws the minimap from
+  // geometry cached at press time, so the viewport rectangle follows live. A press inside the viewport rectangle grabs it
+  // (offset kept; released without moving it is a click, which still centres the view there); a press elsewhere first
+  // centres the view on that point (a plain click = jump there).
+  let miniDrag = null;
+  function miniCanvasPoint(d, clientX, clientY) {   // client px over the minimap -> graph canvas coordinates
+    return { x: d.map.x0 + (clientX - d.cr.x) * d.kx / d.map.s, y: d.map.y0 + (clientY - d.cr.y) * d.ky / d.map.s };
+  }
+  // Canvas point under a client point from the current transform: precanvas screen x = B + cx + o(1 - z) + z * p.
+  function arithPoint(d, clientX, clientY) {
+    const z = editor.zoom;
+    return { x: (clientX - d.bx - editor.canvas_x - d.ox * (1 - z)) / z, y: (clientY - d.by - editor.canvas_y - d.oy * (1 - z)) / z };
+  }
+  function miniApply() {
+    const d = miniDrag; if (!d) return;
+    d.raf = 0;
+    const p = miniCanvasPoint(d, d.px, d.py), c = arithPoint(d, d.vc.x, d.vc.y), z = editor.zoom;
+    const dx = (c.x - p.x - d.off.x) * z, dy = (c.y - p.y - d.off.y) * z;
+    if (Math.abs(dx) + Math.abs(dy) > 0.01) setRawView(z, editor.canvas_x + dx, editor.canvas_y + dy);
+    if (miniRaf) { cancelAnimationFrame(miniRaf); miniRaf = 0; }
+    drawMinimap();                           // same frame: the rectangle follows the pan at once
+  }
+  function miniDown(e) {
+    const cv = e.currentTarget, m = miniEl && miniEl._map;
+    if (!m || e.button || e.isPrimary === false || miniDrag) return;
+    e.preventDefault(); e.stopPropagation();
+    hideTip(); closeCtx();
+    try { cv.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event without a live pointer */ }
+    const cr = cv.getBoundingClientRect(), st = editor.container.getBoundingClientRect(), pr = editor.precanvas.getBoundingClientRect();
+    const ox = editor.precanvas.clientWidth / 2, oy = editor.precanvas.clientHeight / 2, z = editor.zoom;
+    // kx / ky: the canvas is drawn at its intrinsic size but shown at its CSS size (the old click handler ignored that)
+    const d = { pid: e.pointerId, map: { x0: m.x0, y0: m.y0, s: m.s }, cr, kx: cv.width / (cr.width || cv.width), ky: cv.height / (cr.height || cv.height),
+      st, vc: { x: st.x + st.width / 2, y: st.y + st.height / 2 }, ox, oy,
+      bx: pr.x - editor.canvas_x - ox * (1 - z), by: pr.y - editor.canvas_y - oy * (1 - z),
+      geo: miniGeo(), off: { x: 0, y: 0 }, px: e.clientX, py: e.clientY, x0: e.clientX, y0: e.clientY, raf: 0, grab: false, moved: false };
+    const p = miniCanvasPoint(d, e.clientX, e.clientY), v = miniEl._view, c = arithPoint(d, d.vc.x, d.vc.y);
+    if (v && p.x >= v.x0 && p.x <= v.x1 && p.y >= v.y0 && p.y <= v.y1) { d.off = { x: c.x - p.x, y: c.y - p.y }; d.grab = true; }   // grab
+    miniDrag = d;
+    miniEl.classList.add('dragging');
+    document.body.classList.add('mini-drag');   // no text selection over the jump bar / panels while dragging
+    miniApply();
+  }
+  function miniMove(e) {
+    const d = miniDrag; if (!d || e.pointerId !== d.pid) return;
+    if (e.cancelable) e.preventDefault();
+    d.px = e.clientX; d.py = e.clientY;
+    if (!d.moved && Math.hypot(d.px - d.x0, d.py - d.y0) >= 3) d.moved = true;   // below 3 px it is still a click
+    if (!d.raf) d.raf = requestAnimationFrame(miniApply);
+  }
+  function miniUp(e) {
+    const d = miniDrag; if (!d || (e && e.pointerId !== d.pid)) return;
+    if (d.raf) cancelAnimationFrame(d.raf);
+    if (e && e.type === 'pointerup') { d.px = e.clientX; d.py = e.clientY; }
+    if (d.grab && !d.moved) d.off = { x: 0, y: 0 };   // a click inside the viewport rectangle centres there too
+    if (e && e.type !== 'lostpointercapture') miniApply();
+    miniDrag = null;
+    if (miniEl) miniEl.classList.remove('dragging');
+    document.body.classList.remove('mini-drag');
+    try { const sel = window.getSelection(); if (sel && !sel.isCollapsed) sel.removeAllRanges(); } catch (err) { /* nothing selected */ }
+    scheduleMinimap();
   }
   // Semantic-zoom card of an automatic frame: state name, chain count, wires in / out of the column.
   function frameCard(f) {
@@ -1430,15 +1557,100 @@
   function placeFrame(f, el) {
     el.style.cssText = `--c:${f.color};--ink:${inkOn(f.color)};left:${f.x}px;top:${f.y}px;width:${f.w}px;height:${f.h}px`;
   }
+  // ---------- nested groups (lot L8) ----------
+  // f.parent / note.parent = id of the enclosing frame (absent = top level), saved in graph.layout.json (the server's
+  // clean_parents drops dangling / cyclic links and any parent of an automatic column). Frames and post-its belong by
+  // that link; nodes still follow a frame by geometry (centre inside it when its drag starts). A drop decides the link:
+  // the innermost frame under the dragged item's centre, never the item itself or one of its descendants (so no cycle);
+  // a frame only enters a larger frame; automatic columns (`auto`) never get a parent. A user frame always encloses its
+  // children: a drop grows the parent chain to fit (automatic columns are never grown: they are the state columns), and
+  // a resize cannot shrink any frame below its children. Deleting a frame hands its children to its own parent.
+  // Legacy layouts (no `parent` anywhere) get their membership from geometry once, at load (adoptLegacy).
+  const NEST_PAD = { l: 16, r: 16, t: 40, b: 16 };   // t: room for the child's title bar under the parent's
+  const parentOf = (it) => (it && it.parent ? frameById(it.parent) || null : null);
+  function frameDepth(f) { let d = 0, p = parentOf(f), guard = 0; while (p && guard++ < 200) { d++; p = parentOf(p); } return d; }
+  function descendantFrames(f) {
+    const out = [], todo = [f.id], seen = new Set([f.id]);
+    while (todo.length) {
+      const id = todo.pop();
+      frames().forEach((g) => { if (g.parent === id && !seen.has(g.id)) { seen.add(g.id); out.push(g); todo.push(g.id); } });
+    }
+    return out;
+  }
+  const frameBox = (f) => ({ x0: f.x, y0: f.y, x1: f.x + f.w, y1: f.y + f.h });
+  const noteBox = (n, hh) => ({ x0: n.x, y0: n.y, x1: n.x + n.w, y1: n.y + (hh == null ? noteHeight(n) : hh) });
+  // Frame that would receive an item whose box is `b`: deepest frame containing its centre (then smallest), skipping
+  // `skip` ids. opts.frame: the item is a frame (only enters a larger one); opts.smallest: smallest area wins (legacy).
+  function dropTarget(b, skip, opts) {
+    const o = opts || {}, cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, area = (b.x1 - b.x0) * (b.y1 - b.y0);
+    let best = null, bd = -1, ba = 0;
+    frames().forEach((g) => {
+      if ((skip && skip.has(g.id)) || cx < g.x || cx > g.x + g.w || cy < g.y || cy > g.y + g.h) return;
+      const ga = g.w * g.h; if (o.frame && ga <= area) return;
+      const d = o.smallest ? 0 : frameDepth(g);
+      if (!best || d > bd || (d === bd && ga < ba)) { best = g; bd = d; ba = ga; }
+    });
+    return best;
+  }
+  function childBoxes(f) {
+    return frames().filter((g) => g.parent === f.id).map(frameBox).concat(notes().filter((n) => n.parent === f.id).map((n) => noteBox(n)));
+  }
+  // Grow `f` and its user-frame ancestors so they enclose their children (NEST_PAD margins).
+  function fitAncestors(f) {
+    let guard = 0;
+    while (f && guard++ < 200) {
+      const kids = f.auto ? [] : childBoxes(f);
+      if (kids.length) {
+        const x0 = Math.min(f.x, ...kids.map((k) => k.x0 - NEST_PAD.l)), y0 = Math.min(f.y, ...kids.map((k) => k.y0 - NEST_PAD.t));
+        const x1 = Math.max(f.x + f.w, ...kids.map((k) => k.x1 + NEST_PAD.r)), y1 = Math.max(f.y + f.h, ...kids.map((k) => k.y1 + NEST_PAD.b));
+        f.x = Math.round(x0); f.y = Math.round(y0); f.w = Math.round(x1 - x0); f.h = Math.round(y1 - y0);
+      }
+      f = parentOf(f);
+    }
+  }
+  // Smallest size the bottom-right grip may give `f` (its children stay inside).
+  function minFrameSize(f) {
+    let w = 0, hh = 0;
+    childBoxes(f).forEach((k) => { w = Math.max(w, k.x1 + NEST_PAD.r - f.x); hh = Math.max(hh, k.y1 + NEST_PAD.b - f.y); });
+    return { w, h: hh };
+  }
+  // Link a dropped frame / note to `target` (null = top level); grows the new parent chain. Toast when the link changed.
+  function reparent(it, isNote, target) {
+    const old = it.parent || null, now = target ? target.id : null;
+    if (now) it.parent = now; else delete it.parent;
+    if (target) fitAncestors(target);
+    if (old === now) return false;
+    const what = isNote ? 'Post-it' : 'Groupe', name = (g) => '« ' + ((g && g.title) || (g && g.id) || old) + ' »';
+    toast(now ? what + ' rangé dans ' + name(target) + '.' : what + ' sorti de ' + name(frameById(old)) + '.', '');
+    return true;
+  }
+  let dropEl = null;                          // frame element outlined as the drop target of the current drag
+  function markDrop(f) {
+    const el = f ? frameEls.get(f.id) || null : null;
+    if (el === dropEl) return;
+    if (dropEl) dropEl.classList.remove('droptarget');
+    dropEl = el;
+    if (el) el.classList.add('droptarget');
+  }
+  // Old layout without any `parent`: frames and post-its join the smallest frame around their centre, once at load.
+  function adoptLegacy() {
+    const fr = frames(), ns = notes();
+    if (fr.some((f) => 'parent' in f) || ns.some((n) => 'parent' in n)) return false;
+    let changed = false;
+    fr.forEach((f) => { if (f.auto) return; const t = dropTarget(frameBox(f), new Set([f.id]), { frame: true, smallest: true }); if (t) { f.parent = t.id; changed = true; } });
+    ns.forEach((n) => { const t = dropTarget(noteBox(n), null, { smallest: true }); if (t) { n.parent = t.id; changed = true; } });
+    return changed;
+  }
   function drawFrames() {
     if (!editor) return;
-    const root = ensureFrames(); root.innerHTML = ''; frameEls.clear();
-    frames().forEach((f) => {
+    const root = ensureFrames(); root.innerHTML = ''; frameEls.clear(); dropEl = null;
+    // L8 z-order: parents first, children after (drawn above); list order inside one depth
+    frames().map((f, i) => [f, frameDepth(f), i]).sort((a, b) => a[1] - b[1] || a[2] - b[2]).forEach(([f]) => {
       const text = h('span', { class: 'ftext' }, f.title || '(sans nom)');
       if (!f.title) text.classList.add('empty');
-      const title = h('div', { class: 'ftitle', title: 'Glisser pour déplacer le groupe et ses nœuds. Double-clic pour renommer.' }, ico('square'), text);
+      const title = h('div', { class: 'ftitle', title: 'Glisser pour déplacer le groupe avec ses nœuds, ses groupes et ses post-it ; lâché dans un autre groupe, il en fait partie. Double-clic pour renommer.' }, ico('square'), text);
       const grip = h('div', { class: 'fresize', title: 'Redimensionner' });
-      const el = h('div', { class: 'frame' + (f.auto ? ' auto' : '') + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id }, title, grip);
+      const el = h('div', { class: 'frame' + (f.auto ? ' auto' : '') + (f.id === selFrame ? ' sel' : ''), 'data-fid': f.id, 'data-parent': f.parent || false }, title, grip);
       placeFrame(f, el);
       if (f.auto) { const card = frameCard(f); if (card) el.append(card); }   // semantic-zoom card (CSS shows it below 0.25)
       for (const part of [title, grip]) {
@@ -1471,12 +1683,16 @@
     selectFrame(f.id);
     const p = evPoint(e), ctr = (b) => [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
     const inside = (cx, cy) => cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h;
-    frameDrag = { f, mode, cx: p.clientX, cy: p.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, moved: false, nodes: [], frames: [] };
+    frameDrag = { f, mode, cx: p.clientX, cy: p.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, moved: false, nodes: [], frames: [], notes: [],
+      skip: new Set([f.id]), min: mode === 'resize' ? minFrameSize(f) : null };
     if (mode === 'move') {
-      // Nodes whose centre lies in the frame at drag start follow it (and so do the frames wholly centred inside).
+      // Nodes whose centre lies in the frame at drag start follow it; L8: so do all descendant frames and their post-its.
       frameDrag.nodes = Object.keys(dfData()).filter((dfid) => inside(...ctr(nodeBox(dfid))))
         .map((dfid) => ({ dfid, x: dfNode(dfid).pos_x, y: dfNode(dfid).pos_y }));
-      frameDrag.frames = frames().filter((g) => g !== f && inside(g.x + g.w / 2, g.y + g.h / 2)).map((g) => ({ g, x: g.x, y: g.y }));
+      const kids = descendantFrames(f);
+      kids.forEach((g) => frameDrag.skip.add(g.id));
+      frameDrag.frames = kids.map((g) => ({ g, x: g.x, y: g.y }));
+      frameDrag.notes = notes().filter((n) => n.parent && frameDrag.skip.has(n.parent)).map((n) => ({ n, x: n.x, y: n.y }));
     }
   }
   function moveFrameDrag(e) {
@@ -1486,7 +1702,7 @@
     if (!d.moved && Math.hypot(p.clientX - d.cx, p.clientY - d.cy) < 3) return;   // a click is not a move
     d.moved = true;
     const f = d.f;
-    if (d.mode === 'resize') { f.w = Math.max(80, Math.round(d.ow + dx)); f.h = Math.max(60, Math.round(d.oh + dy)); }
+    if (d.mode === 'resize') { f.w = Math.max(80, d.min.w, Math.round(d.ow + dx)); f.h = Math.max(60, d.min.h, Math.round(d.oh + dy)); }
     else {
       f.x = Math.round(d.ox + dx); f.y = Math.round(d.oy + dy);
       d.nodes.forEach((n) => {
@@ -1496,13 +1712,18 @@
         editor.updateConnectionNodes('node-' + n.dfid);
       });
       d.frames.forEach((o) => { o.g.x = Math.round(o.x + dx); o.g.y = Math.round(o.y + dy); const el = frameEls.get(o.g.id); if (el) placeFrame(o.g, el); });
+      d.notes.forEach((o) => { o.n.x = Math.round(o.x + dx); o.n.y = Math.round(o.y + dy); const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
+      markDrop(f.auto ? null : dropTarget(frameBox(f), d.skip, { frame: true }));   // L8: drop-target outline
     }
     const el = frameEls.get(f.id); if (el) placeFrame(f, el);
   }
   function endFrameDrag() {
     const d = frameDrag; if (!d) return;
     frameDrag = null;
+    markDrop(null);
     if (!d.moved) return;
+    if (d.mode === 'move' && !d.f.auto) reparent(d.f, false, dropTarget(frameBox(d.f), d.skip, { frame: true }));
+    else if (d.mode === 'resize') fitAncestors(parentOf(d.f));   // a grown child grows its parents
     drawBands(); drawFrames(); renderInspector();
     commitSoon();
   }
@@ -1530,6 +1751,9 @@
   }
   function deleteFrame(id) {
     if (editBlocked()) return;
+    // L8: the children of a deleted group go to its parent (or the top level); they are never deleted
+    const gone = frameById(id), up = gone && gone.parent ? gone.parent : null;
+    frames().concat(notes()).forEach((it) => { if (it.parent === id) { if (up) it.parent = up; else delete it.parent; } });
     meta.frames = frames().filter((f) => f.id !== id);
     if (selFrame === id) selFrame = null;
     drawFrames(); renderInspector(); renderPalette();
@@ -1560,7 +1784,9 @@
     let k = 1; while (used.has('f' + k)) k++;
     const f = { id: 'f' + k, title: 'Groupe ' + (frames().length + 1), color: FRAME_COLORS[frames().length % FRAME_COLORS.length][1],
       x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(hh) };
-    frames().push(f);
+    // L8: a new group inside another one (or a column) is its child
+    const host = dropTarget(frameBox(f), null, { frame: true });
+    if (host) { f.parent = host.id; frames().push(f); fitAncestors(host); } else frames().push(f);
     selFrame = null; selectFrame(f.id);
     renderPalette(); commitSoon();
   }
@@ -1583,8 +1809,9 @@
     sw.append(custom);
     box.append(h('div', { class: 'fld' }, h('span', {}, 'Couleur'), sw));
     box.append(field('Note', areaCtl(f.note || '', (v) => editFrame(f, { note: v }), 2000), 'Texte libre, purement décoratif : le robot ne le lit pas.'));
-    box.append(h('p', { class: 'hint' }, 'Un groupe ne change rien au comportement du robot : il sert seulement à ranger le graphe. Glisser la barre de titre déplace aussi les nœuds qu’il contient.'));
-    box.append(h('button', { type: 'button', class: 'danger', onclick: () => deleteFrame(f.id) }, 'Supprimer le groupe (les nœuds restent)'));
+    if (parentOf(f)) box.append(h('p', { class: 'hint fparent' }, 'Dans le groupe « ' + (parentOf(f).title || parentOf(f).id) + ' » (glisser ce groupe hors de lui pour l’en sortir).'));
+    box.append(h('p', { class: 'hint' }, 'Un groupe ne change rien au comportement du robot : il sert seulement à ranger le graphe. Glisser la barre de titre déplace aussi les nœuds, les groupes et les post-it qu’il contient ; un groupe ou un post-it lâché dans un groupe en fait partie.'));
+    box.append(h('button', { type: 'button', class: 'danger', onclick: () => deleteFrame(f.id) }, 'Supprimer le groupe (son contenu reste)'));
   }
 
   function bbox() {
@@ -1743,7 +1970,7 @@
     e.stopPropagation(); e.preventDefault();
     selectNote(n.id, true);
     try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event without a live pointer */ }
-    noteDrag = { n, mode, pid: e.pointerId, cx: e.clientX, cy: e.clientY, ox: n.x, oy: n.y, ow: n.w, oh: n.h, moved: false };
+    noteDrag = { n, mode, pid: e.pointerId, cx: e.clientX, cy: e.clientY, ox: n.x, oy: n.y, ow: n.w, oh: n.h, moved: false, nh: noteHeight(n) };
   }
   function moveNoteDrag(e) {
     const d = noteDrag; if (!d || (d.pid != null && e.pointerId !== d.pid)) return;
@@ -1752,18 +1979,23 @@
     if (!d.moved && Math.hypot(p.clientX - d.cx, p.clientY - d.cy) < 3) return;
     d.moved = true;
     if (d.mode === 'resize') { d.n.w = Math.max(120, Math.round(d.ow + dx)); d.n.h = Math.max(90, Math.round(d.oh + dy)); }
-    else { d.n.x = Math.round(d.ox + dx); d.n.y = Math.round(d.oy + dy); }
+    else { d.n.x = Math.round(d.ox + dx); d.n.y = Math.round(d.oy + dy); markDrop(dropTarget(noteBox(d.n, d.nh))); }   // L8 outline
     const el = noteEls.get(d.n.id); if (el) { placeNote(d.n, el); if (d.mode === 'resize') growNote(el); }
   }
   function endNoteDrag(e) {
     const d = noteDrag; if (!d || (e && d.pid != null && e.pointerId !== d.pid)) return;
     noteDrag = null;
+    markDrop(null);
     if (!d.moved) return;
     {                                 // a note never covers a node: moved or grown onto one, it slides to the nearest free spot
       const p = noteSpot(d.n.x, d.n.y, d.n.w, noteHeight(d.n), d.n.id);
       d.n.x = p.x; d.n.y = p.y;
       const el = noteEls.get(d.n.id); if (el) placeNote(d.n, el);
     }
+    // L8: the group under the note's centre (after the slide) owns it; a resize grows its parents
+    if (d.mode === 'move') reparent(d.n, true, dropTarget(noteBox(d.n)));
+    else fitAncestors(parentOf(d.n));
+    if (d.n.parent || d.mode === 'move') drawFrames();
     commitSoon();
   }
   // Nearest position (spiral on a 40 px grid around x, y) where a w x h note touches no node, badge or other note.
@@ -1824,7 +2056,10 @@
     const spot = vs.free !== false ? vs : noteSpot(pt.x, pt.y, 220, 160);
     const pan = !visible(spot.x, spot.y);
     const n = { id: 'p' + k, text: '', color: NOTE_COLORS[0][1], x: spot.x, y: spot.y, w: 220, h: 160 };
+    const host = dropTarget(noteBox(n, n.h));   // L8: a post-it created inside a group belongs to it
+    if (host) n.parent = host.id;
     notes().push(n);
+    if (host) { fitAncestors(host); drawFrames(); }
     if (pan) focusRect({ x0: n.x, y0: n.y, x1: n.x + n.w, y1: n.y + n.h }, editor.zoom);   // same zoom, note centred
     selNote = null; drawNotes(); selectNote(n.id);
     renderPalette(); commitSoon();
@@ -3690,6 +3925,9 @@
     // notes: ONE pointer pair (captured pointer, see startNoteDrag)
     document.addEventListener('pointermove', moveNoteDrag, { passive: false });
     document.addEventListener('pointerup', endNoteDrag); document.addEventListener('pointercancel', endNoteDrag);
+    // minimap drag (L8): captured pointer, so moves / release outside the minimap still arrive here
+    document.addEventListener('pointermove', miniMove, { passive: false });
+    ['pointerup', 'pointercancel', 'lostpointercapture'].forEach((t) => document.addEventListener(t, miniUp, true));
     // A press on the bare canvas or on a node unselects the frame / note (their own presses stop before here).
     dfEl.addEventListener('mousedown', (e) => { if (!e.target.closest('.drawflow-node')) { unselectFrame(); unselectNote(); } });
     dfEl.addEventListener('dragover', (e) => e.preventDefault());
@@ -3750,6 +3988,12 @@
     setHand, setLock, toggleHelp, save,
     menuTree, menuItems, issues: () => Object.fromEntries(issues), diagNodes, diagCycle, checkErrors: () => checkErrors, runCheck, freshCheck, clearJumpbar, setNoteDisplay, hideTip,
     selDf: () => selDf, validate,
+    // lot L8 test hooks: node bubble text, minimap mapping / viewport, nesting helpers
+    nodeTip: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodeTipOf(nodeEl(df)); },
+    nodePath: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodePath(model(df)); },
+    miniMap: () => (miniEl ? { map: miniEl._map, view: miniEl._view, dragging: !!miniDrag } : null),
+    descendants: (id) => { const f = frameById(id); return f ? descendantFrames(f).map((g) => g.id) : null; },
+    focusRect, adoptLegacy: () => { const c = adoptLegacy(); if (c) drawFrames(); return c; }, undo, redo,
     // lot L5 test hook: merge `params` into a node's params (null value = delete the key), then redraw + re-analyse
     patchNode: (nid, params) => {
       const df = nidToDf.get(nid), m = df != null ? model(df) : null; if (!m) return false;
