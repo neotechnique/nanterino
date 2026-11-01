@@ -67,6 +67,7 @@ import time
 from . import graph as graph_mod
 from . import nodes
 from . import vartypes
+from . import properties
 from .listkinds import LISTKINDS
 from .listmodes import LISTMODES
 from .nodes import NodeContext
@@ -453,8 +454,17 @@ class Brain:
         # The engine calls fn(kw, **args); each call gets a NodeContext with THIS brain and the cfg / graph captured now
         # (as the former closures did), so an old engine finishing its `then` actions after a pending-graph swap still
         # works on the graph it was built from. Brain attributes are looked up at call time (tests wrap methods).
+        # Lot M4: arguments of graph.PRE_RESOLVE_KINDS (numbers, optional texts) are read by the node code without
+        # _resolve: a value source given there is evaluated here first. The other property fields go through _resolve.
+        pre_kinds = graph_mod.PRE_RESOLVE_KINDS
+
         def bind(node, entry):
+            pre = tuple(a for a, d in node.args.items() if d.kind in pre_kinds)
+
             def call(kw, **args):
+                for a in pre:
+                    if properties.is_property(args.get(a)):
+                        args[a] = properties.evaluate(self, kw, args[a])
                 return getattr(node, entry)(NodeContext(self, kw, cfg, graph), **args)
             call.__name__ = call.__qualname__ = "%s_%s" % ("action" if entry == "run" else "guard", node.id)
             return call
@@ -788,7 +798,10 @@ class Brain:
         return {"names": names, "lists": lists}
 
     def _resolve(self, value, kw):
-        """A literal, `$utterance` (the sentence being handled, else the last one heard) or `$<variable>`."""
+        """A literal, `$utterance` (the sentence being handled, else the last one heard), `$<variable>` or (lot M4) a
+        compiled value source `{get: ...}` (nanterino/properties: typed result, fallbacks, never raises)."""
+        if isinstance(value, dict) and "get" in value:
+            return properties.evaluate(self, kw, value)
         if isinstance(value, str) and value.startswith("$"):
             ref = value[1:]
             if ref == "utterance":

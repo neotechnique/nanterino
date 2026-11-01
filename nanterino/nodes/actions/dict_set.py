@@ -17,8 +17,6 @@ class DictSet(Action):
     args = {'dict': Arg('wdict', 'Dictionnaire'), 'key': Arg('dictkey', 'Clé'), 'value': Arg('value', 'Valeur')}
 
     def run(self, ctx, dict, key, value):  # noqa: A002 (argument names fixed by the graph vocabulary)
-        from nanterino import graph as G   # lazy: graph.py imports this package
-        b = ctx.brain
-        k = b._resolve(key, ctx.kw)
-        if isinstance(k, str) and k.strip():
-            b.lists.setdefault(dict, {})[k.strip()[:G.KEY_MAX]] = b._resolve(value, ctx.kw)
+        from nanterino import properties   # lazy: graph.py imports the node packages
+        # lot M4: through the `dict_key` set target (key resolved / stripped / cut as before, value type clamp)
+        properties.write("dict_key", ctx, ctx.brain._resolve(value, ctx.kw), dict=dict, key=key)

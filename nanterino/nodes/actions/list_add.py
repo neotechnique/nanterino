@@ -4,7 +4,6 @@ Boundary: metadata read by graph.py (validation, GET /api/graph/vocab); run() is
 brain._build_engine and called on the brain loop thread with a NodeContext (brain, kw, cfg, graph).
 How to test: .venv/bin/python -m tests.test_nodes_registry (+ tests.test_brain_graph for behaviour).
 """
-from nanterino.nodes.helpers import list_push
 from nanterino.nodes.base import Action, Arg
 
 
@@ -18,4 +17,6 @@ class ListAdd(Action):
     args = {'list': Arg('wlist', 'Liste'), 'value': Arg('value', 'Élément')}
 
     def run(self, ctx, list, value):  # noqa: A002 (argument names fixed by the graph vocabulary)
-        list_push(ctx, list, ctx.brain._resolve(value, ctx.kw))
+        # lot M4: through the `list_item` set target (item type clamp, then the list mode's push like list_push)
+        from nanterino import properties
+        properties.write("list_item", ctx, ctx.brain._resolve(value, ctx.kw), list=list)

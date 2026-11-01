@@ -17,6 +17,7 @@ class SetVar(Action):
     args = {'name': Arg('var', 'Variable'), 'value': Arg('value', 'Valeur')}
 
     def run(self, ctx, name, value):
-        from nanterino import graph as G   # lazy: graph.py imports this package
-        b = ctx.brain
-        b._set_var(name, G.fit_value(ctx.graph.variables[name], b._resolve(value, ctx.kw)))
+        from nanterino import properties   # lazy: graph.py imports the node packages
+        # lot M4: the value (constant, `$x` or a value source) is written through the `variable` set target
+        # (type clamp + variable bounds = the former graph.fit_value, then Brain._set_var).
+        properties.write("variable", ctx, ctx.brain._resolve(value, ctx.kw), name=name)

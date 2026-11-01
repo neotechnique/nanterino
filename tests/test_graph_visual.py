@@ -174,7 +174,8 @@ def test_vocabulary():
     assert isinstance(counts.pop("media"), int)
     assert counts == {"events": 23, "actions": 38, "guards": 18, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
                       "var_types": 19, "list_types": 17, "ops": 6, "op_sets": 19, "scopes": 2, "list_kinds": 2, "list_modes": 3,
-                      "weekdays": 7, "themes": 11, "theme_slots": 5, "variables": 2}, counts
+                      "weekdays": 7, "themes": 11, "theme_slots": 5, "variables": 2,
+                      "properties": 2}, counts   # CHANGED (lot M4): + properties {get, set} (additive key, last)
     ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
     assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])
     assert [x["id"] for x in v["variables"]["names"][:len(G.SYSTEM_VARS)]] == list(G.SYSTEM_VARS)   # CHANGED (lot L11): 13 system vars

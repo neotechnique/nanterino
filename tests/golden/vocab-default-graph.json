@@ -622,7 +622,8 @@
      "type": "value",
      "of": "name",
      "label": "Valeur",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   },
@@ -651,7 +652,8 @@
      "type": "number",
      "options": [],
      "label": "Quantité",
-     "help": "Un nombre (négatif pour retirer)."
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
     }
    ]
   },
@@ -715,7 +717,8 @@
      "type": "value",
      "of": "list",
      "label": "Élément",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   },
@@ -760,7 +763,8 @@
      "type": "value",
      "of": "list",
      "label": "Élément",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   },
@@ -969,14 +973,16 @@
      "utterance": true,
      "vars": true,
      "label": "Clé",
-     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte.",
+     "props": "string"
     },
     {
      "name": "value",
      "type": "value",
      "of": "dict",
      "label": "Valeur",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   },
@@ -1023,7 +1029,8 @@
      "utterance": true,
      "vars": true,
      "label": "Clé",
-     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte.",
+     "props": "string"
     }
    ]
   },
@@ -1055,7 +1062,8 @@
      "utterance": true,
      "vars": true,
      "label": "Clé (ou $utterance)",
-     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte.",
+     "props": "string"
     },
     {
      "name": "fallback",
@@ -1063,7 +1071,8 @@
      "max_len": 300,
      "optional": true,
      "label": "Texte de repli",
-     "help": "Texte dit quand la clé est absente ; vide = rien n'est dit."
+     "help": "Texte dit quand la clé est absente ; vide = rien n'est dit.",
+     "props": "string"
     }
    ]
   }
@@ -1197,7 +1206,8 @@
      "type": "value",
      "of": "name",
      "label": "Valeur",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   },
@@ -1262,7 +1272,8 @@
      "of": "list",
      "label": "Valeur (ou $utterance)",
      "utterance": true,
-     "help": "Élément cherché ; « $utterance » = la phrase que le visiteur vient de dire."
+     "help": "Élément cherché ; « $utterance » = la phrase que le visiteur vient de dire.",
+     "props": "of"
     }
    ]
   },
@@ -1350,7 +1361,8 @@
      "options": [],
      "min": 0,
      "label": "Secondes",
-     "help": "Nombre de secondes (0 ou plus)."
+     "help": "Nombre de secondes (0 ou plus).",
+     "props": "number"
     }
    ]
   },
@@ -1452,7 +1464,8 @@
      "type": "value",
      "of": "name",
      "label": "Date (ou $heure)",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   },
@@ -1499,7 +1512,8 @@
      "utterance": true,
      "vars": true,
      "label": "Clé (ou $utterance)",
-     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte.",
+     "props": "string"
     }
    ]
   },
@@ -1546,7 +1560,8 @@
      "utterance": true,
      "vars": true,
      "label": "Clé (ou $utterance)",
-     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte.",
+     "props": "string"
     },
     {
      "name": "op",
@@ -1575,7 +1590,8 @@
      "type": "value",
      "of": "dict",
      "label": "Valeur",
-     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus.",
+     "props": "of"
     }
    ]
   }
@@ -2760,6 +2776,517 @@
     "max": null,
     "scope": "global",
     "persist": false
+   }
+  ]
+ },
+ "properties": {
+  "get": [
+   {
+    "id": "constant",
+    "label": "Valeur fixe",
+    "help": "Une valeur écrite telle quelle (nombre, texte, vrai / faux...).",
+    "icon": "square",
+    "out": "same",
+    "args": [
+     {
+      "name": "value",
+      "type": "value",
+      "props": "same",
+      "label": "Valeur"
+     }
+    ]
+   },
+   {
+    "id": "variable",
+    "label": "Variable",
+    "help": "La valeur actuelle d'une variable (variables système comprises).",
+    "icon": "circle-dot",
+    "out": {
+     "of": "name"
+    },
+    "args": [
+     {
+      "name": "name",
+      "type": "var",
+      "var_types": [
+       "bool",
+       "number",
+       "string",
+       "choice",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "timer",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "writable": false,
+      "label": "Variable"
+     }
+    ]
+   },
+   {
+    "id": "utterance",
+    "label": "Phrase entendue",
+    "help": "La phrase que le visiteur vient de dire (sinon la dernière entendue).",
+    "icon": "ear",
+    "out": "phrase",
+    "args": []
+   },
+   {
+    "id": "list_item",
+    "label": "Élément d'une liste",
+    "help": "Le premier, le dernier, un élément au hasard ou celui d'une position donnée (1 = le premier).",
+    "icon": "text-caption",
+    "out": {
+     "of": "list"
+    },
+    "args": [
+     {
+      "name": "list",
+      "type": "list",
+      "list_types": [
+       "string",
+       "number",
+       "bool",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "list_kinds": [
+       "list"
+      ],
+      "writable": false,
+      "label": "Liste"
+     },
+     {
+      "name": "pick",
+      "type": "enum",
+      "options": [
+       "first",
+       "last",
+       "random",
+       "index"
+      ],
+      "labels": {
+       "first": "Le premier",
+       "last": "Le dernier",
+       "random": "Au hasard",
+       "index": "À la position"
+      },
+      "label": "Lequel",
+      "default": "first"
+     },
+     {
+      "name": "index",
+      "type": "number",
+      "options": [],
+      "props": "number",
+      "label": "Position",
+      "default": 1
+     }
+    ]
+   },
+   {
+    "id": "dict_value",
+    "label": "Valeur d'un dictionnaire",
+    "help": "La valeur associée à une clé d'un dictionnaire (valeur par défaut du type si la clé manque).",
+    "icon": "keyboard",
+    "out": {
+     "of": "dict"
+    },
+    "args": [
+     {
+      "name": "dict",
+      "type": "list",
+      "list_types": [
+       "string",
+       "number",
+       "bool",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "list_kinds": [
+       "dict"
+      ],
+      "writable": false,
+      "label": "Dictionnaire"
+     },
+     {
+      "name": "key",
+      "type": "text",
+      "max_len": 60,
+      "utterance": true,
+      "vars": true,
+      "props": "string",
+      "label": "Clé"
+     }
+    ]
+   },
+   {
+    "id": "system",
+    "label": "Valeur du robot",
+    "help": "Une information du robot : heure, jour, volume, visage vu, tours de parole...",
+    "icon": "eye",
+    "out": {
+     "of": "name"
+    },
+    "args": [
+     {
+      "name": "name",
+      "type": "enum",
+      "options": [
+       "etat",
+       "tours",
+       "max_tours",
+       "reparations",
+       "max_reparations",
+       "heure",
+       "jour",
+       "derniere_phrase",
+       "visage_vu",
+       "volume",
+       "expression",
+       "regard",
+       "nb_visiteurs_jour"
+      ],
+      "labels": {
+       "etat": "État",
+       "tours": "Tours de parole",
+       "max_tours": "Tours maximum",
+       "reparations": "Demandes de répétition",
+       "max_reparations": "Répétitions maximum",
+       "heure": "Maintenant",
+       "jour": "Jour",
+       "derniere_phrase": "Dernière phrase",
+       "visage_vu": "Visage vu",
+       "volume": "Volume",
+       "expression": "Expression",
+       "regard": "Regard",
+       "nb_visiteurs_jour": "Visiteurs du jour"
+      },
+      "label": "Information"
+     }
+    ]
+   },
+   {
+    "id": "random_number",
+    "label": "Nombre au hasard",
+    "help": "Un nombre tiré au hasard entre un minimum et un maximum (entier si les deux bornes sont entières).",
+    "icon": "question-mark",
+    "out": "number",
+    "args": [
+     {
+      "name": "min",
+      "type": "number",
+      "options": [],
+      "props": "number",
+      "label": "Minimum"
+     },
+     {
+      "name": "max",
+      "type": "number",
+      "options": [],
+      "props": "number",
+      "label": "Maximum"
+     }
+    ]
+   },
+   {
+    "id": "random_from_list",
+    "label": "Au hasard dans une liste",
+    "help": "Un élément d'une liste tiré au hasard.",
+    "icon": "refresh",
+    "out": {
+     "of": "list"
+    },
+    "args": [
+     {
+      "name": "list",
+      "type": "list",
+      "list_types": [
+       "string",
+       "number",
+       "bool",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "list_kinds": [
+       "list"
+      ],
+      "writable": false,
+      "label": "Liste"
+     }
+    ]
+   },
+   {
+    "id": "intent_match",
+    "label": "La phrase correspond à un motif",
+    "help": "Vrai si la phrase du visiteur correspond au motif choisi (mots ou expression).",
+    "icon": "message",
+    "out": "bool",
+    "args": [
+     {
+      "name": "intent",
+      "type": "intent",
+      "label": "Motif"
+     }
+    ]
+   },
+   {
+    "id": "config_value",
+    "label": "Réglage du robot",
+    "help": "La valeur d'un réglage (délais, interrupteurs, phrases du robot).",
+    "icon": "lock",
+    "out": {
+     "of": "key"
+    },
+    "args": [
+     {
+      "name": "key",
+      "type": "enum",
+      "options": [
+       "silence_relance_s",
+       "silence_cloture_s",
+       "cloture_to_veille_s",
+       "lost_face_s",
+       "idle_long_s",
+       "volume",
+       "face_scale",
+       "auto_greet_on_face",
+       "barge_in",
+       "greeting",
+       "relance",
+       "goodbye",
+       "repair_text"
+      ],
+      "label": "Réglage"
+     }
+    ]
+   },
+   {
+    "id": "elapsed",
+    "label": "Temps écoulé",
+    "help": "Les secondes écoulées depuis une date ou depuis le départ d'un chrono (0 si vide ou arrêté).",
+    "icon": "hourglass",
+    "out": "duration",
+    "args": [
+     {
+      "name": "name",
+      "type": "var",
+      "var_types": [
+       "datetime",
+       "timer"
+      ],
+      "writable": false,
+      "label": "Date ou chrono"
+     }
+    ]
+   },
+   {
+    "id": "calc",
+    "label": "Calcul",
+    "help": "Valeur A, opérateur (+ − × ÷ min max), valeur B ; A et B peuvent être d'autres sources.",
+    "icon": "plus",
+    "out": "number",
+    "args": [
+     {
+      "name": "a",
+      "type": "number",
+      "options": [],
+      "props": "number",
+      "label": "Valeur A"
+     },
+     {
+      "name": "op",
+      "type": "enum",
+      "options": [
+       "+",
+       "-",
+       "*",
+       "/",
+       "min",
+       "max"
+      ],
+      "labels": {
+       "+": "plus",
+       "-": "moins",
+       "*": "multiplié par",
+       "/": "divisé par",
+       "min": "le plus petit de",
+       "max": "le plus grand de"
+      },
+      "label": "Opérateur"
+     },
+     {
+      "name": "b",
+      "type": "number",
+      "options": [],
+      "props": "number",
+      "label": "Valeur B"
+     }
+    ]
+   }
+  ],
+  "set": [
+   {
+    "id": "variable",
+    "label": "Variable",
+    "help": "Donne la valeur à une variable (bornes et arrondis du type appliqués).",
+    "icon": "arrow-right",
+    "args": [
+     {
+      "name": "name",
+      "type": "var",
+      "var_types": [
+       "bool",
+       "number",
+       "string",
+       "choice",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "writable": true,
+      "label": "Variable"
+     }
+    ]
+   },
+   {
+    "id": "list_item",
+    "label": "Nouvel élément de liste",
+    "help": "Ajoute la valeur à la fin d'une liste (le mode de la liste garde ou retire les anciens éléments).",
+    "icon": "plus",
+    "args": [
+     {
+      "name": "list",
+      "type": "list",
+      "list_types": [
+       "string",
+       "number",
+       "bool",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "list_kinds": [
+       "list"
+      ],
+      "writable": true,
+      "label": "Liste"
+     }
+    ]
+   },
+   {
+    "id": "dict_key",
+    "label": "Clé de dictionnaire",
+    "help": "Associe la valeur à une clé d'un dictionnaire (remplace l'ancienne valeur).",
+    "icon": "keyboard",
+    "args": [
+     {
+      "name": "dict",
+      "type": "list",
+      "list_types": [
+       "string",
+       "number",
+       "bool",
+       "duration",
+       "integer",
+       "percent",
+       "datetime",
+       "expression",
+       "gaze",
+       "phrase",
+       "media",
+       "intent_ref",
+       "list_ref",
+       "state_ref",
+       "color",
+       "vector2",
+       "vector3"
+      ],
+      "list_kinds": [
+       "dict"
+      ],
+      "writable": true,
+      "label": "Dictionnaire"
+     },
+     {
+      "name": "key",
+      "type": "text",
+      "max_len": 60,
+      "utterance": true,
+      "vars": true,
+      "props": "string",
+      "label": "Clé"
+     }
+    ]
    }
   ]
  }

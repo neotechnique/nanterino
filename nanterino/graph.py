@@ -95,11 +95,17 @@ Node modules (lot M1, 2026-11-01)
       NUMERIC_TYPES ... / LIST_KINDS / LIST_MODES are views of those registries; type_ok, coerce_value, compatible,
       fit_value, graph_choices, persisted_ok and the parser's type checks call the type modules; a list declaration's
       kind-specific body is parsed by its kind module. The vocabulary stays byte-identical (tests/golden).
+    - Lot M4: value sources (nanterino/properties/get/<id>.py) and write targets (properties/set/<id>.py). The fields
+      of PROPERTY_FIELD kinds accept `{get: <source>, ...}` besides a constant (and `$x` / `$utterance` where they
+      always did): _Parser.var_args validates them through properties.check_field (typing end to end, bounded nesting)
+      and stores the compiled form; Brain._resolve evaluates them. The vocabulary gains additive keys only
+      (`properties`, per-argument `props`): tests/golden/vocab-*.pre-m4.json = the new golden minus those keys.
 
 How to test
     python -m tests.test_brain_graph      (parity traces + invalid-graph / watchdog / heartbeat tests)
     python -m tests.test_nodes_registry   (node discovery, drop-a-file, broken module, vocab golden)
     python -m tests.test_vartypes_registry   (variable types / list kinds / list modes: discovery, contract, persistence)
+    python -m tests.test_properties      (value sources / write targets: typing, run time, shorthands, round trips)
 """
 import datetime
 import os
@@ -113,6 +119,7 @@ import yaml
 from .log import log
 from . import nodes as _nodes
 from . import listkinds as _listkinds, listmodes as _listmodes, vartypes as _vartypes
+from . import properties as _props
 
 DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph.yaml")
 
@@ -210,6 +217,17 @@ LIST_KIND_RULES = {
 ARG_KINDS = frozenset(VAR_KIND_TYPES) | frozenset(LIST_KIND_RULES) | frozenset({
     "cfgkey", "event", "delay", "text", "expression", "seconds", "gazemode", "value", "listvalue", "op", "number",
     "dictkey", "seconds0", "hhmm", "weekdays", "optext"})
+# Lot M4 (properties): the argument kinds whose field accepts a value source `{get: ...}`, with the field type the
+# source must fit ("of" = the type of the variable / list / dictionary the call names; else a variable type id). The
+# names-of-things kinds (variables, lists, events, enumerations ...) stay plain references. `text` (say_text) is not
+# here on purpose: its phrase is synthesised once at graph load. Trigger arguments (var_changed / timer_reached) are
+# filters, not values: their modules keep their own check.
+PROPERTY_FIELD = {"value": "of", "listvalue": "of", "dictkey": "string", "number": "number", "seconds0": "number",
+                  "optext": "string"}
+# Kinds that always accepted `$x` / `$utterance`: there {get: variable / utterance} compiles to that same shorthand.
+SHORTHAND_KINDS = frozenset({"value", "listvalue", "dictkey"})
+# Kinds whose node code reads the argument without Brain._resolve: brain._build_engine evaluates their sources first.
+PRE_RESOLVE_KINDS = frozenset(PROPERTY_FIELD) - SHORTHAND_KINDS
 # Events whose transitions carry `var:` / `value:` (lot M2: the triggers that declare args; a tuple, in order).
 WATCH_EVENTS = tuple(n.id for n in _TRIGGER_NODES.values() if n.args)
 # Read-only views of the brain's own state: (type, label, help). `etat` gets the state names as choices, `jour` the
@@ -434,6 +452,9 @@ def all_icons() -> list:
         used |= set(d.values())
     used |= {ic for _l, ic, _h in THEME_DOC.values()}
     return sorted(used | {DELAY_ICON, DEFAULT_STATE_ICON, DEFAULT_INTENT_ICON})
+
+
+_props.check_registry(_props.GETS, _props.SETS, all_icons(), VAR_TYPES)   # lot M4: vendored icons, known output types
 
 _TOP_KEYS = {"version", "description", "states", "global", "intents", "variables"}
 _STATE_KEYS = {"description", "on_enter", "transitions"}
@@ -707,7 +728,7 @@ class _Parser:
                 self.err(where, "arguments of %s must be a mapping" % name); continue
             if set(args) != set(spec):
                 self.err(where, "action %s takes %s, got %s" % (name, sorted(spec) or "no argument", sorted(args))); continue
-            self.var_args(where, name, spec, args)
+            args = dict(args, **self.var_args(where, name, spec, args))   # lot M4: compiled value sources
             for k, kind in spec.items():
                 val = args[k]
                 if kind == "cfgkey" and val not in self.cfg:
@@ -762,12 +783,27 @@ class _Parser:
                 what, val, vtype, " (choices: %s)" % ", ".join(map(str, choices)) if vtype == "choice" else ""))
 
     def var_args(self, where, name, spec, args):
-        """Check the variable-related arguments of an action / guard call (kinds of ACTION_DOC / GUARD_ARGS)."""
+        """Check the variable-related arguments of an action / guard call (kinds of ACTION_DOC / GUARD_ARGS).
+
+        Returns {argument: compiled value} for the arguments given as a value source (lot M4); the caller stores
+        those instead of the raw mapping (a shorthand source compiles to its `$x` / `$utterance` / literal form, which
+        then goes through the pre-M4 checks below, messages included)."""
         target = None                                   # (type, choices) the `value` argument must match
         target_var = None                               # lot L11: user Variable behind `target` (bounds diagnostic)
+        fixed = {}
         for k, kind in spec.items():
             val = args.get(k)
             what = "%s.%s" % (name, k)
+            if kind in PROPERTY_FIELD and _props.is_property(val):
+                field = target if PROPERTY_FIELD[kind] == "of" else (PROPERTY_FIELD[kind], ())
+                if field is None:
+                    continue   # the variable / list argument was refused: already reported
+                val = _props.check_field(self, where, what, field[0], field[1], val, shorthand=kind in SHORTHAND_KINDS)
+                if val is _props.INVALID:
+                    continue
+                fixed[k] = val
+                if _props.is_property(val):
+                    continue   # fully checked by the source (typing included)
             if kind in VAR_KIND_TYPES:
                 writable, allowed = VAR_KIND_TYPES[kind]
                 info = self.var_info(val) if isinstance(val, str) else None
@@ -843,6 +879,7 @@ class _Parser:
                         self.diag(where, "%s: %r is outside [%s, %s] of variable %r (clamped at run time)" % (
                             what, val, "-inf" if tv.vmin is None else tv.vmin, "+inf" if tv.vmax is None else tv.vmax, tv.name),
                             "out_of_bounds")
+        return fixed
 
     def variables(self, d, intent_names):
         """Parse the `variables:` block into self.vars / self.lists."""
@@ -986,7 +1023,7 @@ class _Parser:
             if set(args) != set(spec):
                 self.err(where, "guard %s takes %s, got %s" % (g, sorted(spec) or "no argument", sorted(args))); continue
             n_err = len(self.errors)
-            self.var_args(where, g, spec, args)
+            args = dict(args, **self.var_args(where, g, spec, args))   # lot M4: compiled value sources
             if len(self.errors) == n_err:
                 when.append(Cond(g, neg, types.MappingProxyType(dict(args))))
         when = tuple(when)
@@ -1199,12 +1236,16 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
                 args.append({"name": a, "type": "number", "options": list(DELAY_DOC), "label": alabel})
         for d, (_a, (kind, _l)) in zip(args, spec.items()):
             d["help"] = ARG_KIND_HELP.get(kind, "")
+            if kind in PROPERTY_FIELD:   # lot M4 (additive key): the field accepts a value source of this type
+                d["props"] = PROPERTY_FIELD[kind]
         actions.append({"id": name, "label": label, "help": hlp, "icon": ACTION_ICON[name], "theme": ACTION_THEME[name], "args": args})
     guards = []
     for k, v in GUARD_DOC.items():
         spec = GUARD_ARGS.get(k, {})
         g = {"id": k, "label": v[0], "help": v[1], "icon": GUARD_ICON[k], "theme": GUARD_THEME[k],
-             "args": [dict(var_arg(a, kind, alabel), help=ARG_KIND_HELP.get(kind, "")) for a, (kind, alabel) in spec.items()]}
+             "args": [dict(var_arg(a, kind, alabel), help=ARG_KIND_HELP.get(kind, ""),
+                           **({"props": PROPERTY_FIELD[kind]} if kind in PROPERTY_FIELD else {}))   # lot M4 (additive)
+                      for a, (kind, alabel) in spec.items()]}
         if k in GUARD_AS_VARS:
             g["as_vars"] = GUARD_AS_VARS[k]
         guards.append(g)
@@ -1234,7 +1275,9 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             "themes": [{"id": k, "label": lab, "icon": ic, "help": hlp, "order": i}
                        for i, (k, (lab, ic, hlp)) in enumerate(THEME_DOC.items())],
             "theme_slots": dict(THEME_SLOTS),
-            "variables": variable_entries(graph, cfg)}
+            "variables": variable_entries(graph, cfg),
+            # lot M4 (additive key, last): value sources + write targets for the editor's source picker (lot M5)
+            "properties": _props.vocabulary(_self_mod, cfg)}
 
 
 def _type_entry(k: str, graph: "Graph | None", cfg: dict) -> dict:
