@@ -17,7 +17,7 @@ Boundary
     - The vocabulary (events, actions, guards ...) is never duplicated here: it is read from
       `nanterino.graph`, the single registry.
     - Layout positions live in `graph.layout.json` next to the graph file, keyed by a STRUCTURAL key
-      (`<state>/t<index>/<position in chain>`, `<state>/enter/<pos>`, `global/t<i>/<pos>`, `start`),
+      (`<state>/t<index>/<position in chain>`, `<state>/enter/<pos>`, `global/t<i>/<pos>`, `start` for the hub / go-to forms only),
       because node ids are regenerated on every `to_visual()`.
 
 Wave 2 (2026-10-31): trigger `params.enabled`, state icons (layout `icons`), intent errors that name the
@@ -52,6 +52,10 @@ Lot L3 (2026-10-31, "si / sinon"): in the shared trigger/condition tree, a trans
     a negated twin. from_visual walks `true` before `false`, so it recompiles the same transitions in the same order
     (`{not: g}` comes from the false port). Only a true -> false step merges (never back to `true`). Leading actions
     common to both branches stay duplicated: a condition may not follow an action (the engine evaluates guards first).
+
+Lot L4 (2026-11-01, "sans nœud Début"): the variables drawing emits NO `start` node and no `start` layout key (triggers
+    start their chains; the start state is fixed by the code). from_visual still accepts a legacy `start` node silently
+    (display only, ignored); the hub / go-to drawings keep theirs for migration tests.
 
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
@@ -314,7 +318,9 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         specs.append(spec_of(group, key, trig, str(t.get("description") or ""), conds_for(t, state),
                              _calls(t.get("do")), _calls(t.get("then")), t.get("to"), t.get("reason"), guards, allowed, scope))
 
-    start_id = mk("start", {"state": start_state}, None, "Démarrage")
+    # Lot L4 (2026-11-01): the variables drawing has NO Start node (a trigger starts its own chain; the start state is
+    # fixed by the code). The hub / go-to drawings keep it so old documents are still produced as they were.
+    start_id = None if vform else mk("start", {"state": start_state}, None, "Démarrage")
     states_raw = graph_dict.get("states") or {}
     if new:   # one hub node per state, right after Start (Start -> initial state is display only)
         for sname in states_raw:
@@ -430,10 +436,6 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     # ---- layout: saved positions per node, the rest automatic (layered, see graph_layout)
     auto = GL.hub_layout(nodes, links) if new else (GL.var_layout(nodes, links) if vform else GL.auto_layout(nodes, links))
     pos = {nid: auto[nid] for nid in auto}
-    if vform:   # Start sits just left of the first node of its state's column (display only, never linked)
-        first = [auto[n["id"]] for n in nodes if n.get("group") == start_state and n["id"] in auto]
-        auto[start_id] = pos[start_id] = ((min(x for x, _y in first) - GL.COLW, min(y for _x, y in first)) if first
-                                          else (-GL.COLW, GL.TOP))
     if new and start_state in state_nid:   # Start sits just left of its state hub, on the same row
         sx, sy = auto[state_nid[start_state]]
         auto[start_id] = pos[start_id] = (sx - GL.COLW, sy)
@@ -451,14 +453,16 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         p = saved.get("state/" + sid) if usable else None
         if isinstance(p, dict):
             saved_pos[nid] = (p.get("x", 0), p.get("y", 0))
-    if usable and (saved_pos or "start" in saved):
-        max_y = max([v.get("y", 0) for v in saved.values() if isinstance(v, dict)] + [0])
+    if usable and (saved_pos or (start_id and "start" in saved)):
+        # a legacy `start` key of a vars layout is ignored (lot L4: no Start node to place)
+        max_y = max([v.get("y", 0) for k, v in saved.items() if isinstance(v, dict) and (start_id or k != "start")] + [0])
         for nid in auto:
             if nid == start_id:
                 continue
             pos[nid] = saved_pos.get(nid) or (auto[nid][0], auto[nid][1] + max_y + 260)
-        pos[start_id] = (saved["start"]["x"], saved["start"]["y"]) if "start" in saved else auto.get(start_id, (0, 0))
-    else:
+        if start_id:
+            pos[start_id] = (saved["start"]["x"], saved["start"]["y"]) if "start" in saved else auto.get(start_id, (0, 0))
+    elif start_id:
         pos[start_id] = auto.get(start_id, (0, 0))
     for n in nodes:
         n["x"], n["y"] = pos[n["id"]]
@@ -1039,7 +1043,8 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
     if icons:   # only the icons the user changed; the registry supplies the rest
         layout["icons"] = icons
     for nid, n in nodes.items():
-        if n["kind"] == "start":
+        # lot L4: a legacy Start node in a variables document is accepted and ignored (not even its position is kept)
+        if n["kind"] == "start" and layout.get("form") != "vars":
             layout["nodes"]["start"] = {"x": n.get("x", 0), "y": n.get("y", 0)}
     for sid_, nid_ in state_node_of.items():
         layout["nodes"]["state/" + sid_] = {"x": nodes[nid_].get("x", 0), "y": nodes[nid_].get("y", 0)}

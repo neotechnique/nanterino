@@ -8,7 +8,8 @@ Purpose
 
 Boundary
     - Input: `nodes` (editor node dicts: id, kind, group, params, description) and `links` ({from, port, to}).
-    - Output: {node id: (x, y)}; nothing is written. The start node (group None) is placed by the caller.
+    - Output: {node id: (x, y)}; nothing is written. The start node (group None, hub / go-to drawings only; the variables drawing has none since lot L4)
+      is placed by the caller.
     - Node height is an ESTIMATE of the editor's rendering (214 px wide node, 13-14 px text that wraps the
       description): kept slightly generous so nodes never overlap even for long French descriptions.
 
@@ -39,7 +40,7 @@ NODE_W = 214            # editor node width (web/editor.css .drawflow-node)
 COLW = 270              # column pitch: node width + room for the link curves
 GAP_Y = 26              # minimum free space between two stacked nodes
 GROUP_GAP = 110         # free space between two state bands (leaves room for theme frames)
-TOP = 190               # y of the first band (below the start node)
+TOP = 190               # y of the first band (room for the frame titles; was below the start node)
 
 THEMES = [               # (frame id, title, colour, state groups) - cosmetic only
     ("t-accueil", "Accueil", "#4f8ef7", ("veille", "accueil")),

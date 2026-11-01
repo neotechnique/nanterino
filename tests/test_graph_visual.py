@@ -103,8 +103,19 @@ def test_roundtrip_default():
     assert sorted(doc["order"]) == sorted(n["id"] for n in doc["nodes"] if n["kind"] == "trigger")
     # CHANGED (lot L1): the default drawing has no state hub and no go-to node; every chain ends on its last action
     kinds = {n["kind"] for n in doc["nodes"]}
-    assert kinds == {"start", "trigger", "condition", "action"}, kinds
+    # CHANGED (lot L4): no Start node either (a trigger starts its chain)
+    assert kinds == {"trigger", "condition", "action"}, kinds
     assert not [n for n in doc["nodes"] if n["kind"] in ("state", "goto")], "0 state / goto node"
+    assert not [n for n in doc["nodes"] if n["kind"] == "start"], "0 start node"
+    raw_l, layout_l = compile_ok(doc)
+    assert "start" not in layout_l["nodes"], "no start layout key"
+    # a legacy Start node (old saved document) is still accepted and ignored: same graph, no start key
+    old_doc = to_json_and_back(doc)
+    old_doc["nodes"].insert(0, {"id": "s0", "kind": "start", "x": -300, "y": 0, "description": "", "params": {"state": "veille"}})
+    raw_o, layout_o = compile_ok(old_doc)
+    assert semantic(raw_o) == semantic(raw_l) and "start" not in layout_o["nodes"], "legacy start not ignored"
+    assert not [n for n in V.to_visual(raw_o, layout_o)["nodes"] if n["kind"] == "start"]
+    assert not [n for n in V.to_visual(raw_o, {"form": "vars", "nodes": {"start": {"x": 1, "y": 1}}})["nodes"] if n["kind"] == "start"]
     trig_ids = {n["id"] for n in doc["nodes"] if n["kind"] == "trigger"}
     assert not [l for l in doc["links"] if l["to"] in trig_ids], "a wire enters a trigger"
     # the L6 hub drawing (one state node per state, in state order) still round-trips: migration of old documents

@@ -1,7 +1,7 @@
 /**
  * Nanterino visual graph editor (Game Creator 2 style node editor).
  *
- * Purpose : draw / edit the robot dialogue graph as nodes (Start, Trigger, Condition, Action, Goto, End) and
+ * Purpose : draw / edit the robot dialogue graph as nodes (Trigger, Condition, Action, End; legacy Goto / State) and
  *           round-trip it through the node-document contract (Notes/graph-visual-format.md).
  * Boundary: talks only to GET /api/graph/visual, /api/graph/vocab, /api/graph, /api/graph/versions, /api/graph/vars,
  *           /api/graph/trace, POST /api/graph/visual, /api/graph/simulate, /api/graph/reset,
@@ -30,6 +30,8 @@
  *           L3 (2026-10-31): if/else pairs arrive as ONE condition using its Faux output (server side); every wire,
  *           including the one being dragged (paintDragWire), is a gradient from the SOURCE node kind colour to the
  *           target kind colour: a Faux wire starts green like its condition, the red pastille is only a port marker.
+ *           L4 (2026-11-01): no Start node (palette, Insérer menu and import drop it; a trigger starts its chain); wires
+ *           follow dragged nodes again: the gradient <defs> sits after the wire path (Drawflow writes svg.children[0]).
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -87,6 +89,8 @@
   }
 
   const KINDS = {
+    // Legacy Start (lot L4: the server no longer produces it, rebuild() drops one found in an old document, the palette
+    // and the context menu never offer it). Kept only so code paths that still name the kind stay harmless.
     start:     { label: 'Début',            cls: 'start',     ins: 0, outs: 1, color: 'var(--start)',   icon: 'flag' },
     // Vars L2: a trigger starts a chain, it has NO input port (contract: inputs = 0; the server refuses any wire into it).
     trigger:   { label: 'Déclencheur',      cls: 'trigger',   ins: 0, outs: 1, color: 'var(--trigger)', icon: 'bolt' },
@@ -98,8 +102,8 @@
     // Legacy L6 hub (import tolerance only: the server never produces it now). Drawn as an inert card, no ports.
     state:     { label: 'État (ancien)',    cls: 'state',     ins: 0, outs: 0, color: 'var(--state)',   icon: 'circle-dot' },
   };
-  const NOT_IN_PALETTE = new Set(['goto', 'state']);
-  const NODE_KINDS = ['start', 'trigger', 'condition', 'action', 'end'];   // "Blocs" section of the palette
+  const NOT_IN_PALETTE = new Set(['start', 'goto', 'state']);
+  const NODE_KINDS = ['trigger', 'condition', 'action', 'end'];   // "Blocs" section of the palette (L4: no Start)
   // Post-it palette (pastel), first = default.
   const NOTE_COLORS = [['Jaune', '#fff59d'], ['Rose', '#f8bbd0'], ['Vert', '#c8e6c9'], ['Bleu', '#bbdefb'], ['Orange', '#ffe0b2'], ['Violet', '#e1bee7']];
   // Link rules (mirror of graph_visual.from_visual; the server stays the judge): Start is display only (no link),
@@ -398,6 +402,9 @@
     for (const k in doc) if (!['nodes', 'links', 'error', 'pending'].includes(k)) meta[k] = clone(doc[k]);
     if (!meta.version) meta.version = 1;
     nidToDf.clear();
+    // L4: an interaction still in progress refers to DOM nodes that clear() is about to drop (undo/redo during a drag)
+    editor.drag = false; editor.drag_point = false; editor.connection = false; editor.editor_selected = false;
+    editor.ele_selected = null; editor.node_selected = null; editor.connection_selected = null; editor.connection_ele = null;
     editor.clear();
     selDf = null; selConn = null;
     linkMeta = new Map();
@@ -408,6 +415,9 @@
       if (Object.keys(mt).length) linkMeta.set(linkKey(l.from, l.port, l.to), mt);
     });
     (doc.nodes || []).forEach((n) => {
+      // Lot L4: a legacy Start node (old saved document / undo entry) is dropped silently: triggers start their chains
+      // and the start state is fixed by the code. Its wires are skipped below (no Drawflow id), the server ignores it.
+      if (n.kind === 'start') { dbg('legacy start node dropped ' + n.id); return; }
       const m = clone(n); delete m.x; delete m.y;
       m.params = m.params || {}; m.description = m.description || '';
       addNodeFromModel(m, n.x || 0, n.y || 0);
@@ -827,6 +837,10 @@
   // class="main-path" d="M x1 y1 C ... x2 y2">, in canvas coordinates. A userSpaceOnUse linearGradient from the path's
   // first to its last point (the same space as `d`) follows the wire whatever its shape; it is refreshed whenever
   // Drawflow redraws a node's wires (updateConnectionNodes is wrapped in boot()).
+  // INVARIANT (lot L4 fix "wires don't follow a dragged node"): Drawflow 0.0.60 updates a wire by writing `d` into
+  // `svg.children[0]` (updateConnectionNodes, updateConnection, reroute code) instead of looking up `.main-path`. The
+  // gradient <defs> is therefore APPENDED after the path; inserted first (as in L3) it received every new `d` and the
+  // visible path froze at its first shape while its node moved.
   const KIND_HEX = { start: '#2ea043', end: '#e5534b', trigger: '#e3b341', action: '#4f8ef7', condition: '#56d364', state: '#a371f7', goto: '#a371f7' };
   let gradSeq = 0;
   function paintWires(only) {
@@ -851,7 +865,7 @@
         g.id = 'wg' + (++gradSeq);
         g.setAttribute('gradientUnits', 'userSpaceOnUse');
         g.append(document.createElementNS(NS, 'stop'), document.createElementNS(NS, 'stop'));
-        defs.append(g); svg.insertBefore(defs, svg.firstChild);
+        defs.append(g); svg.append(defs);   // L4: AFTER the path, Drawflow writes `d` into svg.children[0]
       }
       g.setAttribute('x1', x1); g.setAttribute('y1', y1); g.setAttribute('x2', x2); g.setAttribute('y2', y2);
       const stops = g.querySelectorAll('stop');
@@ -891,7 +905,7 @@
       g.id = 'wg' + (++gradSeq);
       g.setAttribute('gradientUnits', 'userSpaceOnUse');
       g.append(document.createElementNS(NS, 'stop'), document.createElementNS(NS, 'stop'));
-      defs.append(g); svg.insertBefore(defs, svg.firstChild);
+      defs.append(g); svg.append(defs);     // L4: after the path (Drawflow's updateConnection writes children[0])
     }
     if (nums && nums.length >= 4) {
       let x2 = +nums[nums.length - 2];
@@ -1295,12 +1309,11 @@
   // First view: the true fit when readable, else a readable zoom on the start state's band.
   function initialView() {
     if (fitZoom() >= 0.5) { fit(); return; }
-    const st = Object.values(dfData()).find((d) => d.data.model.kind === 'start');
-    // L7 / Vars L2: open on the top-left corner of the start state's column (Start + its first chains) at a readable
-    // zoom, so the column titles run along the top of the screen
-    const r = bandRects()[(st && st.data.model.params.state) || 'veille'];
+    // L7 / Vars L2: open on the top-left corner of the start state's column (its first chains) at a readable
+    // zoom, so the column titles run along the top of the screen. L4: no Start node, the start state is veille.
+    const r = bandRects().veille;
     if (!r) { fit(); return; }
-    const x0 = st ? Math.min(r.x0, st.pos_x - 24) : r.x0, z = 0.75;
+    const x0 = r.x0, z = 0.75;
     setView(z, 16 - x0 * z, 16 - (r.y0 - 30) * z);
   }
   function setView(z, cx, cy) {
@@ -1404,7 +1417,7 @@
     commitSoon();
   }
   // Nearest position (spiral on a 40 px grid around x, y) where a w x h note touches no node, badge or other note.
-  function noteSpot(x, y, w, hh, selfId) {
+  function noteSpot(x, y, w, hh, selfId, okFn) {   // okFn(x, y): extra constraint on a candidate (L4: visible spot)
     const boxes = Object.keys(dfData()).map((id) => nodeBox(id));
     notes().forEach((o) => { if (o.id !== selfId) boxes.push({ x0: o.x, y0: o.y, x1: o.x + o.w, y1: o.y + o.h }); });
     // L7 fix round: keep clear of each hub's wire fan too (from the hub's output port to its first chain layer)
@@ -1414,7 +1427,7 @@
       const hb = nodeBox(id), r = bands[m.group];
       boxes.push({ x0: hb.x1, y0: hb.y0, x1: hb.x0 + 330, y1: r ? r.y1 : hb.y1 });
     }
-    const M = 18, free = (px, py) => boxes.every((b) => px + w + M < b.x0 || px > b.x1 + M || py + hh + M < b.y0 || py > b.y1 + M);
+    const M = 18, free = (px, py) => (!okFn || okFn(px, py)) && boxes.every((b) => px + w + M < b.x0 || px > b.x1 + M || py + hh + M < b.y0 || py > b.y1 + M);
     if (free(x, y)) return { x: Math.round(x), y: Math.round(y) };
     for (let r = 1; r <= 60; r++) {
       let best = null;
@@ -1425,7 +1438,7 @@
       }
       if (best) return { x: Math.round(best[0]), y: Math.round(best[1]) };
     }
-    return { x: Math.round(x), y: Math.round(y) };
+    return { x: Math.round(x), y: Math.round(y), free: false };   // nothing free nearby: the caller decides
   }
   function editNote(n, patch, rerender) {
     Object.assign(n, patch);
@@ -1450,9 +1463,19 @@
     if (!pt) { const st = $('#stage').getBoundingClientRect(); pt = canvasPoint(st.x + st.width / 2 - 110, st.y + st.height / 2 - 80); }
     const used = new Set(notes().map((n) => n.id));
     let k = 1; while (used.has('p' + k)) k++;
-    const spot = noteSpot(pt.x, pt.y, 220, 160);      // L7: auto-placed where it covers no node
+    // L7: auto-placed where it covers no node. L4: preferably where its header can be grabbed (inside the visible
+    // stage, below the jump bar); without such a spot the nearest free one is used and the view is panned to it (the
+    // default view now starts flush with the first column, so that spot used to sit under the jump bar).
+    const stR = $('#stage').getBoundingClientRect(), jb = $('#jumpbar'), pr = editor.precanvas.getBoundingClientRect();
+    const top = Math.max(stR.y, jb ? jb.getBoundingClientRect().bottom : stR.y) + 8, z = editor.zoom;
+    const visible = (px, py) => { const sx = pr.x + px * z, sy = pr.y + py * z;
+      return sx >= stR.x + 8 && sy >= top && sx + 220 * z <= stR.right - 8 && sy + 40 * z <= stR.bottom - 8; };
+    const vs = noteSpot(pt.x, pt.y, 220, 160, null, visible);
+    const spot = vs.free !== false ? vs : noteSpot(pt.x, pt.y, 220, 160);
+    const pan = !visible(spot.x, spot.y);
     const n = { id: 'p' + k, text: '', color: NOTE_COLORS[0][1], x: spot.x, y: spot.y, w: 220, h: 160 };
     notes().push(n);
+    if (pan) focusRect({ x0: n.x, y0: n.y, x1: n.x + n.w, y1: n.y + n.h }, editor.zoom);   // same zoom, note centred
     selNote = null; drawNotes(); selectNote(n.id);
     renderPalette(); commitSoon();
     const ta = noteEls.get(n.id) && noteEls.get(n.id).querySelector('textarea'); if (ta) ta.focus();
@@ -1997,7 +2020,7 @@
   // Returns the Drawflow id, null if refused. (Vars L2: no State hubs any more; a trigger is never linked on creation.)
   function addAt(kind, preset, pt, opts) {
     opts = opts || {};
-    if (kind === 'start' && Object.values(dfData()).some((d) => d.data.model.kind === 'start')) { toast('Il y a déjà un nœud Début.', 'err'); return null; }
+    if (kind === 'start') { toast("Le nœud Début n'existe plus : un déclencheur démarre sa chaîne tout seul.", 'err'); return null; }   // L4
     if (kind === 'state' || kind === 'goto') { toast("Les nœuds État / Aller à n'existent plus : utilisez l'action « Changer d'état ».", 'err'); return null; }
     if (editBlocked()) return null;
     const sel = selDf != null && dfNode(selDf) ? selDf : null;
@@ -3151,6 +3174,17 @@
     editor.updateConnection = (x, y) => { origDragUpdate(x, y); paintDragWire(x, y); };
     editor.on('connectionCreated', (c) => { dragSrcKind = null; requestAnimationFrame(() => paintWires('node-' + c.output_id)); });
     editor.on('connectionCancel', () => { dragSrcKind = null; });
+    // Lot L4: Drawflow ends a node drag / pan / wire drag on a `mouseup` of its CONTAINER only. Released over a side
+    // panel (palette, inspector), the drag never ended: the node stayed glued to the pointer when it came back, and
+    // after an undo rebuild the stale `ele_selected` threw TypeErrors on every move. Finish it from window, only when
+    // the release happened outside the canvas (inside, Drawflow's own handler already ran and cleared the flags).
+    const finishOutside = (e) => {
+      if (!(editor.drag || editor.drag_point || editor.connection || editor.editor_selected)) return;
+      if (editor.container.contains(e.target)) return;
+      editor.dragEnd(e);
+    };
+    window.addEventListener('mouseup', finishOutside);
+    window.addEventListener('touchend', finishOutside);
     installRetHover();
     editor.on('zoom', zoomVars); editor.on('translate', scheduleMinimap);
     setRetVisible(retVisible());
@@ -3241,7 +3275,9 @@
     linkMeta: () => Object.fromEntries(linkMeta), clipboard: () => clipboard, ctxOpen: () => !!ctx,
     meta: () => meta, journal: () => journal, renderVars, varsUi, varDefs, listDefs, varUses, noInputRefusals: () => noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
     nav: () => ({ locked: navLocked, hand: navHand, space: navSpace, zoom: editor.zoom, x: editor.canvas_x, y: editor.canvas_y }),
-    setHand, setLock, toggleHelp, save };
+    setHand, setLock, toggleHelp, save,
+    rebuild: (d) => rebuild(d, true),
+    dfState: () => ({ drag: editor.drag, editorSel: editor.editor_selected, ele: editor.ele_selected ? (editor.ele_selected.id || editor.ele_selected.className) : null }) };   // L4 test hook: load a (legacy) document without touching the server
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
   async function runDebug() {
