@@ -31,7 +31,8 @@ dropped (MAX_VAR_CASCADE = 1, logged once per variable). `say_random` speaks thr
 AudioOut keeps honouring `muted`). Random picks use `self.rng` (the simulator seeds it: deterministic traces).
 
 Variables v2 (lot L11, 2026-11-01): bounded numbers are clamped (graph.fit_value), `scope: conversation` values go back
-to their initial value in clear_conversation, `mode: shuffle` lists draw from a bag (`_bag_pick`), `history` / `max` lists
+to their initial value in clear_conversation, `mode: shuffle` lists draw from a bag (`_bag_pick`, lot M3: the list mode
+module nanterino/listmodes/shuffle.py), `history` / `max` lists
 drop their oldest item, dictionaries live in `lists` as {key: value}. Timers store their start as a WALL epoch (so a
 persisted timer keeps running across a restart) and read as elapsed seconds; the heartbeat posts `timer_reached` once
 per (timer, seconds, start) with depth = MAX_VAR_CASCADE (same anti-loop as var_changed). Every time reading uses the
@@ -65,6 +66,9 @@ import time
 
 from . import graph as graph_mod
 from . import nodes
+from . import vartypes
+from .listkinds import LISTKINDS
+from .listmodes import LISTMODES
 from .nodes import NodeContext
 from .audio import AudioIn, find_device
 from . import hours as hours_mod
@@ -92,8 +96,8 @@ SINGLE_NOISE = {"merci", "bon", "ah", "oh", "euh", "hum", "hein", "voilà", "bah
 
 
 def _fresh_items(li):
-    """A user list's initial items as a new mutable container (dict for kind dict)."""
-    return dict(li.items) if li.kind == "dict" else list(li.items)
+    """A user list's initial items as a new mutable container (lot M3: the list kind module's fresh())."""
+    return LISTKINDS[li.kind].fresh(li.items)
 
 
 def is_phantom(text: str, keep_words=()) -> bool:
@@ -627,34 +631,12 @@ class Brain:
     @staticmethod
     def _compare(a, op, b, vtype=None) -> bool:
         """var_compare / dict_value_compare / date_compare / elapsed_since: = and != on anything, order on numbers
-        (bools excluded) and, for vtype datetime, on parsed ISO dates."""
-        if vtype == "datetime":
-            da, db = graph_mod.parse_iso(a), graph_mod.parse_iso(b)
-            if da is not None and db is not None:
-                a, b = da, db
-            elif op in graph_mod.ORDER_OPS:
-                return False
-        if op == "=":
-            return a == b
-        if op == "!=":
-            return a != b
-        if isinstance(a, datetime.datetime) and isinstance(b, datetime.datetime):
-            return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
-        num = (int, float)
-        if not (isinstance(a, num) and isinstance(b, num)) or isinstance(a, bool) or isinstance(b, bool):
-            return False
-        return {"<": a < b, "<=": a <= b, ">": a > b, ">=": a >= b}[op]
+        (bools excluded) and, for vtype datetime, on parsed ISO dates. Lot M3: the type module's compare()."""
+        return vartypes.compare(a, op, b, vtype)
 
     def _bag_pick(self, name: str, items: list):
-        """Shuffle-bag draw: nothing repeats until every item was said once; the bag refills (reshuffled with
-        self.rng) when it is empty or when the list content changed."""
-        sig, bag = self._bags.get(name, (None, []))
-        if sig != tuple(items) or not bag:
-            bag = list(items)
-            self.rng.shuffle(bag)
-        pick = bag.pop()
-        self._bags[name] = (tuple(items), bag)
-        return pick
+        """Shuffle-bag draw (lot M3: nanterino/listmodes/shuffle.py; the bags stay in self._bags)."""
+        return LISTMODES["shuffle"].pick(self, name, items)
 
     def _reset_scope(self, graph, scope: str):
         """Back to the initial values for every variable / user list of `scope` (no var_changed is posted)."""
@@ -711,10 +693,11 @@ class Brain:
 
     def _persist_entry(self, part: str, name: str) -> dict:
         g = self._graph
-        if part == "names":
-            return {"type": g.variables[name].type, "value": self.vars.get(name)}
+        if part == "names":   # lot M3: values / items through the type and kind modules (format unchanged)
+            v = g.variables[name]
+            return {"type": v.type, "value": vartypes.VARTYPES[v.type].serialize(self.vars.get(name))}
         li, items = g.lists[name], self.lists.get(name)
-        return {"type": li.type, "kind": li.kind, "items": dict(items) if isinstance(items, dict) else list(items or [])}
+        return {"type": li.type, "kind": li.kind, "items": LISTKINDS[li.kind].serialize(items, vartypes.VARTYPES[li.type])}
 
     def _ignore_persisted(self, part: str, name: str, entry, why: str):
         log.warning("vars store: saved %s %r ignored (%s); the initial value is used", part[:-1], name, why)
@@ -738,7 +721,7 @@ class Brain:
             elif not graph_mod.persisted_ok(graph, v.type, e.get("value"), v.choices):
                 self._ignore_persisted("names", n, e, "invalid value")
             else:
-                self.vars[n] = graph_mod.fit_value(v, e.get("value"))
+                self.vars[n] = graph_mod.fit_value(v, vartypes.VARTYPES[v.type].deserialize(e.get("value")))
         for n, li in graph.lists.items():
             e = data.get("lists", {}).get(n) if li.persist and not li.source else None
             if e is None:
@@ -747,14 +730,11 @@ class Brain:
             if not isinstance(e, dict) or e.get("type") != li.type or e.get("kind", "list") != li.kind:
                 self._ignore_persisted("lists", n, e, "type changed")
                 continue
-            vals = list(items.values()) if li.kind == "dict" and isinstance(items, dict) else items if isinstance(items, list) else None
-            ok = vals is not None and len(vals) <= graph_mod.LIST_MAX and all(graph_mod.persisted_ok(graph, li.type, x) for x in vals)
-            if ok and li.kind == "dict":
-                ok = all(isinstance(k, str) and k.strip() for k in items)
-            if not ok:
+            restored = LISTKINDS[li.kind].restore(graph, li, items)   # lot M3: per-item type check in the kind module
+            if restored is None:
                 self._ignore_persisted("lists", n, e, "invalid items")
                 continue
-            self.lists[n] = dict(items) if li.kind == "dict" else list(items)[-li.maxlen:] if li.maxlen else list(items)
+            self.lists[n] = restored
         for key in self._persist_keys():
             self._persist_seen[key] = self._persist_entry(*key)   # what is in memory now is not a change to write
         self._persist_seen[("system", "nb_visiteurs_jour")] = dict(self._visitors)

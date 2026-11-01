@@ -23,6 +23,7 @@ class SayRandom(Action):
         if not items:
             log.info("say_random: list %s is empty, nothing said", list)
             return
+        from nanterino.listmodes import DEFAULT, LISTMODES
         li = ctx.graph.lists.get(list)
-        pick = b._bag_pick(list, items) if li is not None and li.mode == "shuffle" else b.rng.choice(items)
+        pick = LISTMODES[li.mode if li is not None else DEFAULT].pick(b, list, items)   # lot M3: plain / shuffle / history
         b._speak_then(pick, "say_done")

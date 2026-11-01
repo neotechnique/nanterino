@@ -90,10 +90,16 @@ Node modules (lot M1, 2026-11-01)
       var_changed / timer_reached modules own their `var:` / `value:` check (parser), match (engine), subscription
       (Graph.watched_vars / timer_watches) and inspector schema (vocabulary). Data-derived palette entries
       (intents, `after:`, per-state entries) stay generated here from the graph (nanterino/nodes/__init__.py).
+    - Lot M3: variable types live in nanterino/vartypes/<id>.py, list kinds in nanterino/listkinds/<id>.py, list modes
+      in nanterino/listmodes/<id>.py (one class each). VAR_TYPES / LIST_TYPES / TYPE_CONTROL / TYPE_DEFAULT /
+      NUMERIC_TYPES ... / LIST_KINDS / LIST_MODES are views of those registries; type_ok, coerce_value, compatible,
+      fit_value, graph_choices, persisted_ok and the parser's type checks call the type modules; a list declaration's
+      kind-specific body is parsed by its kind module. The vocabulary stays byte-identical (tests/golden).
 
 How to test
     python -m tests.test_brain_graph      (parity traces + invalid-graph / watchdog / heartbeat tests)
     python -m tests.test_nodes_registry   (node discovery, drop-a-file, broken module, vocab golden)
+    python -m tests.test_vartypes_registry   (variable types / list kinds / list modes: discovery, contract, persistence)
 """
 import datetime
 import os
@@ -106,6 +112,7 @@ import yaml
 
 from .log import log
 from . import nodes as _nodes
+from . import listkinds as _listkinds, listmodes as _listmodes, vartypes as _vartypes
 
 DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph.yaml")
 
@@ -148,40 +155,36 @@ OPS = {"=": "égal à", "!=": "différent de", "<": "inférieur à", "<=": "inf�
        ">=": "supérieur ou égal à"}
 ORDER_OPS = frozenset({"<", "<=", ">", ">="})   # allowed on ORDERED_TYPES only (numbers, durations, dates)
 
-# ---------------------------------------------------------------- variables (lot L1)
-VAR_TYPES = {"bool": "Vrai / faux", "number": "Nombre", "string": "Texte", "choice": "Choix", "duration": "Durée (s)",
-             # lot L11 (variables v2)
-             "integer": "Entier", "percent": "Pourcentage", "datetime": "Date et heure", "timer": "Chrono",
-             "expression": "Expression du visage", "gaze": "Regard", "phrase": "Phrase dite", "media": "Média",
-             "intent_ref": "Intention", "list_ref": "Liste", "state_ref": "État", "color": "Couleur",
-             "vector2": "Vecteur 2D", "vector3": "Vecteur 3D"}
-# List item types: every name type but timer (a start time is not an item) and choice (no per-list choices).
-LIST_TYPES = {"string": "Textes", "number": "Nombres", "bool": "Vrai / faux",
-              **{k: v for k, v in VAR_TYPES.items() if k not in ("bool", "number", "string", "choice", "timer")}}
-NUMERIC_TYPES = frozenset({"number", "duration", "integer", "percent", "timer"})   # timer reads as elapsed seconds
-ORDERED_TYPES = NUMERIC_TYPES | {"datetime"}            # types the <, <=, >, >= operators accept
-TEXT_TYPES = frozenset({"string", "choice", "phrase"})  # interchangeable texts ($utterance fits them)
-TEXTLIKE_TYPES = frozenset({"expression", "gaze", "media", "intent_ref", "list_ref", "state_ref", "color", "datetime"})
-BOUNDED_TYPES = frozenset({"number", "integer"})        # take min / max / step
-REF_TYPES = frozenset({"intent_ref", "list_ref", "state_ref"})
-NULLABLE_TYPES = frozenset({"datetime", "timer", "media"}) | REF_TYPES   # `value: null` = empty / not started
+# ---------------------------------------------------------------- variables (lot L1; lot M3: type modules)
+# SINGLE SOURCE: one module per type in nanterino/vartypes/ (label, control, default, flags, validation ...). The
+# tables below are VIEWS of that registry, in its order (the modules' `order`): the editor's menus and the error
+# messages list the types in this order.
+VARTYPES = _vartypes.VARTYPES
+VAR_TYPES = {k: t.label for k, t in VARTYPES.items()}
+# List item types: the types with item_ok (every name type but timer and choice), in LIST_TYPES order.
+LIST_TYPES = {t.id: t.item_label or t.label for t in _vartypes.item_types(VARTYPES)}
+
+
+def _flagged(flag: str) -> frozenset:
+    return frozenset(k for k, t in VARTYPES.items() if getattr(t, flag))
+
+
+NUMERIC_TYPES = _flagged("numeric")    # timer reads as elapsed seconds
+ORDERED_TYPES = _flagged("ordered")    # types the <, <=, >, >= operators accept (numbers, durations, dates)
+TEXT_TYPES = _flagged("text")          # interchangeable texts ($utterance fits them)
+TEXTLIKE_TYPES = _flagged("textlike")  # may feed a string / phrase value
+BOUNDED_TYPES = _flagged("bounded")    # take min / max / step
+REF_TYPES = _flagged("ref")
+NULLABLE_TYPES = _flagged("nullable")  # `value: null` = empty / not started
 # Editor control per type (inspector + variable manager) and the initial value a new variable gets.
-TYPE_CONTROL = {"bool": "checkbox", "number": "number", "string": "text", "choice": "select", "duration": "number",
-                "integer": "number", "percent": "slider", "datetime": "datetime", "timer": "timer", "expression": "select",
-                "gaze": "select", "phrase": "textarea", "media": "select", "intent_ref": "select", "list_ref": "select",
-                "state_ref": "select", "color": "color", "vector2": "vector", "vector3": "vector"}
-TYPE_DEFAULT = {"bool": False, "number": 0, "string": "", "choice": None, "duration": 0, "integer": 0, "percent": 0,
-                "datetime": None, "timer": None, "expression": "neutre", "gaze": "suivre", "phrase": "", "media": None,
-                "intent_ref": None, "list_ref": None, "state_ref": None, "color": "#ffffff", "vector2": [0, 0],
-                "vector3": [0, 0, 0]}
-assert set(TYPE_CONTROL) == set(VAR_TYPES) == set(TYPE_DEFAULT), "every variable type needs a control and a default"
+TYPE_CONTROL = {k: t.control for k, t in VARTYPES.items()}
+TYPE_DEFAULT = {k: t.default for k, t in VARTYPES.items()}
 WEEKDAYS = {"lun": "Lundi", "mar": "Mardi", "mer": "Mercredi", "jeu": "Jeudi", "ven": "Vendredi", "sam": "Samedi", "dim": "Dimanche"}
 SCOPES = {"global": ("Globale", "Garde sa valeur jusqu'au rechargement du graphe (ou plus longtemps si elle est persistante)."),
           "conversation": ("Conversation", "Revient à sa valeur initiale à chaque « Oublier la conversation », donc à chaque nouveau visiteur.")}
-LIST_KINDS = {"list": ("Liste", "Des éléments dans l'ordre."), "dict": ("Dictionnaire", "Des paires clé → valeur (valeurs du type choisi).")}
-LIST_MODES = {"plain": ("Simple", "Comportement habituel."),
-              "shuffle": ("Sac mélangé", "« Dire une phrase au hasard » ne répète rien tant que toutes les phrases n'ont pas été dites."),
-              "history": ("Historique", "Garde les N derniers éléments (`max`) : un ajout de trop retire le plus ancien.")}
+# Lot M3: list kinds (nanterino/listkinds/) and list modes (nanterino/listmodes/), one module each; views.
+LIST_KINDS = {k: (m.label, m.help) for k, m in _listkinds.LISTKINDS.items()}
+LIST_MODES = {k: (m.label, m.help) for k, m in _listmodes.LISTMODES.items()}
 KEY_MAX = 60   # dictionary key length
 MEDIA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media")   # repo media/
 MEDIA_EXTS = (".wav", ".mp3", ".ogg", ".flac", ".json")
@@ -191,7 +194,7 @@ _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 _COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 # Variable argument kinds: (writable, allowed variable types or None = all). System variables are never writable.
 VAR_KIND_TYPES = {
-    "var": (True, frozenset(VAR_TYPES) - {"timer"}), "numvar": (True, frozenset({"number", "duration", "integer", "percent"})),
+    "var": (True, frozenset(VAR_TYPES) - {"timer"}), "numvar": (True, NUMERIC_TYPES - {"timer"}),
     "boolvar": (True, frozenset({"bool"})), "datetimevar": (True, frozenset({"datetime"})), "timervar": (True, frozenset({"timer"})),
     "anyvar": (False, None), "anyboolvar": (False, frozenset({"bool"})), "textvar": (False, TEXT_TYPES),
     "timeref": (False, frozenset({"datetime", "timer"})), "datevar_any": (False, frozenset({"datetime"})),
@@ -236,15 +239,8 @@ def coerce_value(vtype: str, v):
     compiler (graph_visual.from_visual) converts with this helper using the variable's declared type."""
     if not isinstance(v, str) or v.startswith("$"):
         return v
-    s = v.strip()
-    if vtype in ("number", "duration", "integer", "percent") and re.fullmatch(r"-?\d+(\.\d+)?", s):
-        f = float(s)
-        return int(f) if f == int(f) else f
-    if vtype in ("vector2", "vector3") and re.fullmatch(r"\s*-?\d+(\.\d+)?(\s*,\s*-?\d+(\.\d+)?)*\s*", s):
-        return [int(float(x)) if float(x) == int(float(x)) else float(x) for x in s.split(",")]   # "1, 2.5" -> [1, 2.5]
-    if vtype == "bool" and s.lower() in ("true", "false", "vrai", "faux"):
-        return s.lower() in ("true", "vrai")
-    return v
+    t = VARTYPES.get(vtype)
+    return t.coerce(v) if t is not None else v   # lot M3: the type module's coerce()
 
 
 _VAR_KEYS = {"type", "value", "choices", "description", "min", "max", "step", "scope", "persist"}
@@ -262,38 +258,10 @@ def parse_iso(v):
 
 
 def type_ok(vtype: str, v, choices=()) -> bool:
-    """Is `v` a valid literal of `vtype`? `choices` = allowed values of a choice / *_ref type (refs also accept None)."""
-    if vtype == "bool":
-        return isinstance(v, bool)
-    if vtype == "number":
-        return _num(v)
-    if vtype == "integer":
-        return isinstance(v, int) and not isinstance(v, bool)
-    if vtype == "duration":
-        return _num(v) and v >= 0
-    if vtype == "percent":
-        return _num(v) and 0 <= v <= 100
-    if vtype in ("string", "phrase"):
-        return isinstance(v, str) and len(v) <= TEXT_MAX
-    if vtype == "choice":
-        return isinstance(v, str) and v in choices
-    if vtype == "datetime":
-        return v is None or parse_iso(v) is not None
-    if vtype == "timer":
-        return v is None              # a timer starts stopped; timer_start writes the start time
-    if vtype == "expression":
-        return isinstance(v, str) and v in EXPRESSIONS
-    if vtype == "gaze":
-        return isinstance(v, str) and v in GAZE_MODES
-    if vtype == "media":
-        return v is None or (isinstance(v, str) and bool(MEDIA_NAME.match(v)))
-    if vtype in REF_TYPES:
-        return v is None or (isinstance(v, str) and v in choices)
-    if vtype == "color":
-        return isinstance(v, str) and bool(_COLOR.match(v))
-    if vtype in ("vector2", "vector3"):
-        return isinstance(v, list) and len(v) == int(vtype[-1]) and all(_num(x) for x in v)
-    return False
+    """Is `v` a valid literal of `vtype`? `choices` = allowed values of a choice / *_ref type (refs also accept None).
+    Lot M3: the type module's validate(); an unknown type accepts nothing."""
+    t = VARTYPES.get(vtype)
+    return t.validate(v, choices) if t is not None else False
 
 
 def compatible(src: str, dst: str) -> bool:
@@ -309,36 +277,26 @@ def compatible(src: str, dst: str) -> bool:
 
 def fit_value(var, v):
     """Run-time value written to `var` by set_var / add_var: integers rounded, percent kept in 0..100, `min` / `max`
-    clamped. Non-numbers are returned unchanged (the validator already checked the literals)."""
-    if not _num(v):
-        return v
-    if var.type == "integer":
-        v = int(round(v))
-    elif var.type == "percent":
-        v = min(100, max(0, v))
-    if var.vmin is not None and v < var.vmin:
-        v = var.vmin
-    if var.vmax is not None and v > var.vmax:
-        v = var.vmax
-    return v
+    clamped. Non-numbers are returned unchanged (the validator already checked the literals). Lot M3: the type
+    module's clamp() (fit() = integer rounding / percent range, then the variable's bounds)."""
+    return VARTYPES[var.type].clamp(v, var.vmin, var.vmax)
 
 
 def graph_choices(graph, vtype: str, choices=()) -> tuple:
-    """Allowed values of a choice / reference type in `graph` (intents incl. the implicit `question`, lists, states)."""
-    if vtype == "intent_ref":
-        return tuple(i.name for i in graph.intents) + ("question",)
-    if vtype == "list_ref":
-        return tuple(graph.lists)
-    if vtype == "state_ref":
-        return tuple(graph.states)
-    return tuple(choices)
+    """Allowed values of a choice / reference type in `graph` (intents incl. the implicit `question`, lists, states).
+    Lot M3: the type module's choices(ctx)."""
+    t = VARTYPES.get(vtype)
+    if t is None or not t.ref:
+        return tuple(choices)
+    names = _vartypes.Names(tuple(i.name for i in graph.intents) + ("question",), tuple(graph.lists), tuple(graph.states))
+    return t.choices(names, choices)
 
 
 def persisted_ok(graph, vtype: str, v, choices=()) -> bool:
-    """A value read back from state/vars.json still fits the declared type (a timer stores its start epoch)."""
-    if vtype == "timer":
-        return v is None or _num(v)
-    return type_ok(vtype, v, graph_choices(graph, vtype, choices))
+    """A value read back from state/vars.json still fits the declared type (a timer stores its start epoch).
+    Lot M3: the type module's stored_ok()."""
+    t = VARTYPES.get(vtype)
+    return t is not None and t.stored_ok(v, graph_choices(graph, vtype, choices))
 
 
 def media_files(cfg: dict | None = None) -> list:
@@ -413,6 +371,7 @@ THEME_DOC = {
 _nodes.check_family(_ACTION_NODES, "actions", THEME_DOC, ARG_KINDS)
 _nodes.check_family(_CONDITION_NODES, "conditions", THEME_DOC, ARG_KINDS)
 _nodes.check_family(_TRIGGER_NODES, "triggers", THEME_DOC, ARG_KINDS)
+_vartypes.check_registry(VARTYPES)   # lot M3: every type default is a valid value (RegistryError naming the file)
 # Theme of each event / guard: declared by its module (`theme` attribute, never the folder), lot M2.
 EVENT_THEME = {n.id: n.theme for n in _TRIGGER_NODES.values()}
 # Theme of each action: declared by its module (nanterino/nodes/actions/<id>.py `theme`), lot M1.
@@ -779,14 +738,10 @@ class _Parser:
         return None
 
     def type_choices(self, vtype, choices=()):
-        """Allowed values of a choice / reference type while parsing (the Graph does not exist yet)."""
-        if vtype == "intent_ref":
-            return tuple(self.intent_names)
-        if vtype == "list_ref":
-            return tuple(self.list_names)
-        if vtype == "state_ref":
-            return tuple(self.state_names)
-        return tuple(choices)
+        """Allowed values of a choice / reference type while parsing (the Graph does not exist yet): the type
+        module's choices(ctx), the parser itself exposing intent_names / list_names / state_names (lot M3)."""
+        t = VARTYPES.get(vtype)
+        return t.choices(self, choices) if t is not None else tuple(choices)
 
     def check_value(self, where, what, vtype, choices, val, utterance=False):
         """Validate a literal (or a `$<var>` reference) against a variable / list item type."""
@@ -910,15 +865,9 @@ class _Parser:
             vt = spec.get("type")
             if vt not in VAR_TYPES:
                 self.err(w, "type must be one of %s" % ", ".join(VAR_TYPES)); continue
-            choices = ()
-            if vt == "choice":
-                ch = spec.get("choices")
-                if not (isinstance(ch, list) and 0 < len(ch) <= CHOICE_MAX and all(isinstance(c, str) and c.strip() and len(c) <= 60 for c in ch)
-                        and len(set(ch)) == len(ch)):
-                    self.err(w, "a choice variable needs `choices:` (1..%d distinct texts)" % CHOICE_MAX); continue
-                choices = tuple(ch)
-            elif "choices" in spec:
-                self.err(w, "`choices:` only goes with type choice")
+            choices = VARTYPES[vt].parse_choices(self, w, spec)   # lot M3: () / declared choices / None = error
+            if choices is None:
+                continue
             if "value" not in spec:
                 self.err(w, "`value:` (initial value) is required"); continue
             n_err = len(self.errors)
@@ -953,59 +902,17 @@ class _Parser:
                 self.err(w, "mode must be one of %s" % ", ".join(LIST_MODES)); continue
             if maxlen is not None and not (isinstance(maxlen, int) and not isinstance(maxlen, bool) and 1 <= maxlen <= LIST_MAX):
                 self.err(w, "`max:` must be an integer in 1..%d" % LIST_MAX); continue
-            if mode == "history" and maxlen is None:
-                self.err(w, "mode history needs `max:` (how many items are kept)"); continue
+            if _listmodes.LISTMODES[mode].needs_max and maxlen is None:
+                self.err(w, "mode %s needs `max:` (how many items are kept)" % mode); continue
             n_err = len(self.errors)
             scope, persist = self.scope_persist(w, spec)
             if len(self.errors) > n_err:
                 continue
             desc = str(spec.get("description") or "").strip()
-            if lkind == "dict":   # lot L11: key -> value pairs, always a user (writable) dictionary
-                if "items" not in spec:
-                    self.err(w, "a dictionary needs `items:` (key: value pairs); it cannot be bound"); continue
-                if mode != "plain" or maxlen is not None:
-                    self.err(w, "`mode:` / `max:` only go with kind list"); continue
-                raw = spec["items"] if spec["items"] is not None else {}
-                if not isinstance(raw, dict) or len(raw) > LIST_MAX:
-                    self.err(w, "`items:` of a dictionary must be a mapping of at most %d keys" % LIST_MAX); continue
-                for key, it in raw.items():
-                    if not (isinstance(key, str) and key.strip() and len(key) <= KEY_MAX and not key.startswith("$")):
-                        self.err(w, "key %r: expected a text of 1..%d characters (not starting with $)" % (key, KEY_MAX)); continue
-                    self.check_value(w, "key %r" % key, lt, (), it)
-                    if isinstance(it, str) and it.startswith("$"):
-                        self.err(w, "key %r: a value cannot be a reference" % key)
-                if len(self.errors) > n_err:
-                    continue
-                self.lists[n] = VarList(n, lt, types.MappingProxyType(dict(raw)), desc, None, "dict", "plain", None, scope, persist)
-                continue
-            source, items = None, ()
-            if "from" in spec:
-                if not isinstance(self.cfg.get(spec["from"]), (list, tuple)):
-                    self.err(w, "from: %r is not a config key holding a list" % (spec["from"],)); continue
-                source, items = ("cfg", spec["from"]), tuple(self.cfg[spec["from"]])
-            elif "intent" in spec:
-                if spec["intent"] not in intent_names:
-                    self.err(w, "intent: unknown intent %r (words or words_from only)" % (spec["intent"],)); continue
-                source, items = ("intent", spec["intent"]), tuple(intent_names[spec["intent"]])
-            else:
-                raw = spec["items"]
-                if not isinstance(raw, list) or len(raw) > LIST_MAX:
-                    self.err(w, "`items:` must be a list of at most %d elements" % LIST_MAX); continue
-                n_err = len(self.errors)
-                for i, it in enumerate(raw):
-                    self.check_value(w, "item #%d" % (i + 1), lt, (), it)
-                    if isinstance(it, str) and it.startswith("$"):
-                        self.err(w, "item #%d: a list item cannot be a reference" % (i + 1))
-                if len(self.errors) > n_err:
-                    continue
-                items = tuple(raw)
-            if source and lt != "string":
-                self.err(w, "a bound list holds texts: type string"); continue
-            if source and (mode == "history" or maxlen is not None or persist or scope != "global"):
-                self.err(w, "a bound list is read-only: only `mode: shuffle` applies (no history, max, scope or persist)"); continue
-            if not source and maxlen is not None and len(items) > maxlen:
-                self.err(w, "`items:` has more than `max:` (%d) elements" % maxlen); continue
-            self.lists[n] = VarList(n, lt, items, desc, source, "list", mode, maxlen, scope, persist)
+            # lot M3: the kind module parses the rest (dict: key -> value pairs; list: items / from / intent)
+            vl = _listkinds.LISTKINDS[lkind].parse(self, w, n, spec, lt, mode, maxlen, scope, persist, desc, intent_names)
+            if vl is not None:
+                self.lists[n] = vl
 
     def bounds(self, w, vt, spec):
         """`min` / `max` / `step` of a number / integer variable (lot L11); errors are collected, values returned."""
@@ -1016,8 +923,8 @@ class _Parser:
             self.err(w, "`min` / `max` / `step` only go with types %s" % ", ".join(sorted(BOUNDED_TYPES)))
             return None, None, None
         for k, x in (("min", vmin), ("max", vmax)):
-            if x is not None and not (_num(x) and (vt != "integer" or isinstance(x, int))):
-                self.err(w, "`%s:` must be %s" % (k, "an integer" if vt == "integer" else "a number"))
+            if x is not None and not (_num(x) and (not VARTYPES[vt].integral or isinstance(x, int))):
+                self.err(w, "`%s:` must be %s" % (k, "an integer" if VARTYPES[vt].integral else "a number"))
         if step is not None and not (_num(step) and step > 0):
             self.err(w, "`step:` must be a number > 0")
         if _num(vmin) and _num(vmax) and vmin > vmax:
@@ -1318,7 +1225,7 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             "list_types": [{"id": k, "label": v, "control": TYPE_CONTROL[k]} for k, v in LIST_TYPES.items()],
             "ops": [{"id": k, "label": v} for k, v in OPS.items()],
             # lot L11: operator set per type, scopes, list kinds / modes, weekdays, media files
-            "op_sets": {k: (list(OPS) if k in ORDERED_TYPES else ["=", "!="]) for k in VAR_TYPES},
+            "op_sets": {k: t.ops() for k, t in VARTYPES.items()},
             "scopes": [{"id": k, "label": lab, "help": hlp} for k, (lab, hlp) in SCOPES.items()],
             "list_kinds": [{"id": k, "label": lab, "help": hlp} for k, (lab, hlp) in LIST_KINDS.items()],
             "list_modes": [{"id": k, "label": lab, "help": hlp} for k, (lab, hlp) in LIST_MODES.items()],
@@ -1331,28 +1238,9 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
 
 
 def _type_entry(k: str, graph: "Graph | None", cfg: dict) -> dict:
-    """Editor description of one variable type (lot L11): control, options, operators, list use, choices."""
-    d = {"id": k, "label": VAR_TYPES[k], "control": TYPE_CONTROL[k], "options": ["min", "max", "step"] if k in BOUNDED_TYPES else [],
-         "ops": list(OPS) if k in ORDERED_TYPES else ["=", "!="], "item": k in LIST_TYPES, "nullable": k in NULLABLE_TYPES,
-         "default": TYPE_DEFAULT[k], "persist": True}
-    if k == "percent":
-        d["range"] = [0, 100]
-    if k in ("vector2", "vector3"):
-        d["size"] = int(k[-1])
-    if k == "expression":
-        d["choices"] = [{"id": i, "label": lab} for i, lab in EXPRESSIONS.items()]
-    elif k == "gaze":
-        d["choices"] = [{"id": i, "label": lab} for i, lab in GAZE_MODES.items()]
-    elif k == "media":
-        d["choices"] = [{"id": f, "label": f} for f in media_files(cfg)]
-    elif k == "intent_ref":
-        d["choices"] = ([{"id": i.name, "label": i.description or i.name} for i in graph.intents] if graph is not None else []) \
-            + [{"id": "question", "label": "Une question (aucun autre motif reconnu)"}]
-    elif k == "list_ref":
-        d["choices"] = [{"id": n, "label": li.description or n} for n, li in graph.lists.items()] if graph is not None else []
-    elif k == "state_ref":
-        d["choices"] = [{"id": n, "label": STATE_DOC.get(n, n.capitalize())} for n in graph.states] if graph is not None else []
-    return d
+    """Editor description of one variable type (lot L11): control, options, operators, list use, choices.
+    Lot M3: built by the type module (VarType.entry)."""
+    return VARTYPES[k].entry(graph, cfg)
 
 
 def variable_entries(graph: "Graph | None", cfg: dict) -> dict:
@@ -1376,10 +1264,7 @@ def variable_entries(graph: "Graph | None", cfg: dict) -> dict:
                     d[k] = getattr(v, attr)
             names.append(d)
         for li in graph.lists.values():
-            if li.kind == "dict":
-                items = dict(li.items)
-            else:
-                items = list(cfg.get(li.source[1]) or []) if li.source and li.source[0] == "cfg" else list(li.items)
+            items = _listkinds.LISTKINDS[li.kind].editor_items(li, cfg)   # lot M3: the kind module
             d = {"id": li.name, "type": li.type, "items": items, "description": li.description, "readonly": bool(li.source),
                  "kind": li.kind, "mode": li.mode, "max": li.maxlen, "scope": li.scope, "persist": li.persist}
             if li.source:

@@ -1,0 +1,64 @@
+{
+ "lists": {
+  "court": {
+   "items": [
+    2,
+    7,
+    8
+   ],
+   "kind": "list",
+   "type": "integer"
+  },
+  "derniers": {
+   "items": [
+    "deux",
+    "trois"
+   ],
+   "kind": "list",
+   "type": "phrase"
+  },
+  "scores": {
+   "items": {
+    "alice": 3,
+    "bob": 4
+   },
+   "kind": "dict",
+   "type": "integer"
+  }
+ },
+ "names": {
+  "chrono": {
+   "type": "timer",
+   "value": 1793613601.0
+  },
+  "n": {
+   "type": "integer",
+   "value": 10
+  },
+  "p2": {
+   "type": "vector2",
+   "value": [
+    3,
+    4
+   ]
+  },
+  "pc": {
+   "type": "percent",
+   "value": 100
+  },
+  "rdv": {
+   "type": "datetime",
+   "value": "2026-11-02T10:00:01"
+  },
+  "teinte": {
+   "type": "color",
+   "value": "#00ff00"
+  },
+  "x": {
+   "type": "number",
+   "value": -1
+  }
+ },
+ "system": {},
+ "version": 1
+}

@@ -63,21 +63,18 @@ former theme asserts, with the offending file in the message)
 How to test
     .venv/bin/python -m tests.test_nodes_registry
 """
-import importlib
 import inspect
-import pkgutil
-import re
 
+from nanterino.registry import NAME as NODE_ID, RegistryError, scan_package
 from .base import ANY, Action, Arg, Condition, Node, NodeContext, Trigger  # noqa: F401 (re-exported)
 
 # Family -> package scanned in production (closed list: code constants only).
 PACKAGES = {"actions": "nanterino.nodes.actions", "conditions": "nanterino.nodes.conditions",
             "triggers": "nanterino.nodes.triggers"}
 BASES = {"actions": Action, "conditions": Condition, "triggers": Trigger}
-NODE_ID = re.compile(r"^[a-z][a-z0-9_]{0,47}$")
 
 
-class NodeRegistryError(RuntimeError):
+class NodeRegistryError(RegistryError):
     """A node module is invalid: the robot must not start with a half-loaded vocabulary."""
 
 
@@ -130,35 +127,11 @@ def scan(package_name: str, family: str) -> dict:
     """Import every module of `package_name` and return {id: node instance} in palette order.
 
     Production passes PACKAGES[family] only. A module that fails to import, or defines zero / several node
-    classes of the family, raises NodeRegistryError naming the file.
+    classes of the family, raises NodeRegistryError naming the file. Lot M3: the discovery loop is the shared
+    nanterino.registry.scan_package (also used by vartypes / listkinds / listmodes).
     """
-    base = BASES[family]
-    try:
-        pkg = importlib.import_module(package_name)
-    except Exception as e:  # noqa: BLE001 (re-raised with context)
-        raise NodeRegistryError("node package %s cannot be imported: %s: %s" % (package_name, type(e).__name__, e)) from e
-    found = {}
-    for info in sorted(pkgutil.iter_modules(pkg.__path__), key=lambda i: i.name):
-        if info.name.startswith("_"):
-            continue   # private helpers / disabled files
-        where = "%s/%s.py" % (family, info.name)
-        if info.ispkg:
-            _fail(where, "sub-packages are not allowed: a family folder is flat")
-        try:
-            mod = importlib.import_module("%s.%s" % (package_name, info.name))
-        except Exception as e:  # noqa: BLE001 (re-raised with context)
-            raise NodeRegistryError("node module %s failed to import: %s: %s" % (where, type(e).__name__, e)) from e
-        classes = [c for c in vars(mod).values()
-                   if inspect.isclass(c) and issubclass(c, base) and c is not base and c.__module__ == mod.__name__]
-        if len(classes) != 1:
-            _fail(where, "expected exactly one %s subclass, found %d" % (base.__name__, len(classes)))
-        cls = classes[0]
-        _check_node(cls, info.name, where)
-        if cls.id in found:
-            _fail(where, "duplicate id %r" % cls.id)
-        found[cls.id] = cls()
-    order = sorted(found.values(), key=lambda n: (n.order is None, n.order or 0, n.id))
-    return {n.id: n for n in order}
+    return scan_package(package_name, BASES[family], family, "node", NodeRegistryError,
+                        lambda cls, modname, where: _check_node(cls, modname, where))
 
 
 def check_family(nodes: dict, family: str, themes, kinds) -> None:
