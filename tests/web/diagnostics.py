@@ -1,6 +1,6 @@
 """Nanterino editor web scenarios: node diagnostics badges, fresh check on save, minimap diagnostics, column titles vs jump bar.
 
-Purpose : diagnostics area of the editor web suite; scenarios diag, l6.
+Purpose : diagnostics area of the editor web suite; scenarios diag, l6, emptylist (L29: server empty_list badge).
 Boundary: drives the live editor through tests/web/driver.py (WebDriver, check()); never imports nanterino.server.
 Invariant: verbatim slice (M7) of the former scripts/editor6_wd.py; a scenario is `sc_<name>(wd)` and is listed in
           SCENARIOS at the end of this file, which tests/web/run.py reads.
@@ -209,8 +209,76 @@ def sc_l6(wd):
         print("LEFT OVER", sorted(set(glob.glob(ROOT + "/graph.*")) - pre))
 
 
+def sc_emptylist(wd):
+    """L29: server `empty_list` warning (graph.py empty_list_diagnostics) end to end. A new empty phrase list made in
+    the Variables panel + a « Dire une phrase au hasard » (say_random) action on it -> amber badge on that action with
+    the empty_list message; a « Ajouter à une liste » (list_add) action filling the list -> the badge is gone after the
+    check refresh. The warning is server-only (analysis.js only paints it), so disabling the server call fails this.
+    Never saves; reloads the shipped graph at the end and leaves no graph.* file behind."""
+    pre = set(glob.glob(ROOT + "/graph.*"))
+    lname = "l29_vide"
+    try:
+        open_editor(wd)
+        check("emptylist: shipped graph has no warning badge", js(wd, "return document.querySelectorAll('.dbadge.err,.dbadge.warn').length") == 0)
+        # ---- new empty phrase list, created like a user in the Variables panel
+        js(wd, "document.querySelector('#btnVars').click()")
+        time.sleep(2.0)
+        _click(wd, "#vars button[data-vtab=lists]")
+        time.sleep(0.3)
+        _set(wd, "#vars input[data-new=list]", lname)
+        _set(wd, "#vars select[data-new=listkind]", "list")
+        _set(wd, "#vars select[data-new=listtype]", "phrase")
+        _click(wd, "#vars button[data-new=listadd]")
+        time.sleep(0.5)
+        li = _vmeta(wd, lname, "lists")
+        check("emptylist: new phrase list created empty in the Variables panel", li is not None and li.get("type") == "phrase" and not li.get("items"), str(li))
+        js(wd, "window.__editor.activateTab('node')")
+        # ---- say_random on it: the server check flags the action node (amber, kind empty_list)
+        ids = js(wd, """const E=window.__editor; const t=E.addAt('trigger',{event:'visage'},{x:-900,y:-600},{exact:true});
+          const a=E.addAt('action',{action:'say_random',args:{list:arguments[0]}},{x:-640,y:-600},{exact:true});
+          E.linkNodes(t,'output_1',a); const m=E.dfMap(); const inv={}; for(const k in m) inv[m[k]]=k; return [inv[t], inv[a]]""", [lname])
+        tn, an = ids
+        js(wd, "document.querySelector('#btnValidate').click()")
+        time.sleep(2.0)
+        st, chk = W.http("POST", BASE + "/api/graph/check", doc(wd))
+        ws = [w for w in (chk or {}).get("warnings", []) if isinstance(w, dict) and w.get("kind") == "empty_list"]
+        check("emptylist: /api/graph/check returns an empty_list warning on the say_random node", st == 200 and any(an in (w.get("at"), w.get("node")) for w in ws), str(chk)[:300])
+        b = badge(wd, an)
+        check("emptylist: amber badge on the say_random node, empty_list message in its tooltip",
+              b and "warn" in b[0] and "err" not in b[0].split() and lname in b[1] and "is empty" in b[1], str(b))
+        cnt = js(wd, "const b=document.querySelector('#btnDiag'); return [b.className, b.querySelector('.dnw') ? b.querySelector('.dnw').textContent : '']")
+        check("emptylist: toolbar counter counts the warning", cnt[1] not in ("", "⚠ 0"), str(cnt))
+        js(wd, "window.__editor.focusNode(arguments[0])", [an])
+        time.sleep(0.4)
+        wd.shot("editor20-emptylist.png")
+        # ---- list_add filling the list: the warning goes away on the next check
+        js(wd, """const E=window.__editor; const t=E.addAt('trigger',{event:'sing'},{x:-900,y:-380},{exact:true});
+          const a=E.addAt('action',{action:'list_add',args:{list:arguments[0],value:'Bonjour !'}},{x:-640,y:-380},{exact:true});
+          E.linkNodes(t,'output_1',a); return true""", [lname])
+        js(wd, "document.querySelector('#btnValidate').click()")
+        time.sleep(2.0)
+        st, chk = W.http("POST", BASE + "/api/graph/check", doc(wd))
+        ws = [w for w in (chk or {}).get("warnings", []) if isinstance(w, dict) and w.get("kind") == "empty_list"]
+        check("emptylist: list filled by list_add -> no empty_list warning from the server", st == 200 and not ws, str(ws)[:300])
+        b = badge(wd, an)
+        check("emptylist: list filled by list_add -> badge gone after the check refresh", b is None or ("warn" not in b[0] and "err" not in b[0]), str(b))
+        check("console errors 0", not js(wd, "return window.__editor.errors.length"), str(js(wd, "return window.__editor.errors")))
+    finally:
+        # restore the shipped graph state (nothing was saved; reload drops the list and the added nodes)
+        try:
+            js(wd, "window.__editor.loadAll()")
+            time.sleep(1.5)
+            check("emptylist: reload -> shipped graph back, list gone, no warning badge",
+                  _vmeta(wd, lname, "lists") is None and js(wd, "return document.querySelectorAll('.dbadge.err,.dbadge.warn').length") == 0)
+        except Exception as e:  # keep cleanup going
+            check("emptylist: reload", False, repr(e))
+        left = set(glob.glob(ROOT + "/graph.*")) - pre
+        check("emptylist: no override file left", not left, str(sorted(left)))
+
+
 # Scenario registry read by tests/web/run.py (order = order of the former single file).
 SCENARIOS = {
     "diag": sc_diag,
     "l6": sc_l6,
+    "emptylist": sc_emptylist,
 }

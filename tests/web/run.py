@@ -11,7 +11,8 @@ Usage   : cd /opt/robot/nanterino && .venv/bin/python -m tests.web.run <name> [.
 Layout  : wd.py (WebDriver session), driver.py (check(), shared helpers), one file per editor area with SCENARIOS.
 Invariant: M7 moved /opt/robot/scripts/editor6_wd.py here verbatim (26 scenarios, 441 checks); keep the per-scenario
           check counts when moving code between files. L22 adds scenario `progress` (area progress); L23 adds
-          `postitsave` (area savegate: post-its, groups and hierarchy edits are save-gated).
+          `postitsave` (area savegate: post-its, groups and hierarchy edits are save-gated); L29 adds `emptylist`
+          (area diagnostics: server empty_list amber badge, gone once a list_add fills the list; never saves).
 
 History of the former scripts/editor6_wd.py (scenario -> lot, kept for reference):
 Headless Firefox checks of lot L6 (state nodes, gradient wires, ports, post-its, mouse buttons, context menu).
@@ -59,7 +60,7 @@ AREAS = ["canvas", "tester", "menu", "frames", "variables", "tooltips", "diagnos
 # Order of the former single file, which `all` keeps (the scenarios share one browser session there).
 ALL_ORDER = ["nodes", "wires", "tester", "buttons", "menu", "postit", "ctxsub", "nav", "noinput", "vars", "testervars",
              "nostart", "wiredrag", "menu3", "tooltips", "postit2", "diag", "l6", "human", "l8", "postit3", "l10",
-             "vars2", "subgroups", "export", "props", "progress", "postitsave"]
+             "vars2", "subgroups", "export", "props", "progress", "postitsave", "emptylist"]
 
 
 def registry():
