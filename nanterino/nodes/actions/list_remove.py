@@ -22,3 +22,4 @@ class ListRemove(Action):
         before = b.list_copy(list)   # lot N1: list_changed when something was removed (listened lists only)
         b.lists[list] = [x for x in b.lists.get(list, []) if x != v]
         b.list_touched(list, before)
+        b.list_item_event("list_item_removed", list, before, v)   # lot N2 (listened lists only)

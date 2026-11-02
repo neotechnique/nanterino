@@ -172,8 +172,9 @@ def test_vocabulary():
     # CHANGED (lot L11): + timer_reached, 8 actions, 6 conditions, 14 variable types (17 list item types), the operator
     # sets per type, scopes, list kinds / modes, weekdays; `media` lists the files of media/ (count depends on the disk)
     # CHANGED (lot N1): + 13 triggers, 12 actions, 13 conditions (concept triads)
+    # CHANGED (lot N2): + 14 triggers, 19 conditions (parity 50 / 50 / 50)
     assert isinstance(counts.pop("media"), int)
-    assert counts == {"events": 36, "actions": 50, "guards": 31, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
+    assert counts == {"events": 50, "actions": 50, "guards": 50, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
                       "var_types": 19, "list_types": 17, "ops": 6, "op_sets": 19, "scopes": 2, "list_kinds": 2, "list_modes": 3,
                       "weekdays": 7, "themes": 11, "theme_slots": 5, "variables": 2,
                       "properties": 2, "type_compat": 19}, counts   # CHANGED (lot M4): + properties {get, set}; (lot M5): + type_compat (additive key, last)

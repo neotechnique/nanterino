@@ -402,6 +402,166 @@
      "help": "Seulement les entrées de ce niveau ; vide = toutes."
     }
    ]
+  },
+  {
+   "id": "mic_opened",
+   "label": "Le micro s'ouvre",
+   "help": "Le micro vient de s'ouvrir (« Ouvrir le micro », fin du mode sourd, entrée dans un état qui écoute) ; à combiner avec « Le micro est ouvert ». Anti-boucle comme « Une variable change ».",
+   "icon": "microphone",
+   "theme": "micro"
+  },
+  {
+   "id": "mic_closed",
+   "label": "Le micro se ferme",
+   "help": "Le micro vient de se fermer (« Couper le micro », mode sourd) ; anti-boucle comme « Une variable change ».",
+   "icon": "microphone-off",
+   "theme": "micro"
+  },
+  {
+   "id": "expression_changed",
+   "label": "L'expression du visage change",
+   "help": "Le visage change d'expression (« Changer l'expression du visage », ou retour à « neutre » quand la durée est finie) ; lire la variable système expression. Anti-boucle comme « Une variable change ».",
+   "icon": "mood-smile",
+   "theme": "vision"
+  },
+  {
+   "id": "gaze_changed",
+   "label": "Le regard change",
+   "help": "Le mode du regard change (« Régler le regard », ou retour à « suivre » en veille) ; lire la variable système regard. Anti-boucle comme « Une variable change ».",
+   "icon": "eye",
+   "theme": "vision"
+  },
+  {
+   "id": "song_started",
+   "label": "La chanson commence",
+   "help": "Le robot commence sa chanson (« Chanter ») ; à combiner avec « Le robot chante ». Anti-boucle comme « Une variable change ».",
+   "icon": "music",
+   "theme": "parole"
+  },
+  {
+   "id": "song_finished",
+   "label": "La chanson est finie",
+   "help": "La chanson est allée jusqu'au bout (juste avant « Réponse terminée ») ; un arrêt, « Tais-toi » ou Éteindre l'annulent sans cet événement.",
+   "icon": "music",
+   "theme": "parole"
+  },
+  {
+   "id": "answer_started",
+   "label": "Une réponse commence",
+   "help": "Le robot commence à chercher et dire sa réponse (« Répondre à la question ») ; la fin est « Réponse terminée ». Anti-boucle comme « Une variable change ».",
+   "icon": "message",
+   "theme": "conversation"
+  },
+  {
+   "id": "conversation_cleared",
+   "label": "La conversation est oubliée",
+   "help": "Le robot vient d'oublier la conversation (« Oublier la conversation ») : historique, tours et variables de conversation remis à zéro. Anti-boucle comme « Une variable change ».",
+   "icon": "eraser",
+   "theme": "conversation"
+  },
+  {
+   "id": "conversation_started",
+   "label": "Une conversation commence",
+   "help": "Le robot quitte la veille (ou l'arrêt) pour un état de conversation : un nouveau visiteur commence.",
+   "icon": "users",
+   "theme": "conversation"
+  },
+  {
+   "id": "conversation_ended",
+   "label": "Une conversation se termine",
+   "help": "Le robot revient en veille (ou s'éteint) après une conversation.",
+   "icon": "door-exit",
+   "theme": "conversation"
+  },
+  {
+   "id": "turn_counted",
+   "label": "Un tour de parole est compté",
+   "help": "« Compter un tour de parole » vient d'ajouter un échange ; lire la variable système tours ou « Comparer les tours de parole ». Anti-boucle comme « Une variable change ».",
+   "icon": "plus",
+   "theme": "conversation"
+  },
+  {
+   "id": "list_item_added",
+   "label": "Un élément est ajouté à une liste",
+   "help": "Un élément vient d'entrer dans une liste (« Ajouter à une liste », « Retenir la phrase du visiteur »). Anti-boucle comme « Une variable change ».",
+   "icon": "plus",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "name",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": false,
+     "label": "Liste",
+     "help": "Liste surveillée : la chaîne démarre quand un élément y est ajouté."
+    }
+   ]
+  },
+  {
+   "id": "list_item_removed",
+   "label": "Un élément est retiré d'une liste",
+   "help": "Un élément vient de sortir d'une liste (« Retirer d'une liste »). Anti-boucle comme « Une variable change ».",
+   "icon": "x",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "name",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": false,
+     "label": "Liste",
+     "help": "Liste surveillée : la chaîne démarre quand un élément en est retiré."
+    }
+   ]
+  },
+  {
+   "id": "face_count_changed",
+   "label": "Le nombre de visages change",
+   "help": "La caméra voit un nombre différent de visages (0, 1, 2 ...) ; à combiner avec « Comparer le nombre de visages ».",
+   "icon": "scan-eye",
+   "theme": "vision"
   }
  ],
  "actions": [
@@ -585,7 +745,19 @@
       "text_shown",
       "text_cleared",
       "list_item_said",
-      "notification_clicked"
+      "notification_clicked",
+      "mic_opened",
+      "mic_closed",
+      "expression_changed",
+      "gaze_changed",
+      "song_started",
+      "song_finished",
+      "answer_started",
+      "conversation_cleared",
+      "conversation_started",
+      "conversation_ended",
+      "turn_counted",
+      "face_count_changed"
      ],
      "label": "Événement à la fin",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -632,7 +804,19 @@
       "text_shown",
       "text_cleared",
       "list_item_said",
-      "notification_clicked"
+      "notification_clicked",
+      "mic_opened",
+      "mic_closed",
+      "expression_changed",
+      "gaze_changed",
+      "song_started",
+      "song_finished",
+      "answer_started",
+      "conversation_cleared",
+      "conversation_started",
+      "conversation_ended",
+      "turn_counted",
+      "face_count_changed"
      ],
      "label": "Événement à déclencher",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -690,7 +874,19 @@
       "text_shown",
       "text_cleared",
       "list_item_said",
-      "notification_clicked"
+      "notification_clicked",
+      "mic_opened",
+      "mic_closed",
+      "expression_changed",
+      "gaze_changed",
+      "song_started",
+      "song_finished",
+      "answer_started",
+      "conversation_cleared",
+      "conversation_started",
+      "conversation_ended",
+      "turn_counted",
+      "face_count_changed"
      ],
      "label": "Événement à déclencher",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -2468,6 +2664,568 @@
      "options": [],
      "label": "Chance (%)",
      "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "is_singing",
+   "label": "Le robot chante",
+   "help": "La chanson est en cours (« Chanter », pas encore finie ni arrêtée).",
+   "icon": "music",
+   "theme": "parole",
+   "args": []
+  },
+  {
+   "id": "conversation_active",
+   "label": "Une conversation est en cours",
+   "help": "Le robot est dans un état de conversation (ni en veille ni éteint).",
+   "icon": "users",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "conversation_duration",
+   "label": "Durée de la conversation",
+   "help": "Secondes écoulées depuis le début de la conversation, comparées à un nombre (faux hors conversation).",
+   "icon": "hourglass",
+   "theme": "conversation",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Nombre de secondes (0 ou plus).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "first_turn",
+   "label": "C'est le premier tour de parole",
+   "help": "Aucun tour n'a encore été compté dans cette conversation (variable système tours = 0).",
+   "icon": "flag",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "turns_compare",
+   "label": "Comparer les tours de parole",
+   "help": "Compare le nombre de tours de parole de la conversation (« Compter un tour de parole ») à un nombre.",
+   "icon": "refresh",
+   "theme": "conversation",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "count",
+     "type": "number",
+     "options": [],
+     "label": "Nombre de tours",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "utterance_contains",
+   "label": "La phrase du visiteur contient",
+   "help": "La phrase du visiteur (celle traitée, sinon la dernière entendue) contient ce texte, sans tenir compte des majuscules ; faux si le texte est vide.",
+   "icon": "message",
+   "theme": "conversation",
+   "args": [
+    {
+     "name": "text",
+     "type": "text",
+     "max_len": 300,
+     "optional": true,
+     "label": "Texte cherché",
+     "help": "Texte dit quand la clé est absente ; vide = rien n'est dit.",
+     "props": "string"
+    }
+   ]
+  },
+  {
+   "id": "is_question",
+   "label": "La phrase du visiteur est une question",
+   "help": "La phrase du visiteur finit par « ? » ou commence par un mot interrogatif (qui, quoi, où, quand, comment, pourquoi, combien, quel, est-ce que ...).",
+   "icon": "question-mark",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "utterance_length",
+   "label": "Longueur de la phrase du visiteur",
+   "help": "Compare le nombre de mots de la phrase du visiteur à un nombre (0 si rien n'a été entendu).",
+   "icon": "text-caption",
+   "theme": "conversation",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "count",
+     "type": "number",
+     "options": [],
+     "label": "Nombre de mots",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "expression_is",
+   "label": "L'expression du visage est",
+   "help": "Le visage montre cette expression en ce moment (« neutre » quand aucune n'est en cours).",
+   "icon": "mood-smile",
+   "theme": "vision",
+   "args": [
+    {
+     "name": "name",
+     "type": "enum",
+     "options": [
+      "content",
+      "surpris",
+      "reflechit",
+      "triste",
+      "neutre"
+     ],
+     "labels": {
+      "content": "Content",
+      "surpris": "Surpris",
+      "reflechit": "Réfléchit",
+      "triste": "Triste",
+      "neutre": "Neutre"
+     },
+     "label": "Expression",
+     "help": "Expression du visage affichée à l'écran."
+    }
+   ]
+  },
+  {
+   "id": "gaze_is",
+   "label": "Le regard est",
+   "help": "Le regard est réglé sur ce mode (« Régler le regard »).",
+   "icon": "eye",
+   "theme": "vision",
+   "args": [
+    {
+     "name": "mode",
+     "type": "enum",
+     "options": [
+      "suivre",
+      "devant",
+      "errer"
+     ],
+     "labels": {
+      "suivre": "Suivre le visiteur",
+      "devant": "Regarder devant",
+      "errer": "Errer"
+     },
+     "label": "Regard",
+     "help": "Où regarde le visage affiché."
+    }
+   ]
+  },
+  {
+   "id": "face_visible",
+   "label": "Un visage est visible",
+   "help": "La caméra voit au moins un visage en ce moment.",
+   "icon": "scan-eye",
+   "theme": "vision",
+   "args": []
+  },
+  {
+   "id": "face_count_compare",
+   "label": "Comparer le nombre de visages",
+   "help": "Compare le nombre de visages que la caméra voit en ce moment à un nombre.",
+   "icon": "users",
+   "theme": "vision",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "count",
+     "type": "number",
+     "options": [],
+     "label": "Nombre de visages",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "is_on",
+   "label": "Le robot est allumé",
+   "help": "Le robot n'est pas éteint (bouton Éteindre / Allumer).",
+   "icon": "power",
+   "theme": "systeme",
+   "args": []
+  },
+  {
+   "id": "state_age",
+   "label": "Temps passé dans l'état",
+   "help": "Secondes passées dans l'état actuel, comparées à un nombre.",
+   "icon": "clock",
+   "theme": "systeme",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Nombre de secondes (0 ou plus).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "scheduled_pending",
+   "label": "Un événement programmé attend",
+   "help": "« Programmer un événement » a programmé cet événement et il n'a pas encore eu lieu (un arrêt l'annule).",
+   "icon": "calendar-time",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "event",
+     "type": "enum",
+     "options": [
+      "stop",
+      "off",
+      "on",
+      "start",
+      "visage",
+      "visage_perdu",
+      "greeting_done",
+      "relance_done",
+      "goodbye_done",
+      "cloture_done",
+      "answer_done",
+      "hush",
+      "barge_in",
+      "sing",
+      "not_understood",
+      "ask",
+      "personnes_multiples",
+      "ouverture",
+      "fermeture",
+      "inactivite_longue",
+      "say_done",
+      "media_started",
+      "media_finished",
+      "volume_changed",
+      "mute_changed",
+      "deaf_changed",
+      "text_shown",
+      "text_cleared",
+      "list_item_said",
+      "notification_clicked",
+      "mic_opened",
+      "mic_closed",
+      "expression_changed",
+      "gaze_changed",
+      "song_started",
+      "song_finished",
+      "answer_started",
+      "conversation_cleared",
+      "conversation_started",
+      "conversation_ended",
+      "turn_counted",
+      "face_count_changed"
+     ],
+     "label": "Événement",
+     "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
+    }
+   ]
+  },
+  {
+   "id": "month_compare",
+   "label": "Comparer le mois",
+   "help": "Compare le mois en cours (1 = janvier ... 12 = décembre) à un nombre.",
+   "icon": "calendar-time",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "count",
+     "type": "number",
+     "options": [],
+     "label": "Mois (1 à 12)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "event_recent",
+   "label": "Un événement a eu lieu récemment",
+   "help": "Cet événement a eu lieu il y a au plus ce nombre de secondes (y compris celui qui lance la chaîne) ; faux s'il n'a pas eu lieu depuis le démarrage.",
+   "icon": "bolt",
+   "theme": "evenements",
+   "args": [
+    {
+     "name": "event",
+     "type": "enum",
+     "options": [
+      "stop",
+      "off",
+      "on",
+      "start",
+      "visage",
+      "visage_perdu",
+      "greeting_done",
+      "relance_done",
+      "goodbye_done",
+      "cloture_done",
+      "answer_done",
+      "hush",
+      "barge_in",
+      "sing",
+      "not_understood",
+      "ask",
+      "personnes_multiples",
+      "ouverture",
+      "fermeture",
+      "inactivite_longue",
+      "say_done",
+      "media_started",
+      "media_finished",
+      "volume_changed",
+      "mute_changed",
+      "deaf_changed",
+      "text_shown",
+      "text_cleared",
+      "list_item_said",
+      "notification_clicked",
+      "mic_opened",
+      "mic_closed",
+      "expression_changed",
+      "gaze_changed",
+      "song_started",
+      "song_finished",
+      "answer_started",
+      "conversation_cleared",
+      "conversation_started",
+      "conversation_ended",
+      "turn_counted",
+      "face_count_changed"
+     ],
+     "label": "Événement",
+     "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Nombre de secondes (0 ou plus).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "mic_level_compare",
+   "label": "Comparer le niveau du micro",
+   "help": "Compare le niveau sonore entendu par le micro (0 à 100, comme la barre du tableau de bord ; 0 micro fermé) à un nombre.",
+   "icon": "microphone",
+   "theme": "micro",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "percent",
+     "type": "number",
+     "options": [],
+     "label": "Niveau (0 à 100)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "silence_since",
+   "label": "Silence du visiteur depuis",
+   "help": "Secondes depuis la dernière parole entendue (ou depuis « Redémarrer le chrono de silence »), comparées à un nombre.",
+   "icon": "hourglass",
+   "theme": "micro",
+   "args": [
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Nombre de secondes (0 ou plus).",
      "props": "number"
     }
    ]

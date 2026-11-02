@@ -4,7 +4,6 @@ Boundary: metadata read by graph.py (validation, GET /api/graph/vocab); run() is
 brain._build_engine and called on the brain loop thread with a NodeContext (brain, kw, cfg, graph).
 How to test: .venv/bin/python -m tests.test_nodes_registry (+ tests.test_brain_graph for behaviour).
 """
-import threading
 from nanterino.nodes.base import Action
 
 
@@ -18,9 +17,6 @@ class StartSing(Action):
     args = {}
 
     def run(self, ctx):
-        b = ctx.brain
-        if not b._threaded:   # simulator: the song "lasts" SIM_SONG_S virtual seconds
-            from nanterino import brain as brain_mod   # lazy: see start_answer
-            b._schedule_at(b.now() + brain_mod.SIM_SONG_S, "answer_done")
-            return
-        threading.Thread(target=b._sing, args=(b.gen,), daemon=True).start()
+        # Lot N2: Brain.start_song posts song_started / song_finished (is_singing) and keeps the simulator path
+        # (SIM_SONG_S virtual seconds, then answer_done as before).
+        ctx.brain.start_song()

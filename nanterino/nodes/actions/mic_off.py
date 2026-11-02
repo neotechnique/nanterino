@@ -17,4 +17,4 @@ class MicOff(Action):
     args = {}
 
     def run(self, ctx):
-        ctx.brain.mic.stop()
+        ctx.brain.mic_set(False)   # lot N2: mic_closed when it really closes

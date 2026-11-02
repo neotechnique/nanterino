@@ -902,6 +902,20 @@ class _Parser:
                             "out_of_bounds")
         return fixed
 
+    def guard_enums(self, where, name, spec, args):
+        """Lot N2: the enumerated kinds a CONDITION may take (expression_is, gaze_is, scheduled_pending, event_recent).
+
+        Actions check the same kinds in calls() (same rules, same messages); var_args does not, so an action is never
+        reported twice."""
+        for k, kind in spec.items():
+            val, what = args.get(k), "%s.%s" % (name, k)
+            if kind == "expression" and val not in EXPRESSIONS:
+                self.err(where, "%s: unknown expression %r (allowed: %s)" % (what, val, ", ".join(EXPRESSIONS)))
+            elif kind == "gazemode" and val not in GAZE_MODES:
+                self.err(where, "%s: unknown gaze mode %r (allowed: %s)" % (what, val, ", ".join(GAZE_MODES)))
+            elif kind == "event" and (val not in EVENTS or val in ("tick",) + WATCH_EVENTS):
+                self.err(where, "%s: unknown event %r" % (what, val))
+
     def variables(self, d, intent_names):
         """Parse the `variables:` block into self.vars / self.lists."""
         if d is None:
@@ -1045,6 +1059,7 @@ class _Parser:
                 self.err(where, "guard %s takes %s, got %s" % (g, sorted(spec) or "no argument", sorted(args))); continue
             n_err = len(self.errors)
             args = dict(args, **self.var_args(where, g, spec, args))   # lot M4: compiled value sources
+            self.guard_enums(where, g, spec, args)                     # lot N2: expression / gazemode / event
             if len(self.errors) == n_err:
                 when.append(Cond(g, neg, types.MappingProxyType(dict(args))))
         when = tuple(when)
@@ -1239,6 +1254,14 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
         if kind == "media":
             return {"name": a, "type": "enum", "options": [m for m in media_files(cfg) if m.lower().endswith(PLAYABLE_EXTS)],
                     "label": alabel}
+        # Lot N2: the enumerated kinds conditions now take too (expression_is, gaze_is, scheduled_pending, event_recent);
+        # the dicts are exactly the ones the action loop below always built for them (the goldens stay additive).
+        if kind == "expression":
+            return {"name": a, "type": "enum", "options": list(EXPRESSIONS), "labels": dict(EXPRESSIONS), "label": alabel}
+        if kind == "gazemode":
+            return {"name": a, "type": "enum", "options": list(GAZE_MODES), "labels": dict(GAZE_MODES), "label": alabel}
+        if kind == "event":
+            return {"name": a, "type": "enum", "options": ev_ids, "label": alabel}
         return None
 
     actions = []
@@ -1250,14 +1273,8 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
                 args.append(va)
             elif kind == "cfgkey":
                 args.append({"name": a, "type": "enum", "options": list(PHRASE_KEYS), "label": alabel})
-            elif kind == "event":
-                args.append({"name": a, "type": "enum", "options": ev_ids, "label": alabel})
-            elif kind == "text":
+            elif kind == "text":   # (event / expression / gazemode: var_arg above, lot N2)
                 args.append({"name": a, "type": "text", "max_len": TEXT_MAX, "label": alabel})
-            elif kind == "expression":
-                args.append({"name": a, "type": "enum", "options": list(EXPRESSIONS), "labels": dict(EXPRESSIONS), "label": alabel})
-            elif kind == "gazemode":
-                args.append({"name": a, "type": "enum", "options": list(GAZE_MODES), "labels": dict(GAZE_MODES), "label": alabel})
             elif kind == "seconds":  # plain number of seconds, no config key
                 args.append({"name": a, "type": "number", "options": [], "label": alabel})
             else:  # delay: a number of seconds, or one of the `options` config keys

@@ -91,6 +91,11 @@ def sc_l10(wd):
     q = js(wd, "const f=document.querySelector('.ctx .cfilter'); return f?f.textContent:''")
     check("l10 Backspace edits the filter", q.endswith("ouvrir le micr"), q)
     _l10_type(wd, "o")
+    # ADAPTED (N2): the filter also lists the trigger « Le micro s'ouvre » (its help cites « Ouvrir le micro »), first:
+    # walk down to the action row with the arrow keys, then Enter (same behaviour checked: Enter inserts the focused row).
+    labs = js(wd, "return [...document.querySelectorAll('.ctx .cit:not(.dis)')].map(r=>(r.querySelector('.clab')||r).textContent.trim())") or []
+    for _ in range(labs.index("Ouvrir le micro") if "Ouvrir le micro" in labs else 0):
+        key(wd, "\ue015")   # ArrowDown
     key(wd, L10_ENTER)
     time.sleep(0.4)
     d = doc(wd)

@@ -18,3 +18,4 @@ class CountTurn(Action):
 
     def run(self, ctx):
         ctx.brain.turns += 1
+        ctx.brain._changed("turn_counted", value=ctx.brain.turns)   # lot N2 (anti-loop like var_changed)

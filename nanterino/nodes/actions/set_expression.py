@@ -17,4 +17,4 @@ class SetExpression(Action):
     args = {'name': Arg('expression', 'Expression'), 'seconds': Arg('seconds', 'Durée (secondes)')}
 
     def run(self, ctx, name, seconds):
-        ctx.brain._expression = (name, ctx.brain.now() + float(seconds))
+        ctx.brain.set_expression(name, seconds)   # lot N2: expression_changed

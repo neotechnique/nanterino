@@ -23,3 +23,4 @@ class RememberUtterance(Action):
             before = ctx.brain.list_copy(list)   # lot N1: list_changed (listened lists only)
             list_push(ctx, list, text.strip())
             ctx.brain.list_touched(list, before)
+            ctx.brain.list_item_event("list_item_added", list, before, text.strip())   # lot N2 (listened lists only)

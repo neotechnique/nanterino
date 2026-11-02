@@ -19,6 +19,7 @@ class StartAnswer(Action):
 
     def run(self, ctx):
         b = ctx.brain
+        b._changed("answer_started")   # lot N2 (anti-loop like var_changed)
         if not b._threaded:   # simulator: a fixed fake answer, finished after SIM_ANSWER_S virtual seconds
             from nanterino import brain as brain_mod   # lazy: brain.py imports graph.py, which imports this package
             b.subtitle = "(réponse simulée)"

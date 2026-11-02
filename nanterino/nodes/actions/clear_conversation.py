@@ -22,3 +22,4 @@ class ClearConversation(Action):
         b.turns = 0
         b.subtitle = ""
         b._reset_scope(ctx.graph, "conversation")   # lot L11: conversation-scoped variables and lists
+        b._changed("conversation_cleared")           # lot N2 (anti-loop like var_changed)

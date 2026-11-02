@@ -17,6 +17,9 @@ Purpose
     Lot M2 extends (2)-(6) to the conditions (guards, test()) and triggers (events, match()): all three families
     discovered with their counts, GUARD_* / EVENT_* / WATCH_EVENTS are views of the registry, the Brain binds every
     guard, var_changed / timer_reached match() + subscribe(), drop-a-file / broken module / missing file per family.
+    Lot N2 adds (7) test_node_parity: the user's parity rule, visible Triggers == Actions == Conditions (internal
+    triggers excluded); the failure message prints the T / A / C table per theme; a package copy with one condition
+    file removed must break it (built-in mutation check).
 
 Boundary
     No hardware, muted fake world (tests.test_graph_vars2 harness), nanterino.server never imported. Temporary
@@ -96,6 +99,9 @@ res["vocab_always"] = next((a for a in v["guards"] if a["id"] == "always_true"),
 res["vocab_events"] = [a["id"] for a in v["events"]]
 res["vocab_bouton"] = next((a for a in v["events"] if a["id"] == "bouton_test"), None)
 res["emit_options"] = next(a for a in v["actions"] if a["id"] == "emit")["args"][0]["options"]
+# lot N2: palette counts per family and theme (internal triggers excluded), for the parity mutation check
+res["palette"] = {fam: [[n.theme, n.id] for n in reg.values() if not getattr(n, "internal", False)]
+                  for fam, reg in (("triggers", nodes.TRIGGERS), ("actions", nodes.ACTIONS), ("conditions", nodes.CONDITIONS))}
 if "always_true" in nodes.CONDITIONS and "bouton_test" in nodes.TRIGGERS:
     raw = {"states": {"veille": {"transitions": [{"on": "bouton_test", "when": ["always_true", {"not": "always_true"}],
                                                   "to": "eteint", "description": "test"}]}, "eteint": {}}}
@@ -361,9 +367,9 @@ def family_files(fam: str) -> list:
 
 
 def test_discovery_finds_every_condition_and_trigger():
-    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 31, list(nodes.CONDITIONS)   # 18 + 13 (lot N1)
-    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 38, list(nodes.TRIGGERS)   # 25 + 13 (lot N1)
-    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 119   # 81 + 38 (lot N1)
+    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 50, list(nodes.CONDITIONS)   # 18 + 13 (N1) + 19 (N2)
+    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 52, list(nodes.TRIGGERS)   # 25 + 13 (N1) + 14 (N2)
+    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 152   # 81 + 38 (N1) + 33 (N2)
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         for nid, n in reg.items():
             assert n.id == nid and type(n).__module__ == "nanterino.nodes.%s.%s" % (fam, nid), (nid, type(n).__module__)
@@ -377,7 +383,8 @@ def test_discovery_finds_every_condition_and_trigger():
         assert G.GUARD_AS_VARS.get(nid) == n.as_vars
     assert G.GUARD_AS_VARS == {"turns_left": "tours < max_tours", "repairs_left": "reparations < max_reparations"}
     assert G.INTERNAL_EVENTS == {"utterance", "tick"} and G.EVENTS == frozenset(nodes.TRIGGERS)
-    assert G.WATCH_EVENTS == ("var_changed", "timer_reached", "list_changed", "dict_changed", "timer_stopped", "journal_entry"), G.WATCH_EVENTS   # lot N1
+    assert G.WATCH_EVENTS == ("var_changed", "timer_reached", "list_changed", "dict_changed", "timer_stopped", "journal_entry",
+                             "list_item_added", "list_item_removed"), G.WATCH_EVENTS   # lot N1, lot N2
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         icons = set(G.all_icons())
         for n in reg.values():
@@ -471,8 +478,8 @@ def test_drop_a_condition_and_a_trigger():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 32, res["conditions"]
-    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 39, res["triggers"]
+    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 51, res["conditions"]
+    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 53, res["triggers"]
     assert "always_true" in res["guards"] and "bouton_test" in res["events"]
     assert res["vocab_guards"][-1] == "always_true" and res["vocab_events"][-1] == "bouton_test"
     a = res["vocab_always"]
@@ -550,13 +557,52 @@ def test_broken_conditions_and_triggers_fail_clearly():
                           "surveille.name: unknown argument kind 'nyvar'", check=True, family="triggers")
 
 
+# ---------------------------------------------------------------- lot N2: the parity rule (Notes/HOWTO-add-node.md)
+def palette_of(registries) -> dict:
+    """{family: [[theme, id], ...]} of the nodes visible in the editor's palette (internal triggers left out)."""
+    return {fam: [[n.theme, n.id] for n in reg.values() if not getattr(n, "internal", False)] for fam, reg in registries}
+
+
+def parity_problem(palette: dict):
+    """None when Déclencheurs == Actions == Conditions (visible counts); else a message with the table per theme."""
+    import collections
+    fams = ("triggers", "actions", "conditions")
+    totals = [len(palette[f]) for f in fams]
+    if totals[0] == totals[1] == totals[2]:
+        return None
+    per = {f: collections.Counter(t for t, _i in palette[f]) for f in fams}
+    themes = [t for t in G.THEME_DOC if any(per[f].get(t) for f in fams)]
+    rows = ["%-13s %4s %4s %4s" % ("theme", "T", "A", "C")]
+    rows += ["%-13s %4d %4d %4d" % (t, per["triggers"][t], per["actions"][t], per["conditions"][t]) for t in themes]
+    rows.append("%-13s %4d %4d %4d" % ("TOTAL", *totals))
+    return ("parity rule broken: Triggers %d / Actions %d / Conditions %d must be equal (one concept = action + trigger "
+            "+ condition, Notes/HOWTO-add-node.md « Règle de parité »)\n%s" % (*totals, "\n".join(rows)))
+
+
+def test_node_parity():
+    """Lot N2 (durable user rule): the palette shows as many triggers as actions as conditions. Built-in mutation check:
+    a package copy with one condition file removed breaks the rule (and the message names the counts per theme)."""
+    pal = palette_of((("triggers", nodes.TRIGGERS), ("actions", nodes.ACTIONS), ("conditions", nodes.CONDITIONS)))
+    problem = parity_problem(pal)
+    assert problem is None, problem
+    assert len(pal["triggers"]) >= 50, "lot N2 reached 50 / 50 / 50: never shrink the palette silently"
+    root = package_copy("mutant_parity")
+    os.remove(os.path.join(root, "nanterino", "nodes", "conditions", "is_question.py"))
+    rc, out = run_probe(root)
+    assert rc == 0, out[-2000:]
+    msg = parity_problem(probe_result(out)["palette"])
+    assert msg and "Conditions %d" % (len(pal["conditions"]) - 1) in msg and "conversation" in msg, msg
+
+
 TESTS = [test_golden_vocab, test_discovery_finds_every_action, test_ids_unique_themes_kinds_icons_valid,
          test_production_scan_is_closed, test_brain_binds_every_action, test_drop_a_file, test_missing_module_breaks_golden,
          test_bad_theme_stops_graph_import, test_broken_modules_fail_clearly,
          # lot M2
          test_discovery_finds_every_condition_and_trigger, test_brain_binds_every_guard_and_watch_trigger,
          test_engine_dispatch_goes_through_trigger_match, test_drop_a_condition_and_a_trigger, test_missing_condition_or_trigger_breaks_golden,
-         test_bad_condition_or_trigger_stops_graph_import, test_broken_conditions_and_triggers_fail_clearly]
+         test_bad_condition_or_trigger_stops_graph_import, test_broken_conditions_and_triggers_fail_clearly,
+         # lot N2
+         test_node_parity]
 
 
 def main(only):

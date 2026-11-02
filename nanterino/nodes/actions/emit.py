@@ -17,4 +17,5 @@ class Emit(Action):
     args = {'event': Arg('event', 'Événement à déclencher')}
 
     def run(self, ctx, event):
+        ctx.brain._event_at[event] = ctx.brain.now()   # lot N2: event_recent sees emitted events too
         ctx.brain.engine.dispatch(event, {})

@@ -17,4 +17,4 @@ class Gaze(Action):
     args = {'mode': Arg('gazemode', 'Regard')}
 
     def run(self, ctx, mode):
-        ctx.brain.gaze_mode = mode
+        ctx.brain.set_gaze(mode)   # lot N2: gaze_changed

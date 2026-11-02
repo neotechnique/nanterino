@@ -58,6 +58,14 @@ records of the live robot's log via nanterino/journal.py; journal_entry) and das
 click_notification; notification_clicked). Every state-change trigger goes through `_changed`: same anti-loop as
 var_changed (a change made by a chain a change event started posts nothing), watch triggers only for a listened name.
 
+Trigger / condition parity (lot N2, 2026-11-02): every mic opening / closing goes through `mic_set` (mic_opened /
+mic_closed on a real change), set_expression / gaze through `set_expression` / `set_gaze` (expression_changed, also when
+an expression expires on the heartbeat; gaze_changed, also on the return to « suivre »), start_sing through `start_song`
+(song_started / song_finished, `is_singing`), `_go` posts conversation_started / conversation_ended (plain posts: a state
+move is never dropped) and times the conversation, `set_faces` posts face_count_changed, `_handle` notes when each event
+was last handled (`event_age`, event_recent). The action modules post answer_started, conversation_cleared, turn_counted,
+list_item_added / list_item_removed (`list_item_event`).
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -102,7 +110,11 @@ SIM_ANSWER_S, SIM_SONG_S = 2.0, 3.0   # virtual durations of a simulated answer 
 SAY_TEXTS_MAX = 40     # free phrases pre-synthesised per graph (memory bound)
 # Lot N1: state-change triggers the brain posts through `_changed` (anti-loop depth carried like var_changed).
 CHANGE_EVENTS = frozenset({"media_started", "volume_changed", "mute_changed", "deaf_changed", "text_shown",
-                           "text_cleared", "list_changed", "dict_changed", "timer_stopped", "journal_entry"})
+                           "text_cleared", "list_changed", "dict_changed", "timer_stopped", "journal_entry",
+                           # lot N2 (trigger / condition parity with the actions)
+                           "mic_opened", "mic_closed", "expression_changed", "gaze_changed", "song_started",
+                           "answer_started", "conversation_cleared", "turn_counted", "list_item_added", "list_item_removed",
+                           "face_count_changed"})
 JOURNAL_KEEP = 200        # robot journal entries kept for recent_error (wall time, level, source)
 JOURNAL_POST_GAP_S = 0.2  # journal_entry from the log tap: at most one per 0.2 s (an error burst is one event)
 NOTIFY_MAX = 20           # pending dashboard notifications kept (oldest dropped)
@@ -247,6 +259,11 @@ class Brain:
         self._watch = {}              # watch trigger id -> what the active graph listens to (subscribe())
         self.volume_hook = None       # server.py: fn(volume 0..1) through the speaker profile; None = out.volume
         self.flag_hook = None         # server.py: fn(key, value) persisting muted / deaf like the dashboard buttons
+        # Lot N2: state behind the new triggers / conditions (see the N2 block of methods below).
+        self._expr_last = "neutre"    # last expression posted by expression_changed (the `expression` system view)
+        self._song_gen = None         # generation of the song being sung (is_singing); None = no song
+        self._conv_since = None       # monotonic start of the current conversation (conversation_duration)
+        self._event_at = {}           # event id -> monotonic time it was last handled (event_recent)
         self.engine = self._build_engine()
         if self._threaded:
             journal_mod.attach(self)  # the live robot's WARNING / ERROR log records feed journal_notes
@@ -336,10 +353,14 @@ class Brain:
 
     # ------------------------------------------------------------------ sensors (vision count, idle, hours)
     def set_faces(self, n: int):
-        """Number of faces the camera sees right now (called by the vision thread, or by the simulator)."""
+        """Number of faces the camera sees right now (called by the vision thread, or by the simulator).
+        Lot N2: face_count_changed when the count changed (external: a sensor, depth 1 for the anti-loop)."""
+        changed = n != self.faces
         self.faces = n
         if n > 0:
             self._activity()
+        if changed:
+            self._changed("face_count_changed", external=True, value=n)
 
     def _activity(self):
         self.last_activity, self._idle_posted = self.now(), False
@@ -393,9 +414,9 @@ class Brain:
         changed = bool(deaf) != bool(self.deaf)
         self.deaf = deaf
         if deaf:
-            self.mic.stop()
+            self.mic_set(False, external=external)
         elif self.state in (VEILLE, ECOUTE) or (self.state == RELANCE and not self.out.busy):
-            self.mic.start()
+            self.mic_set(True, external=external)
         log.info("deaf=%s", deaf)
         if changed:
             if persist and self.flag_hook is not None:
@@ -574,8 +595,77 @@ class Brain:
 
     def _mic_on(self):
         """Every mic opening goes through here so the deaf mode can never be bypassed."""
-        if not self.deaf:
+        self.mic_set(True)
+
+    # ------------------------------------------------------------------ lot N2: producers of the parity triggers
+    def mic_set(self, on: bool, external: bool = False):
+        """Open / close the microphone (mic_on / mic_off actions, deaf mode, _mic_on): mic_opened / mic_closed when its
+        REAL state changed (an already open mic posts nothing). Opening never bypasses the deaf mode."""
+        before = bool(self.mic.active)
+        if on:
+            if self.deaf:
+                return
             self.mic.start()
+        else:
+            self.mic.stop()
+        after = bool(self.mic.active)
+        if after != before:
+            self._changed("mic_opened" if after else "mic_closed", external=external)
+
+    def set_expression(self, name: str, seconds: float):
+        """set_expression: the face shows `name` for `seconds`; expression_changed when the visible expression changed
+        (and again from the heartbeat when it expires back to « neutre », see _expr_tick)."""
+        self._expression = (name, self.now() + float(seconds))
+        self._expr_tick()
+
+    def _expr_tick(self):
+        cur = self.var_value("expression")
+        if cur != self._expr_last:
+            self._expr_last = cur
+            self._changed("expression_changed", value=cur)
+
+    def set_gaze(self, mode: str):
+        """gaze action, and the return to « suivre » on entry into veille / eteint: gaze_changed when it changed."""
+        if mode == self.gaze_mode:
+            return
+        self.gaze_mode = mode
+        self._changed("gaze_changed", value=mode)
+
+    def start_song(self):
+        """start_sing: song_started now, song_finished (then answer_done, as before) when the song ends; stop / hush /
+        off (generation bump) cancel it without song_finished, and is_singing is false from then on."""
+        self._song_gen = self.gen
+        self._changed("song_started")
+        if not self._threaded:   # simulator: the song "lasts" SIM_SONG_S virtual seconds
+            self._schedule_at(self.now() + SIM_SONG_S, "song_finished")
+            self._schedule_at(self.now() + SIM_SONG_S, "answer_done")
+            return
+        threading.Thread(target=self._sing, args=(self.gen,), daemon=True).start()
+
+    def is_singing(self) -> bool:
+        return self._song_gen is not None and self._song_gen == self.gen
+
+    def list_item_event(self, event: str, name: str, before, value) -> bool:
+        """list_add / remember_utterance / list_remove: list_item_added / list_item_removed (watch triggers: posted only
+        for a listened list) when the list content really changed."""
+        after = self.lists.get(name)
+        if after == before and type(after) is type(before):
+            return False
+        return self._changed(event, name=name, value=value)
+
+    def scheduled_pending(self, event: str) -> bool:
+        """A `schedule` of `event` still waits (and will fire: not cancelled by a stop / off since)."""
+        with self._sched_lock:
+            return any(ev == event and gen == self.gen for _due, ev, gen in self._scheduled)
+
+    def event_age(self, event: str):
+        """Seconds since `event` was last handled (posted events and `emit`), None = never since the start."""
+        t = self._event_at.get(event)
+        return None if t is None else self.now() - t
+
+    def conversation_age(self):
+        """Seconds since the current conversation started (exit from veille / eteint), None outside a conversation."""
+        return None if self._conv_since is None else self.now() - self._conv_since
 
     # ------------------------------------------------------------------ cancellation
     def _cancel_all(self):
@@ -623,9 +713,18 @@ class Brain:
         if self.state == VEILLE and state not in (VEILLE, ETEINT):   # a conversation starts: one more visitor today
             self._visitors_today()
             self._visitors["count"] += 1
+        # Lot N2: conversation_started / conversation_ended (plain posts, no anti-loop depth: a state move is never
+        # dropped, like `visage`); the start time feeds conversation_duration.
+        idle_before, idle_after = self.state in (VEILLE, ETEINT), state in (VEILLE, ETEINT)
+        if idle_before and not idle_after:
+            self._conv_since = self.now()
+            self.post("conversation_started")
+        elif not idle_before and idle_after:
+            self._conv_since = None
+            self.post("conversation_ended")
         self.state, self.since = state, self.now()
         if state in (VEILLE, ETEINT):
-            self.gaze_mode = "suivre"   # a `gaze` command lasts for one conversation
+            self.set_gaze("suivre")   # a `gaze` command lasts for one conversation (lot N2: gaze_changed)
         if self.graph_pending and state in (VEILLE, ETEINT):
             # Deferred editor save: swap graphs here, before the new state's on_enter runs. The old engine
             # object that called us may still run its remaining `then` actions; that is harmless.
@@ -779,6 +878,9 @@ class Brain:
             return  # late event from a cancelled thread
         if kind == "media_finished":
             self._media = None   # lot N1: media_playing is false from here on
+        elif kind == "song_finished":
+            self._song_gen = None   # lot N2: is_singing is false from here on
+        self._event_at[kind] = self.now()   # lot N2: event_recent
         if isinstance(kw.get("text"), str):
             self.last_text = kw["text"]     # `$utterance` of the variable conditions / actions
         self._var_depth = kw.get("depth", 0) if kind in graph_mod.WATCH_EVENTS or kind in CHANGE_EVENTS else 0   # anti-loop (L1, L11, N1)
@@ -1059,6 +1161,7 @@ class Brain:
             self._sensors(now)
             self._timers_tick()        # lot L11: timer_reached
             self._text_tick(now)       # lot N1: text_cleared
+            self._expr_tick()          # lot N2: expression_changed when a set_expression expires
             self._persist_tick(now)    # lot L11: persisted variables -> var_store
             self.engine.tick(now)
         except Exception:
@@ -1128,6 +1231,7 @@ class Brain:
             self.subtitle = "Je n'ai pas encore appris ma chanson."
             time.sleep(2)
             if self._alive(gen):
+                self.post("song_finished", gen=gen, ok=False)   # lot N2 (like media_finished of an unreadable file)
                 self.post("answer_done", gen=gen)
             return
         log.info("song start s=%.1f", len(pcm) / rate)
@@ -1142,6 +1246,7 @@ class Brain:
         if self._alive(gen):  # finished normally (stop/hush bump gen and silence it)
             log.info("song end")
             self.subtitle = ""
+            self.post("song_finished", gen=gen, ok=True)   # lot N2: before answer_done (is_singing false in its chain)
             self.post("answer_done", gen=gen)
 
     def _answer(self, question: str, t_end: float, gen: int):

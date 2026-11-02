@@ -9,7 +9,7 @@ Purpose
     CONDITION reading the real state; the anti-loop of the new state-change triggers; the parser's refusals; the visual
     round trip of the new trigger filters; the vocabulary goldens changing only additively (pre-N1 copies); the server
     routes (read as text). `report_counts()` prints the node counts per family and per theme (the parity rule of
-    Notes/HOWTO-add-node.md is enforced in lot N2, not here).
+    Notes/HOWTO-add-node.md is enforced since lot N2 by tests.test_nodes_registry.test_node_parity).
 
 Boundary
     Fake output (muted, FakeOut) and fake mic only: the live robot's audio, mute and deaf flags are never touched, and
@@ -456,15 +456,23 @@ def test_vocabulary_of_the_new_kinds():
         assert all(i in ids for i in N1[key]), (fam, set(N1[key]) - set(ids))
 
 
-def strip_n1(v: dict) -> dict:
-    """The vocabulary without the lot N1 entries (new node ids; new trigger ids in event option lists), order kept."""
+def strip_ids(v: dict, ids: dict) -> dict:
+    """The vocabulary without the given node ids ({"triggers"|"actions"|"conditions": [...]}; trigger ids also leave
+    the event option lists), order kept."""
     v = dict(v)
     for fam, key in (("events", "triggers"), ("actions", "actions"), ("guards", "conditions")):
-        v[fam] = [e for e in v[fam] if e["id"] not in N1[key]]
+        v[fam] = [e for e in v[fam] if e["id"] not in ids.get(key, ())]
     for fam in ("actions", "guards"):
-        v[fam] = [dict(e, args=[dict(a, options=[o for o in a["options"] if o not in N1["triggers"]]) if "options" in a else a
+        v[fam] = [dict(e, args=[dict(a, options=[o for o in a["options"] if o not in ids.get("triggers", ())]) if "options" in a else a
                                 for a in e["args"]]) for e in v[fam]]
     return v
+
+
+def strip_n1(v: dict) -> dict:
+    """The vocabulary without the lot N1 entries AND the entries of the later lots (N2: tests.test_nodes_n2.N2), so the
+    pre-N1 / pre-M4 / pre-M5 additive checks keep comparing against their frozen copies."""
+    from tests.test_nodes_n2 import N2   # lazy: test_nodes_n2 imports this module's helpers
+    return strip_ids(strip_ids(v, N2), N1)
 
 
 def test_goldens_n1_only_gained_entries():
@@ -491,8 +499,10 @@ def test_server_routes_and_controls():
 def test_ids_and_counts():
     for fam, reg in (("actions", nodes.ACTIONS), ("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         assert all(i in reg for i in N1[fam]), (fam, set(N1[fam]) - set(reg))
+    # CHANGED (lot N2): the totals are no longer pinned here (36 / 50 / 31 at N1); the parity rule T == A == C is
+    # enforced by tests.test_nodes_registry.test_node_parity.
     c = counts()
-    assert (c["triggers"]["total"], c["actions"]["total"], c["conditions"]["total"]) == (36, 50, 31), c
+    assert c["triggers"]["total"] == c["actions"]["total"] == c["conditions"]["total"], c
     print(report_counts())
 
 

@@ -19,4 +19,4 @@ class MicOffNoBargeIn(Action):
     def run(self, ctx):
         # Without echo cancellation the robot would hear itself, unless barge-in is wanted.
         if not ctx.cfg["barge_in"]:
-            ctx.brain.mic.stop()
+            ctx.brain.mic_set(False)   # lot N2: mic_closed when it really closes

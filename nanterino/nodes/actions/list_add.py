@@ -20,5 +20,8 @@ class ListAdd(Action):
         # lot M4: through the `list_item` set target (item type clamp, then the list mode's push like list_push)
         from nanterino import properties
         before = ctx.brain.list_copy(list)   # lot N1: list_changed when the content changed (listened lists only)
-        properties.write("list_item", ctx, ctx.brain._resolve(value, ctx.kw), list=list)
+        v = ctx.brain._resolve(value, ctx.kw)
+        properties.write("list_item", ctx, v, list=list)
         ctx.brain.list_touched(list, before)
+        items = ctx.brain.lists.get(list)
+        ctx.brain.list_item_event("list_item_added", list, before, items[-1] if items else v)   # lot N2: the stored item
