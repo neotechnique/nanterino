@@ -922,7 +922,8 @@ class _Parser:
         return fixed
 
     def guard_enums(self, where, name, spec, args):
-        """Lot N2: the enumerated kinds a CONDITION may take (expression_is, gaze_is, scheduled_pending, event_recent).
+        """Lot N2: the enumerated kinds a CONDITION may take (expression_is, gaze_is, scheduled_pending, event_recent; lot N3:
+        the media file of media_is).
 
         Actions check the same kinds in calls() (same rules, same messages); var_args does not, so an action is never
         reported twice."""
@@ -934,6 +935,9 @@ class _Parser:
                 self.err(where, "%s: unknown gaze mode %r (allowed: %s)" % (what, val, ", ".join(GAZE_MODES)))
             elif kind == "event" and (val not in EVENTS or val in ("tick",) + WATCH_EVENTS):
                 self.err(where, "%s: unknown event %r" % (what, val))
+            elif kind == "media" and not (isinstance(val, str) and MEDIA_NAME.match(val) and val.lower().endswith(PLAYABLE_EXTS)):
+                # lot N3 (media_is): the same rule and message as the play_media action
+                self.err(where, "%s: expected a .wav file name of media/, got %r" % (what, val))
 
     def variables(self, d, intent_names):
         """Parse the `variables:` block into self.vars / self.lists."""

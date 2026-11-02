@@ -22,7 +22,7 @@ class StartAnswer(Action):
         b._changed("answer_started")   # lot N2 (anti-loop like var_changed)
         if not b._threaded:   # simulator: a fixed fake answer, finished after SIM_ANSWER_S virtual seconds
             from nanterino import brain as brain_mod   # lazy: brain.py imports graph.py, which imports this package
-            b.subtitle = "(réponse simulée)"
+            b.subtitle = b.last_said = "(réponse simulée)"   # lot N3: said_contains reads last_said
             b.llm.simulate_answer()   # the simulator's fake LLM records that an answer started
             b._schedule_at(b.now() + brain_mod.SIM_ANSWER_S, "answer_done")
             return

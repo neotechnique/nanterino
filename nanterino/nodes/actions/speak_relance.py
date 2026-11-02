@@ -13,7 +13,7 @@ class SpeakRelance(Action):
     label = 'Dire la relance'
     help = 'Dit la phrase de relance (ou de répétition si elle est préparée), puis relance_done.'
     icon = 'volume'
-    theme = 'parole'
+    theme = 'conversation'
     args = {}
 
     def run(self, ctx):

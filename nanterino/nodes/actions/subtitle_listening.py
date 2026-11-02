@@ -13,7 +13,7 @@ class SubtitleListening(Action):
     label = 'Afficher « Je vous écoute »'
     help = "Met le sous-titre de l'écran sur « Je vous écoute »."
     icon = 'ear'
-    theme = 'micro'
+    theme = 'vision'
     args = {}
 
     def run(self, ctx):

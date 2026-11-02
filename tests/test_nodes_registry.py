@@ -245,7 +245,7 @@ def test_discovery_finds_every_action():
     files = sorted(f[:-3] for f in os.listdir(os.path.join(PKG, "nodes", "actions"))
                    if f.endswith(".py") and not f.startswith("_"))
     assert sorted(nodes.ACTIONS) == files, set(files) ^ set(nodes.ACTIONS)
-    assert len(files) == 50, len(files)   # 38 + 12 (lot N1)
+    assert len(files) == 65, len(files)   # 38 + 12 (lot N1) + 15 (lot N3)
     assert list(G.ACTION_DOC) == list(nodes.ACTIONS) == list(G.ACTION_SPECS)
     for nid, n in nodes.ACTIONS.items():
         assert n.id == nid and type(n).__module__ == "nanterino.nodes.actions." + nid, (nid, type(n).__module__)
@@ -301,7 +301,7 @@ def test_drop_a_file():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["actions"][-1] == "say_hello" and len(res["actions"]) == 51, res["actions"]   # no `order`: last (50 since lot N1)
+    assert res["actions"][-1] == "say_hello" and len(res["actions"]) == 66, res["actions"]   # no `order`: last (50 since lot N1, 65 since N3)
     assert "say_hello" in res["specs"] and res["vocab_actions"][-1] == "say_hello"
     h = res["vocab_hello"]
     assert h["label"] == "Dire bonjour" and h["theme"] == "parole" and h["icon"] == "volume", h
@@ -318,7 +318,7 @@ def test_missing_module_breaks_golden():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert "say_text" not in res["actions"] and len(res["actions"]) == 49
+    assert "say_text" not in res["actions"] and len(res["actions"]) == 64   # 65 since lot N3
     assert sorted(res["golden_diff"]) == ["vocab-default-graph.json", "vocab-no-graph.json"], res["golden_diff"]
 
 
@@ -367,9 +367,9 @@ def family_files(fam: str) -> list:
 
 
 def test_discovery_finds_every_condition_and_trigger():
-    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 50, list(nodes.CONDITIONS)   # 18 + 13 (N1) + 19 (N2)
-    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 52, list(nodes.TRIGGERS)   # 25 + 13 (N1) + 14 (N2)
-    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 152   # 81 + 38 (N1) + 33 (N2)
+    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 65, list(nodes.CONDITIONS)   # 18 + 13 (N1) + 19 (N2) + 15 (N3)
+    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 67, list(nodes.TRIGGERS)   # 25 + 13 (N1) + 14 (N2) + 15 (N3)
+    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 197   # 81 + 38 (N1) + 33 (N2) + 45 (N3)
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         for nid, n in reg.items():
             assert n.id == nid and type(n).__module__ == "nanterino.nodes.%s.%s" % (fam, nid), (nid, type(n).__module__)
@@ -384,7 +384,8 @@ def test_discovery_finds_every_condition_and_trigger():
     assert G.GUARD_AS_VARS == {"turns_left": "tours < max_tours", "repairs_left": "reparations < max_reparations"}
     assert G.INTERNAL_EVENTS == {"utterance", "tick"} and G.EVENTS == frozenset(nodes.TRIGGERS)
     assert G.WATCH_EVENTS == ("var_changed", "timer_reached", "list_changed", "dict_changed", "timer_stopped", "journal_entry",
-                             "list_item_added", "list_item_removed"), G.WATCH_EVENTS   # lot N1, lot N2
+                             "list_item_added", "list_item_removed", "var_reset", "var_bound_reached", "list_emptied",
+                             "list_filled", "dict_key_set", "dict_key_removed", "dict_emptied"), G.WATCH_EVENTS   # N1, N2, N3
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         icons = set(G.all_icons())
         for n in reg.values():
@@ -478,8 +479,8 @@ def test_drop_a_condition_and_a_trigger():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 51, res["conditions"]
-    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 53, res["triggers"]
+    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 66, res["conditions"]
+    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 68, res["triggers"]
     assert "always_true" in res["guards"] and "bouton_test" in res["events"]
     assert res["vocab_guards"][-1] == "always_true" and res["vocab_events"][-1] == "bouton_test"
     a = res["vocab_always"]
@@ -565,34 +566,46 @@ def palette_of(registries) -> dict:
 
 
 def parity_problem(palette: dict):
-    """None when Déclencheurs == Actions == Conditions (visible counts); else a message with the table per theme."""
+    """None when Déclencheurs == Actions == Conditions (visible counts) overall AND in every theme (lot N3, user rule
+    2026-11-02); else a message naming the uneven themes, with the table T / A / C per theme."""
     import collections
     fams = ("triggers", "actions", "conditions")
     totals = [len(palette[f]) for f in fams]
-    if totals[0] == totals[1] == totals[2]:
-        return None
     per = {f: collections.Counter(t for t, _i in palette[f]) for f in fams}
     themes = [t for t in G.THEME_DOC if any(per[f].get(t) for f in fams)]
+    uneven = [t for t in themes if not per["triggers"][t] == per["actions"][t] == per["conditions"][t]]
+    if totals[0] == totals[1] == totals[2] and not uneven:
+        return None
     rows = ["%-13s %4s %4s %4s" % ("theme", "T", "A", "C")]
-    rows += ["%-13s %4d %4d %4d" % (t, per["triggers"][t], per["actions"][t], per["conditions"][t]) for t in themes]
+    rows += ["%-13s %4d %4d %4d%s" % (t, per["triggers"][t], per["actions"][t], per["conditions"][t],
+                                      "   <- uneven" if t in uneven else "") for t in themes]
     rows.append("%-13s %4d %4d %4d" % ("TOTAL", *totals))
-    return ("parity rule broken: Triggers %d / Actions %d / Conditions %d must be equal (one concept = action + trigger "
-            "+ condition, Notes/HOWTO-add-node.md « Règle de parité »)\n%s" % (*totals, "\n".join(rows)))
+    return ("parity rule broken: Triggers %d / Actions %d / Conditions %d must be equal, overall and per theme (uneven: %s; "
+            "one concept = action + trigger + condition, Notes/HOWTO-add-node.md « Règle de parité »)\n%s"
+            % (*totals, ", ".join(uneven) or "none", "\n".join(rows)))
 
 
 def test_node_parity():
-    """Lot N2 (durable user rule): the palette shows as many triggers as actions as conditions. Built-in mutation check:
-    a package copy with one condition file removed breaks the rule (and the message names the counts per theme)."""
+    """Lot N2 (durable user rule): the palette shows as many triggers as actions as conditions; lot N3: in every theme too.
+    Built-in mutation checks: a package copy with one condition file removed breaks the rule (the message names the
+    uneven theme and the counts per theme), and a palette with one action moved to another theme (equal totals) too."""
     pal = palette_of((("triggers", nodes.TRIGGERS), ("actions", nodes.ACTIONS), ("conditions", nodes.CONDITIONS)))
     problem = parity_problem(pal)
     assert problem is None, problem
-    assert len(pal["triggers"]) >= 50, "lot N2 reached 50 / 50 / 50: never shrink the palette silently"
+    assert len(pal["triggers"]) >= 65, "lot N3 reached 65 / 65 / 65: never shrink the palette silently"
     root = package_copy("mutant_parity")
     os.remove(os.path.join(root, "nanterino", "nodes", "conditions", "is_question.py"))
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     msg = parity_problem(probe_result(out)["palette"])
-    assert msg and "Conditions %d" % (len(pal["conditions"]) - 1) in msg and "conversation" in msg, msg
+    assert msg and "Conditions %d" % (len(pal["conditions"]) - 1) in msg and "uneven: conversation" in msg, msg
+    # Lot N3: equal totals are not enough. Moving one action to another theme keeps 65 / 65 / 65 but breaks two themes.
+    moved = {f: [list(e) for e in pal[f]] for f in pal}
+    for e in moved["actions"]:
+        if e[1] == "reset_turns":
+            e[0] = "systeme"
+    msg = parity_problem(moved)
+    assert msg and "uneven: conversation, systeme" in msg and "Triggers 65 / Actions 65 / Conditions 65" in msg, msg
 
 
 TESTS = [test_golden_vocab, test_discovery_finds_every_action, test_ids_unique_themes_kinds_icons_valid,

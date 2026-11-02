@@ -324,7 +324,8 @@ def test_goldens_n2_only_gained_entries():
     for name, text in dumps.items():
         with open(os.path.join(GOLDEN, name.replace(".json", ".pre-n2.json")), "rb") as f:
             old = f.read()
-        stripped = json.dumps(strip_ids(json.loads(text), N2), ensure_ascii=False, indent=1) + "\n"
+        from tests.test_nodes_n3 import strip_n3   # lot N3: its entries out, the moved themes restored first
+        stripped = json.dumps(strip_ids(strip_n3(json.loads(text)), N2), ensure_ascii=False, indent=1) + "\n"
         assert stripped.encode("utf-8") == old, "%s minus the N2 entries is not the pre-N2 golden" % name
 
 

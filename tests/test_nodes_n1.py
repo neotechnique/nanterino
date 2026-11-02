@@ -469,10 +469,12 @@ def strip_ids(v: dict, ids: dict) -> dict:
 
 
 def strip_n1(v: dict) -> dict:
-    """The vocabulary without the lot N1 entries AND the entries of the later lots (N2: tests.test_nodes_n2.N2), so the
-    pre-N1 / pre-M4 / pre-M5 additive checks keep comparing against their frozen copies."""
-    from tests.test_nodes_n2 import N2   # lazy: test_nodes_n2 imports this module's helpers
-    return strip_ids(strip_ids(v, N2), N1)
+    """The vocabulary without the lot N1 entries AND the entries of the later lots (N2: tests.test_nodes_n2.N2; N3:
+    tests.test_nodes_n3.strip_n3, which also puts the three moved nodes back in their old theme), so the pre-N1 /
+    pre-M4 / pre-M5 additive checks keep comparing against their frozen copies."""
+    from tests.test_nodes_n2 import N2   # lazy: test_nodes_n2 / _n3 import this module's helpers
+    from tests.test_nodes_n3 import strip_n3
+    return strip_ids(strip_ids(strip_n3(v), N2), N1)
 
 
 def test_goldens_n1_only_gained_entries():

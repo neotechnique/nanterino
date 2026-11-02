@@ -22,3 +22,4 @@ class DictSet(Action):
         before = ctx.brain.list_copy(dict)   # lot N1: dict_changed when the content changed (listened dicts only)
         properties.write("dict_key", ctx, ctx.brain._resolve(value, ctx.kw), dict=dict, key=key)
         ctx.brain.list_touched(dict, before)
+        ctx.brain.dict_key_events(dict, before)   # lot N3: dict_key_set (listened dicts only)

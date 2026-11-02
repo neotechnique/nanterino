@@ -21,4 +21,6 @@ class RandomChoice(Action):
         from nanterino import properties   # lazy: graph.py imports the node packages
         n = count if isinstance(count, (int, float)) and not isinstance(count, bool) else 1
         n = max(1, min(int(n), 10 ** 6))
-        properties.write("variable", ctx, ctx.brain.rng.randint(1, n), name=name)
+        drawn = ctx.brain.rng.randint(1, n)
+        properties.write("variable", ctx, drawn, name=name)
+        ctx.brain._changed("random_drawn", value=drawn)   # lot N3 (anti-loop like var_changed)

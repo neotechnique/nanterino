@@ -22,3 +22,4 @@ class DictRemove(Action):
         before = b.list_copy(dict)   # lot N1: dict_changed when a key was removed (listened dicts only)
         (b.lists.get(dict) or {}).pop(k, None)
         b.list_touched(dict, before)
+        b.dict_key_events(dict, before)   # lot N3: dict_key_removed (listened dicts only)

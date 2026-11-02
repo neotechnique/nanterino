@@ -13,7 +13,7 @@ class SetRelanceText(Action):
     label = 'Préparer la phrase « répétez »'
     help = 'La prochaine relance dira la phrase de demande de répétition.'
     icon = 'message'
-    theme = 'parole'
+    theme = 'conversation'
     args = {}
 
     def run(self, ctx):

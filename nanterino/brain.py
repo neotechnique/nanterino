@@ -66,6 +66,14 @@ move is never dropped) and times the conversation, `set_faces` posts face_count_
 was last handled (`event_age`, event_recent). The action modules post answer_started, conversation_cleared, turn_counted,
 list_item_added / list_item_removed (`list_item_event`).
 
+Per-theme parity (lot N3, 2026-11-02): `_audio_tick` (heartbeat) posts speech_started on the rising edge of out.busy
+(any sound) and keeps the robot's last-sound time (robot_quiet_since), loud_noise when the open mic's level crosses
+LOUD_LEVEL; `_on_speech_start` posts voice_detected; `_clock_tick` (sensor period) posts hour_changed / day_changed;
+`reset_var` / `_reset_scope` post var_reset, `_set_var` var_bound_reached (a variable reaching its min / max),
+`_load_persisted` vars_restored; `list_touched` posts list_emptied / dict_emptied / list_filled and `dict_key_events`
+dict_key_set / dict_key_removed (watch triggers: listened names only). `last_said` is the robot's last phrase / answer,
+`_faces_zero_since` the start of the current face absence, `started_at` the brain's start (uptime).
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -114,10 +122,15 @@ CHANGE_EVENTS = frozenset({"media_started", "volume_changed", "mute_changed", "d
                            # lot N2 (trigger / condition parity with the actions)
                            "mic_opened", "mic_closed", "expression_changed", "gaze_changed", "song_started",
                            "answer_started", "conversation_cleared", "turn_counted", "list_item_added", "list_item_removed",
-                           "face_count_changed"})
+                           "face_count_changed",
+                           # lot N3 (per-theme parity)
+                           "speech_started", "voice_detected", "loud_noise", "var_reset", "var_bound_reached",
+                           "random_drawn", "list_emptied", "list_filled", "dict_key_set", "dict_key_removed",
+                           "dict_emptied", "schedule_cancelled"})
 JOURNAL_KEEP = 200        # robot journal entries kept for recent_error (wall time, level, source)
 JOURNAL_POST_GAP_S = 0.2  # journal_entry from the log tap: at most one per 0.2 s (an error burst is one event)
 NOTIFY_MAX = 20           # pending dashboard notifications kept (oldest dropped)
+LOUD_LEVEL, LOUD_REARM = 0.6, 0.3   # lot N3 loud_noise: mic level (0..1) that fires it / that re-arms it
 
 
 # Single words Whisper typically invents on breath/noise; other single words are real answers
@@ -264,6 +277,12 @@ class Brain:
         self._song_gen = None         # generation of the song being sung (is_singing); None = no song
         self._conv_since = None       # monotonic start of the current conversation (conversation_duration)
         self._event_at = {}           # event id -> monotonic time it was last handled (event_recent)
+        # lot N3: robot sound edge + last phrase, loud-noise latch, wall-clock (date, hour), face absence, uptime.
+        # Set before _build_engine: _load_persisted may already post vars_restored.
+        self._out_busy_prev, self._spoke_at, self.last_said = False, None, ""
+        self._loud, self._clock_prev = False, None
+        self._faces_zero_since = self.now()
+        self.started_at = self.now()
         self.engine = self._build_engine()
         if self._threaded:
             journal_mod.attach(self)  # the live robot's WARNING / ERROR log records feed journal_notes
@@ -358,6 +377,10 @@ class Brain:
         changed = n != self.faces
         self.faces = n
         if n > 0:
+            self._faces_zero_since = None          # lot N3: no_face_since reads 0 while a face is seen
+        elif self._faces_zero_since is None:
+            self._faces_zero_since = self.now()
+        if n > 0:
             self._activity()
         if changed:
             self._changed("face_count_changed", external=True, value=n)
@@ -382,6 +405,7 @@ class Brain:
             self.post("inactivite_longue")
         if now - self._open_check >= SENSOR_PERIOD_S:
             self._open_check = now
+            self._clock_tick()   # lot N3: hour_changed / day_changed
             table = hours_mod.safe_parse(self.cfg.get("opening_hours"))
             if table is None:
                 self._open_prev = None   # empty / invalid hours: always open, no events
@@ -390,6 +414,35 @@ class Brain:
                 if self._open_prev is not None and is_open != self._open_prev:
                     self.post("ouverture" if is_open else "fermeture")
                 self._open_prev = is_open
+
+    def _clock_tick(self):
+        """Lot N3: hour_changed (value = the new hour 0..23) when the wall clock enters another hour, day_changed (value
+        = the weekday id) when the date changes; checked every SENSOR_PERIOD_S, never at the first check."""
+        dt = self._wall_dt()
+        cur = (dt.date(), dt.hour)
+        prev, self._clock_prev = self._clock_prev, cur
+        if prev is None or prev == cur:
+            return
+        self.post("hour_changed", value=cur[1])
+        if cur[0] != prev[0]:
+            self.post("day_changed", value=self._weekday())
+
+    def _audio_tick(self, now: float):
+        """Lot N3 (heartbeat): speech_started on the rising edge of out.busy (a phrase, an answer, the song or a media),
+        `_spoke_at` = last tick the speaker was busy (robot_quiet_since); loud_noise when the OPEN mic's level reaches
+        LOUD_LEVEL, re-armed below LOUD_REARM (a closed / deaf mic reads 0). Sensor-like: external depth for the anti-loop."""
+        busy = bool(self.out.busy)
+        if busy:
+            self._spoke_at = now
+            if not self._out_busy_prev:
+                self._changed("speech_started", external=True)
+        self._out_busy_prev = busy
+        level = float(self.mic.level) if self.mic.active else 0.0
+        if not self._loud and level >= LOUD_LEVEL:
+            self._loud = True
+            self._changed("loud_noise", external=True, value=int(round(min(1.0, level) * 100)))
+        elif self._loud and level < LOUD_REARM:
+            self._loud = False
 
     def _wall_dt(self) -> "datetime.datetime":
         return datetime.datetime.fromtimestamp(self.wall())
@@ -546,7 +599,26 @@ class Brain:
         after = self.lists.get(name)
         if after == before and type(after) is type(before):
             return False
+        if before and not after:   # lot N3: emptied (listened names only, like list_changed)
+            self._changed("dict_emptied" if isinstance(after, dict) else "list_emptied", name=name)
+        elif isinstance(after, list):
+            li = self._graph.lists.get(name) if self._graph is not None else None
+            if li is not None and li.maxlen and len(after) >= li.maxlen > len(before or ()):
+                self._changed("list_filled", name=name, value=len(after))   # lot N3: reached its `max`
         return self._changed("dict_changed" if isinstance(after, dict) else "list_changed", name=name)
+
+    def dict_key_events(self, name: str, before) -> None:
+        """Lot N3, after dict_set / dict_remove: dict_key_set for a key added or whose value changed, dict_key_removed
+        for a key that was present and is gone (value = the key); watch triggers, posted only for a listened dict."""
+        after = self.lists.get(name)
+        if not isinstance(after, dict) or not isinstance(before, dict):
+            return
+        for k, v in after.items():
+            if k not in before or before[k] != v:
+                self._changed("dict_key_set", name=name, value=k)
+        for k in before:
+            if k not in after:
+                self._changed("dict_key_removed", name=name, value=k)
 
     def note_journal(self, level: str, source: str = "graph", external: bool = False):
         """One robot journal entry (log_note, or a WARNING / ERROR record of the live log via nanterino/journal.py:
@@ -681,6 +753,7 @@ class Brain:
 
     # ------------------------------------------------------------------ audio callbacks
     def _on_speech_start(self):
+        self._changed("voice_detected", external=True)   # lot N3 (mic thread: external path only posts)
         self.last_speech = self.now()
         self._activity()
         if self.state == REPONSE and self.cfg["barge_in"]:
@@ -810,6 +883,7 @@ class Brain:
 
     def _speak_then(self, text: str, done_event: str):
         self.subtitle = text
+        self.last_said = text   # lot N3: said_contains
         gen = self.gen
         if not self._threaded:   # simulator: play on the fake output, then the done event after its duration
             pcm = self._phrases.get(text)
@@ -980,17 +1054,21 @@ class Brain:
         """Back to the initial values for every variable / user list of `scope` (no var_changed is posted)."""
         for n, v in graph.variables.items():
             if v.scope == scope:
+                old = self.vars.get(n)
                 self.vars[n] = v.value
+                if old != v.value:   # lot N3: var_reset (listened variables only)
+                    self._changed("var_reset", name=n, value=v.value)
         for n, li in graph.lists.items():
             if li.scope == scope and not li.source:
                 self.lists[n] = _fresh_items(li)
                 self._bags.pop(n, None)
 
-    def reset_var(self, name: str) -> bool:
+    def reset_var(self, name: str, external: bool = True) -> bool:
         """Variable manager button: initial value back, saved value forgotten. False for an unknown / read-only name."""
         g = self._graph
         if g is None:
             return False
+        old = self.vars.get(name)
         if name in g.variables:
             part = "names"
             self.vars[name] = g.variables[name].value
@@ -1005,6 +1083,9 @@ class Brain:
             self._store.drop(part, name)
             self._persist_seen[(part, name)] = self._persist_entry(part, name)   # not written back by the next tick
         log.info("graph variable %s reset to its initial value", name)
+        if part == "names" and old != self.vars[name]:
+            # lot N3: var_reset (dashboard manager = external; the reset_var action passes external=False)
+            self._changed("var_reset", external=external, name=name, value=self.vars[name])
         return True
 
     def _timers_tick(self):
@@ -1046,6 +1127,7 @@ class Brain:
         self._persist_seen, self._persist_ignored = {}, []
         if self._store is None:
             return
+        restored = 0   # lot N3: vars_restored when at least one saved value was read back
         data = self._store.data
         vis = data.get("system", {}).get("nb_visiteurs_jour")
         if isinstance(vis, dict) and isinstance(vis.get("date"), str) and isinstance(vis.get("count"), int):
@@ -1060,6 +1142,7 @@ class Brain:
                 self._ignore_persisted("names", n, e, "invalid value")
             else:
                 self.vars[n] = graph_mod.fit_value(v, vartypes.VARTYPES[v.type].deserialize(e.get("value")))
+                restored += 1
         for n, li in graph.lists.items():
             e = data.get("lists", {}).get(n) if li.persist and not li.source else None
             if e is None:
@@ -1068,14 +1151,17 @@ class Brain:
             if not isinstance(e, dict) or e.get("type") != li.type or e.get("kind", "list") != li.kind:
                 self._ignore_persisted("lists", n, e, "type changed")
                 continue
-            restored = LISTKINDS[li.kind].restore(graph, li, items)   # lot M3: per-item type check in the kind module
-            if restored is None:
+            items_back = LISTKINDS[li.kind].restore(graph, li, items)   # lot M3: per-item type check in the kind module
+            if items_back is None:
                 self._ignore_persisted("lists", n, e, "invalid items")
                 continue
-            self.lists[n] = restored
+            self.lists[n] = items_back
+            restored += 1
         for key in self._persist_keys():
             self._persist_seen[key] = self._persist_entry(*key)   # what is in memory now is not a change to write
         self._persist_seen[("system", "nb_visiteurs_jour")] = dict(self._visitors)
+        if restored:
+            self.post("vars_restored", value=restored)   # lot N3 (plain post: processed after the boot / reload)
 
     def _persist_tick(self, now: float):
         """Hand changed persisted values to the store (polled from the heartbeat); the store writes <= 1x / 2 s."""
@@ -1142,6 +1228,10 @@ class Brain:
         if old == value and type(old) is type(value):
             return
         self.vars[name] = value
+        var = self._graph.variables.get(name) if self._graph is not None else None
+        if (var is not None and isinstance(value, (int, float)) and not isinstance(value, bool)
+                and any(lim is not None and value == lim for lim in (var.vmin, var.vmax))):
+            self._changed("var_bound_reached", name=name, value=value)   # lot N3 (listened variables only)
         if name not in self._watched:
             return
         if self._var_depth >= MAX_VAR_CASCADE:   # anti-loop: a var_changed chain does not re-trigger var_changed
@@ -1177,6 +1267,7 @@ class Brain:
             self._timers_tick()        # lot L11: timer_reached
             self._text_tick(now)       # lot N1: text_cleared
             self._expr_tick()          # lot N2: expression_changed when a set_expression expires
+            self._audio_tick(now)      # lot N3: speech_started, loud_noise, robot_quiet_since
             self._persist_tick(now)    # lot L11: persisted variables -> var_store
             self.engine.tick(now)
         except Exception:
@@ -1232,11 +1323,16 @@ class Brain:
                 self._cancel_all()
                 self.post_priority("stop", source="watchdog")
 
+    @staticmethod
+    def song_path() -> str:
+        """The pre-built song (song/build_song.py); lot N3 song_available reads its presence."""
+        return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media", "chanson-nanterino.wav")
+
     def _sing(self, gen: int):
         """Play the pre-built song (song/build_song.py) with line-by-line subtitles."""
         import json
         import wave
-        path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "media", "chanson-nanterino.wav")
+        path = self.song_path()
         try:
             with wave.open(path) as w:
                 rate = w.getframerate()
@@ -1277,6 +1373,7 @@ class Brain:
                     return  # cancelled: no audio, no history, no event
                 sentence = fix_sentence(sentence)
                 full.append(sentence)
+                self.last_said = " ".join(full)   # lot N3: said_contains (the answer so far)
                 self.subtitle = " ".join(full)  # full detail on screen, only N sentences spoken
                 if spoken < cfg["spoken_sentences"]:
                     pcm = self.tts.synth(sentence)
