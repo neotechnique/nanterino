@@ -12,7 +12,7 @@
 import { $, h, ico } from '../core/util.js';
 import { S, NOTE_COLORS } from '../core/state.js';
 import { dfData } from '../core/api.js';
-import { commitSoon } from '../core/history.js';
+import { commitSoon, commitTyping } from '../core/history.js';
 import { bandRects, nodeBox } from '../canvas/view.js';
 import { ensureFrames } from './groups.js';
 import {
@@ -27,7 +27,8 @@ import { toast } from '../core/ui.js';
 
 // ---------- post-it notes ----------
 // meta.notes = [{id, text, color, x, y, w, h, title?}] lives in the document (serialize() copies meta), so undo/redo, the
-// dirty flag and "Enregistrer" cover it. The server keeps it only in graph.layout.json: never compiled. Drawn in a #notes
+// dirty flag and "Enregistrer" cover it. L23 save rule: no path here writes anything (no fetch, no storage); the default
+// column / sub-group post-its (`auto`) are ordinary notes of the document once loaded, deleted or edited like any other. The server keeps it only in graph.layout.json: never compiled. Drawn in a #notes
 // layer inside precanvas (pan/zoom apply), above the frames and wires, below the nodes. Only the left button/primary touch
 // drags or resizes (header = move, corner = resize); the text area edits in place.
 // shared state: S.selNote, S.notesEl, S.noteDrag (core/state.js)
@@ -71,7 +72,8 @@ export function drawNotes() {
   notes().forEach((n) => {
     const ta = h('textarea', { class: 'ptext', maxlength: 2000, placeholder: 'Écrivez ici…', 'aria-label': 'Texte du post-it' });
     ta.value = n.text || '';
-    ta.addEventListener('input', () => { n.text = ta.value; refreshNoteText(n, ta.closest('.postit')); });
+    // L23: typing marks the document modified after a short pause (commitTyping); nothing is written before Enregistrer
+    ta.addEventListener('input', () => { n.text = ta.value; refreshNoteText(n, ta.closest('.postit')); commitTyping(); });
     ta.addEventListener('change', () => { n.text = ta.value; commitSoon(); if (S.selNote === n.id) renderInspector(); });
     ta.addEventListener('focus', () => selectNote(n.id, true));
     const compact = noteCompact(n);

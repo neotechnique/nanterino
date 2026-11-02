@@ -18,7 +18,7 @@ import { $, h } from './util.js';
 import { installTips } from '../tooltips/tooltips.js';
 import { S, linkKey, linkProblem, nidToDf } from './state.js';
 import { AUTO_DELAY_MS, api, model, postJson } from './api.js';
-import { commitSoon, redo, undo } from './history.js';
+import { commitSoon, isDirty, redo, undo } from './history.js';
 import { diagCycle, freshCheck } from '../diagnostics/check.js';
 import { installRetHover, paintDragWire, paintWires, retVisible, setRetVisible } from '../canvas/wires.js';
 import { scheduleMinimap, zoomVars } from '../minimap/overview.js';
@@ -193,7 +193,8 @@ async function bootSteps(task) {
     modal('Graphe actif (YAML, lecture seule)', h('pre', {}, src + toYaml(r.json)), [{ label: 'Fermer' }]);
   };
   $('#btnReset').onclick = () => modal('Revenir au graphe par défaut ?',
-    h('p', {}, 'Le graphe actuel est sauvegardé, puis remplacé par celui livré avec le robot. Vos positions de nœuds sont effacées.'),
+    h('p', {}, 'Le graphe actuel est sauvegardé, puis remplacé par celui livré avec le robot. Vos positions de nœuds sont effacées.'
+      + (isDirty() ? ' Les modifications non enregistrées de cette page (nœuds, groupes, post-it) seront perdues.' : '')),
     [{ label: 'Annuler' }, { label: 'Revenir au graphe par défaut', cls: 'danger', fn: async () => {
       const r = await postJson('/api/graph/reset', {});
       toast(r.ok ? r.json.message : 'Échec (' + r.status + ')', r.ok ? 'ok' : 'err');
@@ -210,6 +211,7 @@ async function bootSteps(task) {
   connectWs();
   setInterval(paintHeart, 500);
   setInterval(pollLive, 500);
-  window.addEventListener('beforeunload', (e) => { if (S.hist[S.histIdx] !== S.savedSnap) { e.preventDefault(); e.returnValue = ''; } });
+  // L23: any unsaved edit (nodes, groups, post-its, hierarchy; typing not yet committed included) asks before leaving
+  window.addEventListener('beforeunload', (e) => { if (isDirty()) { e.preventDefault(); e.returnValue = ''; } });
   runDebug();
 }

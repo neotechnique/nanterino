@@ -144,7 +144,7 @@ import { varUses } from './inspector/property-picker.js';
 import { api, dfData, dfNode, model } from './core/api.js';
 import { nodeEl, nodePath, nodeTipOf, refreshNode } from './canvas/nodes.js';
 import { rebuild, serialize } from './core/serialize.js';
-import { commitSoon, redo, undo } from './core/history.js';
+import { commitSoon, isDirty, redo, undo } from './core/history.js';
 import { computeChains } from './core/chains.js';
 import { analyze } from './diagnostics/analysis.js';
 import { diagCycle, diagNodes, freshCheck, runCheck } from './diagnostics/check.js';
@@ -198,6 +198,7 @@ window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () =
   // lot L10 test hooks: selection / clipboard, hierarchy
   copySelection, cutSelection, pasteFragment, duplicateSelection, hasSelection, selChain: () => S.selChain, selectChain,
   buildTree, renderTree, treeChains, moveInto, treeFold: () => [...treeFolded()],
+  isDirty, dirtyShown: () => !$('#dirty').hidden,   // L23 test hooks: save rule (post-its, groups, hierarchy)
   // lot L8 test hooks: node bubble text, minimap mapping / viewport, nesting helpers
   nodeTip: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodeTipOf(nodeEl(df)); },
   nodePath: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodePath(model(df)); },
