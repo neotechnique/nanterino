@@ -136,7 +136,9 @@ def sc_l6(wd):
             time.sleep(0.3)
         m = js(wd, MINI_JS)
         check("minimap open, no diagnostic dot on the shipped graph", m and m["open"] and m["err"] == 0 and m["warn"] == 0, str(m))
-        ids = js(wd, """const E=window.__editor; const t=E.addAt('trigger',{event:'visage'},{x:-900,y:-600},{exact:true});
+        # CHANGED (lot G1): trigger 520 px left of the condition (was 260): the larger shipped graph shrinks the minimap
+        # and the trigger's own red dot (the error lists both nodes) covered the condition's dot pixel
+        ids = js(wd, """const E=window.__editor; const t=E.addAt('trigger',{event:'visage'},{x:-1160,y:-600},{exact:true});
           const c=E.addAt('condition',{guard:'var_compare',args:{name:'inconnue',op:'=',value:'1'}},{x:-640,y:-600},{exact:true});
           const a=E.addAt('action',{action:'mic_on'},{x:-380,y:-600},{exact:true});
           E.linkNodes(t,'output_1',c); E.linkNodes(c,'output_1',a); const m=E.dfMap(); const inv={}; for(const k in m) inv[m[k]]=k;

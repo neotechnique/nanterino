@@ -19,7 +19,9 @@ def sc_tester(wd):
     open_editor(wd)
     wd.js("window.__editor.activateTab('tester')")
     time.sleep(0.5)
-    wd.js("const E=window.__editor; E.sim.steps=[{event:'visage'},{wait_s:4},{say:'au revoir'}]; return E.simRun(false)")
+    # CHANGED (lot G1): 'start' instead of 'visage': the Tester simulates with the live config, and a deaf robot no
+    # longer greets a face (G1), so 'visage' would leave the simulated robot in veille
+    wd.js("const E=window.__editor; E.sim.steps=[{event:'start'},{wait_s:4},{say:'au revoir'}]; return E.simRun(false)")
     time.sleep(4)
     tr = js(wd, "return window.__editor.sim.trace.map(e=>e.chain+':'+e.from+'>'+e.to)")
     print("TRACE", tr)
@@ -88,7 +90,7 @@ def sc_testervars(wd):
     open_editor(wd)
     js(wd, "window.__editor.activateTab('tester')")
     time.sleep(0.5)
-    js(wd, "const E=window.__editor; E.sim.steps=[{event:'visage'},{wait_s:4},{say:'au revoir'}]; return E.simRun(false)")
+    js(wd, "const E=window.__editor; E.sim.steps=[{event:'start'},{wait_s:4},{say:'au revoir'}]; return E.simRun(false)")
     time.sleep(3)
     tr = js(wd, "return window.__editor.sim.trace.map(e=>[e.chain, e.to, !!e.vars, e.vars&&e.vars.names.etat])")
     print("TRACE", tr)

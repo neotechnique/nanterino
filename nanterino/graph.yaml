@@ -18,6 +18,11 @@
 # l'ignore. Mettre `enabled: true` (ou retirer la ligne) pour l'activer.
 # Exemple livré DÉSACTIVÉ (parité avec l'ancien code) : `visage_perdu`, posté par la vision quand plus aucun
 # visage n'est vu depuis `lost_face_s` (10 s), dans `ecoute` et `relance` : dire au revoir (`to: cloture`).
+# Lot G1 (2026-11-02) : le robot ne reste jamais bloqué hors veille quand il est sourd (micro fermé) :
+#   - en veille, un visage ne déclenche plus l'accueil automatique si le robot est sourd (note au journal) ;
+#   - en relance, si le micro est fermé, la clôture arrive quand même après silence_cloture_s (depuis l'entrée
+#     en relance), avec une note au journal et une notification au tableau de bord.
+#   Détail et justification : tests/golden/behaviour-changes-G1.md.
 version: 1
 
 states:
@@ -25,10 +30,15 @@ states:
     description: "Le robot attend un visiteur, micro ouvert pour entendre son nom."
     on_enter: [clear_conversation, reset_repairs, mic_on]
     transitions:
+      # G1: one if/else on is_deaf in the editor (Vrai = note only, Faux = greet); the pair must stay adjacent.
       - on: visage
-        when: auto_greet_on_face
+        when: [auto_greet_on_face, is_deaf]
+        do: [{log_note: {level: info, text: "Visage vu, mais robot sourd : pas d'accueil automatique."}}]
+        description: "Robot sourd (G1) : il n'entendrait pas la réponse, donc pas d'accueil automatique ; seulement une note au journal."
+      - on: visage
+        when: [auto_greet_on_face, {not: is_deaf}]
         to: accueil
-        description: "Un visage apparaît devant la caméra (accueil automatique activé) : saluer."
+        description: "Un visage apparaît devant la caméra (accueil automatique activé, robot pas sourd) : saluer."
       - on: start
         to: accueil
         reason: $source
@@ -80,6 +90,7 @@ states:
         do: [reset_repairs, count_turn]
         to: cloture
         reason: max_turns
+        then: [{log_note: {level: info, text: "Nombre maximal d'échanges atteint : clôture."}}]
         description: "Trop d'échanges dans la même conversation (garde-fou MAX_TURNS) : conclure."
       - on: not_understood
         when: [not_speaking, repairs_left]
@@ -121,6 +132,14 @@ states:
         to: cloture
         reason: silence
         description: "Toujours rien (silence_cloture_s, 15 s) : conclure."
+      - after: silence_cloture_s
+        since: state
+        when: [{not: mic_active}, not_speaking]
+        do: [{log_note: {level: info, text: "Relance sans micro ouvert (sourd ou micro absent) : clôture."}},
+             {notify_dashboard: {text: "Micro fermé (mode sourd ?) : la conversation s'est close sans réponse.", level: warning}}]
+        to: cloture
+        reason: micro_ferme
+        description: "Micro fermé (mode sourd, micro absent) : le délai de silence ne peut pas compter, conclure quand même après silence_cloture_s (G1, jamais bloqué en relance)."
       - on: intent.au_revoir
         to: cloture
         reason: refus
@@ -140,6 +159,7 @@ states:
         do: [reset_repairs, count_turn]
         to: cloture
         reason: max_turns
+        then: [{log_note: {level: info, text: "Nombre maximal d'échanges atteint : clôture."}}]
         description: "Trop d'échanges : conclure."
       - on: not_understood
         when: [not_speaking, repairs_left]

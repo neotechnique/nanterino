@@ -507,7 +507,9 @@ def test_sharing_lighter_and_equivalent():
     # NOTE the brief asked for <= 70 %: not reachable without dropping the per-chain state condition (compact mode)
     assert len(new["nodes"]) <= 0.90 * len(old["nodes"]) and len(new["links"]) <= 0.97 * len(old["links"])
     assert len(comp["nodes"]) <= 0.76 * len(old["nodes"]) and len(comp["links"]) <= 0.80 * len(old["links"])
-    assert len(comp["nodes"]) <= 0.76 * 182, "compact (default) drawing of the shipped graph"
+    # CHANGED (lot G1): the shipped graph grew from 182 to 198 legacy nodes (deaf note + micro-fermé timeout +
+    # max_turns notes); same 76 % ratio on the new size.
+    assert len(comp["nodes"]) <= 0.76 * 198, "compact (default) drawing of the shipped graph"
     assert [(n["kind"], n["params"]) for n in V.to_visual(raw, legacy=True)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the legacy default"
     hub = V.to_visual(raw, form="hub")      # CHANGED (lot L1): the hub drawing is no longer the default
     print("  hub drawing: nodes %d, links %d" % (len(hub["nodes"]), len(hub["links"])))

@@ -15,6 +15,12 @@ Invariants: traces must not depend on thread timing (each scenario is run twice 
 Known, documented divergence: `ask` typed while in veille now goes through `_go` (see
 normalize_new); that pair of trace lines is dropped from the new trace before comparing.
 
+Re-baseline (lot G1, 2026-11-02): when the SHIPPED graph changes behaviour on purpose, never re-record the whole
+file blindly. Run the changed / new scenarios with `--only a,b --out /tmp/x.json` (twice: identical output), review
+each diff and write one line per changed scenario in tests/golden/behaviour-changes-<lot>.md, keep the previous file
+as tests/golden/brain-trace-baseline.pre-<lot>.json, then merge the reviewed traces into brain-trace-baseline.json
+(json.dump(..., ensure_ascii=False, indent=0, sort_keys=True)). G1 changed no existing trace and added 3 scenarios.
+
 How to run (repo root, venv python; pytest is not installed):
     python -m tests.test_brain_graph --record     # write the baseline trace (old brain only)
     python -m tests.test_brain_graph              # compare with the baseline (+ graph tests if present)
@@ -77,7 +83,8 @@ class H:
             self.rec.add("go", self.brain.state, state, reason)  # recorded BEFORE the entry effects
             orig(state, reason)
         self.brain._go = go
-        self.wait(lambda: len(self.brain._phrases) >= 4 and self.rec.events, 5)
+        # boot is done when the phrases are ready and veille opened the mic (a deaf robot never opens it: G1)
+        self.wait(lambda: len(self.brain._phrases) >= 4 and (self.rec.events or cfg.get("deaf")), 5)
 
     # -- helpers
     def wait(self, pred, timeout=5.0):
@@ -407,6 +414,25 @@ def _(h):
     h.post("stop"); h.settle(); time.sleep(1.3); h.at("end")
 
 
+# ---- lot G1 (2026-11-02): deaf robot (microphone forced off) never stays out of veille; see
+# tests/golden/behaviour-changes-G1.md. Recorded into the baseline by merging (old traces untouched).
+@sc("deaf_face_ignored_in_veille", deaf=True)
+def _(h):
+    h.post("visage"); h.settle(); h.at("end")
+
+
+@sc("deaf_start_returns_to_veille", deaf=True, silence_relance_s=0.6, silence_cloture_s=1.0)
+def _(h):
+    h.post("start"); h.wait_state("relance", 6); h.settle(0.5); h.at("relance")
+    h.wait_state("cloture", 6); h.wait_state("veille", 6); h.settle(); h.at("end")
+
+
+@sc("deaf_question_then_silence", deaf=True, silence_relance_s=0.6, silence_cloture_s=1.0)
+def _(h):
+    h.post("start"); h.wait_state("ecoute"); h.post("ask", text="Où est le parc ?"); h.wait_state("reponse")
+    h.wait_state("relance", 6); h.wait_state("veille", 8); h.settle(); h.at("end")
+
+
 def run_scenario(name):
     fn, over = SCENARIOS[name]
     h = H(over)
@@ -482,7 +508,8 @@ def test_invalid_graphs_rejected():
     cases = {
         "unknown state 'nowhere'": base.replace("to: ecoute\n        description: \"Salutation", "to: nowhere\n        description: \"Salutation"),
         "unknown action": base.replace("on_enter: [clear_conversation, reset_repairs, mic_on]", "on_enter: [clear_conversation, fly_away]"),
-        "unknown guard": base.replace("when: auto_greet_on_face", "when: moon_is_full"),
+        # G1: the visage guard is now a list (auto greet AND not deaf)
+        "unknown guard": base.replace("when: [auto_greet_on_face, {not: is_deaf}]", "when: moon_is_full"),
         "unknown event": base.replace("- on: visage\n", "- on: nobody_home\n"),
         "required state": base.replace("  eteint:\n", "  eteint_renamed:\n"),
         "not a config key": base.replace("text: greeting,", "text: no_such_key,"),
@@ -543,6 +570,35 @@ def test_visage_perdu_is_ignored_by_default_graph():
         h.close()
 
 
+DEAF_BOUND_S = 12.0   # relance 0.6 s + relance clip + cloture 1.0 s + goodbye clip + 0.3 s pause, with margin
+
+
+def test_deaf_never_traps():
+    """Lot G1: deaf (mic forced off), no input at all: from every conversation state the robot reaches veille within
+    DEAF_BOUND_S, and a face seen afterwards does not take it out of veille. `eteint` is excluded on purpose: it is
+    the operator's off switch and only « on » / « start » leave it."""
+    for state in [s for s in STATES if s != "eteint"]:
+        h = H({"deaf": True, "silence_relance_s": 0.6, "silence_cloture_s": 1.0})
+        try:
+            if state == "veille":
+                h.post("start"); h.wait_state("accueil")          # a conversation started by the button
+            else:
+                reach(h, state)
+            assert not h.brain.mic.active, "deaf robot opened its microphone in %s" % state
+            h.unhold()
+            t0 = time.monotonic()
+            h.wait_state("veille", DEAF_BOUND_S)
+            took = time.monotonic() - t0
+            h.settle()
+            h.post("visage"); h.settle(0.6)
+            assert h.brain.state == "veille", "%s: a face took the deaf robot out of veille (%s)" % (state, h.brain.state)
+            print("  deaf no-trap from %-8s -> veille in %.1fs" % (state, took), flush=True)
+        except AssertionError as e:
+            raise AssertionError("from %s: %s" % (state, e)) from None
+        finally:
+            h.close()
+
+
 def test_heartbeat_rate_and_lag():
     h = H({})
     try:
@@ -591,7 +647,7 @@ def test_watchdog_trips_once_and_recovers():
 
 EXTRA_TESTS = [test_default_graph_valid, test_invalid_graphs_rejected,
                test_invalid_override_falls_back_and_robot_starts, test_valid_override_and_reload_rules,
-               test_visage_perdu_is_ignored_by_default_graph, test_heartbeat_rate_and_lag,
+               test_visage_perdu_is_ignored_by_default_graph, test_deaf_never_traps, test_heartbeat_rate_and_lag,
                test_watchdog_trips_once_and_recovers]
 
 

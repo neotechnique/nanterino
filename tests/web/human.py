@@ -225,7 +225,8 @@ def sc_human(wd):
         check("6 [%s] tap on the inspector 'i' icon toggles the bubble (on then off)" % label, s1[0] and len(s1[1]) > 5 and not s2[0], "%s / %s" % (str(s1)[:80], s2))
         # ---- 10 break a node, badge + minimap dot, fix, save at once, restore
         js(wd, "window.__editor.hideTip()")
-        ids = js(wd, """const E=window.__editor; const t=E.addAt('trigger',{event:'visage'},{x:-900,y:-600},{exact:true});
+        # CHANGED (lot G1): trigger 520 px left (was 260) so its red minimap dot no longer covers the condition's dot
+        ids = js(wd, """const E=window.__editor; const t=E.addAt('trigger',{event:'visage'},{x:-1160,y:-600},{exact:true});
           const c=E.addAt('condition',{guard:'var_compare',args:{name:'inconnue',op:'=',value:'1'}},{x:-640,y:-600},{exact:true});
           const a=E.addAt('action',{action:'mic_on'},{x:-380,y:-600},{exact:true});
           E.linkNodes(t,'output_1',c); E.linkNodes(c,'output_1',a); const m=E.dfMap(); const inv={}; for(const k in m) inv[m[k]]=k; return [inv[t], inv[c], inv[a]]""")

@@ -421,9 +421,14 @@ def test_if_else_is_one_condition():
     by = {n["id"]: n for n in doc["nodes"]}
     negs = [n for n in doc["nodes"] if n["kind"] == "condition" and n["params"].get("negate")]
     false = [l for l in doc["links"] if l["port"] == "false"]
-    assert negs == [], "a negated twin condition is still drawn: %s" % [(n["group"], n["params"]) for n in negs]
+    # CHANGED (lot G1): the relance "micro fermé" timeout is a lone `{not: mic_active}` guard (no positive twin with
+    # the same trigger: its sibling counts since last_speech), so it is the one negated condition drawn on its own.
+    assert [(n["group"], n["params"]["guard"]) for n in negs] == [("relance", "mic_active")], \
+        "a negated twin condition is still drawn: %s" % [(n["group"], n["params"]) for n in negs]
+    # CHANGED (lot G1): + the veille visage if/else on is_deaf
     assert sorted((by[l["from"]]["group"], by[l["from"]]["params"]["guard"]) for l in false) == [
-        ("ecoute", "repairs_left"), ("ecoute", "turns_left"), ("relance", "repairs_left"), ("relance", "turns_left")], false
+        ("ecoute", "repairs_left"), ("ecoute", "turns_left"), ("relance", "repairs_left"), ("relance", "turns_left"),
+        ("veille", "is_deaf")], false
     for l in false:   # each Faux output belongs to a condition whose Vrai output is used too
         assert any(k["from"] == l["from"] and k["port"] == "true" for k in doc["links"]), l
     raw2, _l, errs = V.from_visual(doc, CFG)
@@ -437,7 +442,7 @@ def test_if_else_is_one_condition():
     # redrawing the recompiled graph gives the same drawing (stable round trip)
     doc2 = V.to_visual(raw2)
     assert len(doc2["nodes"]) == len(doc["nodes"]) and len(doc2["links"]) == len(doc["links"])
-    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 4
+    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 5     # CHANGED (lot G1): 4 -> 5 (veille is_deaf)
 
 
 def test_hand_wired_false_branch_compiles():

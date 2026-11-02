@@ -178,7 +178,8 @@ def test_sim_matches_real_brain_and_parity():
     first = res["trace"][0]
     assert first["step"] == -1 and first["chain"] == "veille/enter" and first["reason"] == "start"
     chains = [e["chain"] for e in res["trace"] if e["moved"]]
-    assert chains == ["veille/t0", "accueil/t0", "ecoute/t1", "cloture/t1"], chains
+    # CHANGED (lot G1): the visage greeting is veille/t1 (t0 = the deaf-face note chain)
+    assert chains == ["veille/t1", "accueil/t0", "ecoute/t1", "cloture/t1"], chains
     # CHANGED (lot L1): `final` also carries the variable values (system ones included)
     fv = res["final"].pop("vars")
     assert fv["names"]["etat"] == "veille" and fv["names"]["tours"] == 0 and "salutations" in fv["lists"], fv
@@ -471,7 +472,8 @@ def test_journal_keeps_50_and_feeds_last_transition():
         h.post("start"); h.wait_state("accueil"); h.settle()
         e = h.brain.trace()
         start = next(x for x in reversed(e) if x["event"] == "start")
-        assert start["chain"] == "veille/t1" and start["moved"] and (start["from"], start["to"], start["reason"]) == ("veille", "accueil", "ui")
+        # CHANGED (lot G1): veille/t1 -> veille/t2, the deaf-face note chain was inserted before the visage greeting
+        assert start["chain"] == "veille/t2" and start["moved"] and (start["from"], start["to"], start["reason"]) == ("veille", "accueil", "ui")
         assert e[-1]["reason"] == "greeting_done" and e[-1]["chain"] == "accueil/t0"
         assert h.brain.snapshot()["heartbeat"]["trips"] == 0
     finally:
