@@ -65,22 +65,39 @@ def sc_tester(wd):
     st = js(wd, "return [document.querySelector('#drawflow').classList.contains('simdim'), document.querySelectorAll('.lit-now,.lit-past,svg.wlit-now,svg.wlit-past').length]")
     check("Réinitialiser clears the highlight", not st[0] and st[1] == 0, str(st))
     # one live hush: the journal must show the fired chain and the live blink must hit the same nodes
-    st0 = W.http("GET", BASE + "/api/status")[1]["state"]
-    before = len(W.http("GET", BASE + "/api/graph/trace")[1]["trace"])
-    r = W.http("POST", BASE + "/api/control", {"action": "hush"})
-    print("HUSH", r)
+    # CHANGED (L28): the deaf robot keeps seeing real faces, so live `visage` chains (log_note) may fire and blink
+    # during the window (and a newer blink can cut the hush blink short). Pick the hush entry by its event, accept
+    # extra blinks only on chains of OTHER live events traced in the same window, and retry the hush (max 3) only
+    # when such a concurrent live event was traced; a clean window must pass on the first try.
     blink_js = "const m=window.__editor.dfMap(); const inv={}; Object.keys(m).forEach(k=>inv[m[k]]=k); return [...document.querySelectorAll('.drawflow-node.blink')].map(e=>inv[e.id.replace('node-','')])"
-    best = set()
-    for _ in range(16):
-        time.sleep(0.25)
-        best |= set(js(wd, blink_js))
-    tr2 = W.http("GET", BASE + "/api/graph/trace")[1]["trace"]
-    print("LIVE TRACE tail", tr2[-1:])
-    live = tr2[-1] if len(tr2) > before or tr2 else None
-    ids = js(wd, "return window.__editor.liveChains().keys.get(arguments[0])||null", [live["chain"]]) if live else None
+    chains_js = "return window.__editor.liveChains().keys.get(arguments[0])||null"
+    for attempt in range(3):
+        time.sleep(2.5 if attempt else 0)  # let a previous blink fade out
+        t_hush = time.time() - 0.5  # same clock as the server (editor and test run on the Jetson)
+        r = W.http("POST", BASE + "/api/control", {"action": "hush"})
+        print("HUSH", attempt, r)
+        best = set()
+        for _ in range(16):
+            time.sleep(0.25)
+            best |= set(js(wd, blink_js))
+        tr2 = W.http("GET", BASE + "/api/graph/trace")[1]["trace"]
+        window = [e for e in tr2 if e.get("t", 0) >= t_hush] or tr2[-1:]
+        print("LIVE WINDOW", [(e.get("event"), e.get("chain")) for e in window])
+        hushes = [e for e in window if e.get("event") == "hush"]
+        live = hushes[-1] if hushes else (window[-1] if window else None)
+        ids = js(wd, chains_js, [live["chain"]]) if live else None
+        concurrent = [e for e in window if e is not live and e.get("chain") != (live or {}).get("chain")]
+        others = set()
+        for e in concurrent:
+            others |= set(js(wd, chains_js, [e["chain"]]) or [])
+        extra = best - set(ids or [])
+        ok = bool(ids) and set(ids) <= best and extra <= others
+        if ok or not concurrent:
+            break
     check("live hush: its chain exists in the drawn graph", ids is not None, live["chain"] if live else "none")
     if ids:
-        check("live blink hits exactly the chain nodes", best == set(ids), "%s vs %s" % (sorted(best), sorted(ids)))
+        check("live blink hits exactly the chain nodes", ok,
+              "missing %s, extra not from other live chains %s (attempt %d)" % (sorted(set(ids) - best), sorted(extra - others), attempt + 1))
     # click on the journal row of the simulated-free live trace if any
     check("console errors 0", not js(wd, "return window.__editor.errors.length"), str(js(wd, "return window.__editor.errors")))
 
