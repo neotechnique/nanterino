@@ -4,7 +4,6 @@ Boundary: metadata read by graph.py (validation, GET /api/graph/vocab); run() is
 brain._build_engine and called on the brain loop thread with a NodeContext (brain, kw, cfg, graph).
 How to test: .venv/bin/python -m tests.test_nodes_registry (+ tests.test_brain_graph for behaviour).
 """
-from nanterino.log import log
 from nanterino.nodes.base import Action, Arg
 
 
@@ -23,4 +22,5 @@ class SayVar(Action):
         if isinstance(text, str) and text.strip():
             b._speak_then(text, "say_done")
         else:
-            log.info("say_var: %s is empty, nothing said", name)
+            # lot L27: say_done anyway (ok=False), else a chain waiting for it traps the robot
+            b.complete_silently("say_var", "say_done", "variable %s is empty" % name)

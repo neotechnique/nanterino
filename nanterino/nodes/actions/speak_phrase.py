@@ -17,4 +17,8 @@ class SpeakPhrase(Action):
     args = {'text': Arg('cfgkey', 'Phrase à dire'), 'done': Arg('event', 'Événement à la fin')}
 
     def run(self, ctx, text, done):
-        ctx.brain._speak_then(ctx.cfg[text], done)
+        phrase = ctx.cfg.get(text)
+        if not (isinstance(phrase, str) and phrase.strip()):   # lot L27: a missing / emptied config phrase still ends
+            ctx.brain.complete_silently("speak_phrase", done, "config phrase %s is empty" % text)
+            return
+        ctx.brain._speak_then(phrase, done)

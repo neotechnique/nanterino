@@ -148,7 +148,9 @@ export function analyze() {
     S.globalIssues.push({ level: 'warn', message: `Valeur enregistrée ignorée (${g.part === 'lists' ? 'liste' : 'variable'} « ${g.name} ») : ${g.reason}. Réinitialisez-la dans le panneau Variables.` });
   });
   (S.fanInfo.warnings || []).forEach((w) => {
-    if (w.kind === 'out_of_bounds') {   // L12: a constant outside the variable's min / max: on the faulty node (`at`)
+    // L12: a constant outside the variable's min / max; L27: say_random / say_list_item on a list that is empty and
+    // never filled (`empty_list`): both on the faulty node (`at`), else its trigger, else the global messages
+    if (w.kind === 'out_of_bounds' || w.kind === 'empty_list') {
       const at = [w.at, w.node].find((x) => x && nidToDf.has(x));
       if (at) add(at, 'warn', w.message); else S.globalIssues.push({ level: 'warn', message: w.message });
       return;

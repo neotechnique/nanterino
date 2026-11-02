@@ -4,7 +4,6 @@ Boundary: metadata read by graph.py (validation, GET /api/graph/vocab); run() is
 brain._build_engine and called on the brain loop thread with a NodeContext (brain, kw, cfg, graph).
 How to test: .venv/bin/python -m tests.test_nodes_registry (+ tests.test_brain_graph for behaviour).
 """
-from nanterino.log import log
 from nanterino.nodes.base import Action, Arg
 
 
@@ -20,8 +19,8 @@ class SayRandom(Action):
     def run(self, ctx, list):  # noqa: A002 (argument names fixed by the graph vocabulary)
         b = ctx.brain
         items = [x for x in b.list_items(list) if isinstance(x, str) and x.strip()]
-        if not items:
-            log.info("say_random: list %s is empty, nothing said", list)
+        if not items:   # lot L27: say_done anyway (ok=False), else a chain waiting for it traps the robot
+            b.complete_silently("say_random", "say_done", "list %s is empty" % list)
             return
         from nanterino.listmodes import DEFAULT, LISTMODES
         li = ctx.graph.lists.get(list)

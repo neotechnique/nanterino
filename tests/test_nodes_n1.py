@@ -266,9 +266,9 @@ def test_say_list_item_triad():
     act(b, "say_list_item", list="phrases", index=-1)
     assert b.subtitle == "Trois."
     adv(b, clock, 0.5)
-    act(b, "say_list_item", list="phrases", index=4)   # out of range: nothing said, no event
+    act(b, "say_list_item", list="phrases", index=4)   # out of range: nothing said, list_item_said anyway (lot L27)
     adv(b, clock, 0.5)
-    assert b.subtitle == "Trois." and b.vars["n"] == 2
+    assert b.subtitle == "Trois." and b.vars["n"] == 3
     for i, ok in ((1, True), (3, True), (-3, True), (4, False), (0, False), (1.5, False), (-4, False)):
         assert guard(b, "list_index_exists", list="phrases", index=i) is ok, i
     refused(mini(veille=[{"on": "start", "do": [{"say_list_item": {"list": "nums", "index": 1}}]}], variables=ints(**LISTS)),
@@ -506,11 +506,120 @@ def test_ids_and_counts():
     print(report_counts())
 
 
+# ---------------------------------------------------------------- lot L27: speaking actions always complete
+def _spy(b):
+    """Record every posted (kind, fields) of a simulator brain (scheduled events go through post too)."""
+    seen, orig = [], b.post
+
+    def post(kind, **kw):
+        seen.append((kind, kw))
+        orig(kind, **kw)
+    b.post = post
+    return seen
+
+
+def test_speaking_actions_complete_with_nothing_to_say():
+    lists = dict(LISTS, vide={"type": "phrase", "items": []})
+    names = {n: {"type": "integer", "value": 0} for n in ("d", "li", "fin")}
+    names["texte"] = {"type": "string", "value": ""}
+    raw = mini(glob=[counter("say_done", "d"), counter("list_item_said", "li"), counter("answer_done", "fin")],
+               variables={"names": names, "lists": lists})
+    md = media_dir()
+    b, clock, rec = brain(raw, media_dir=md)
+    seen = _spy(b)
+    cases = [("say_random", {"list": "vide"}, "say_done", "d"),
+             ("say_list_item", {"list": "phrases", "index": 9}, "list_item_said", "li"),
+             ("say_list_item", {"list": "vide", "index": 1}, "list_item_said", "li"),
+             ("say_dict", {"dict": "faq", "key": "absente", "fallback": ""}, "say_done", "d"),
+             ("say_var", {"name": "texte"}, "say_done", "d"),
+             ("say_text", {"text": "  "}, "say_done", "d"),
+             ("speak_phrase", {"text": "pas_de_cle", "done": "answer_done"}, "answer_done", "fin")]
+    for call, args, event, var in cases:
+        before, notes, n_play = b.vars[var], len(b.journal_notes), len([e for e in rec.events if e[0] == "play"])
+        del seen[:]
+        act(b, call, **args)
+        assert b.vars[var] == before, (call, "the end event is delayed like a zero-length phrase")
+        adv(b, clock, 0.3)
+        assert b.vars[var] == before + 1, (call, b.vars)
+        posted = [kw for k, kw in seen if k == event]
+        assert len(posted) == 1 and posted[0].get("ok") is False and posted[0].get("reason"), (call, seen)
+        assert [e[1:] for e in list(b.journal_notes)[notes:]] == [("warning", "graph")], (call, list(b.journal_notes))
+        assert len([e for e in rec.events if e[0] == "play"]) == n_play, (call, "nothing is said")
+    # stop / off in between drops it (gen bump), like any scheduled event
+    act(b, "say_random", list="vide")
+    b._cancel_all()
+    d = b.vars["d"]
+    adv(b, clock, 0.5)
+    assert b.vars["d"] == d
+    # play_media of an unreadable file: media_finished ok=False at once + a journal warning
+    del seen[:]
+    notes = len(b.journal_notes)
+    act(b, "play_media", file="absent.wav")
+    mf = [kw for k, kw in seen if k == "media_finished"]
+    assert len(mf) == 1 and mf[0]["ok"] is False and mf[0]["reason"] == "unreadable", seen
+    assert [e[1] for e in list(b.journal_notes)[notes:]] == ["warning"]
+    # show_text with an empty text: text_shown / text_cleared still follow, with a journal warning
+    del seen[:]
+    notes = len(b.journal_notes)
+    act(b, "show_text", text="", seconds=0.3)
+    adv(b, clock, 0.5)
+    assert [k for k, _kw in seen if k in ("text_shown", "text_cleared")] == ["text_shown", "text_cleared"], seen
+    assert [e[1] for e in list(b.journal_notes)[notes:]] == ["warning"]
+
+
+def test_empty_list_chain_does_not_trap():
+    """Simulator scenario: state a says a phrase of an empty list and waits for say_done to go back to veille."""
+    raw = mini(veille=[{"on": "intent.question", "to": "a"}],
+               a=[{"on": "say_done", "to": "veille"}],
+               variables={"lists": {"vide": {"type": "phrase", "items": []}}})
+    raw["states"]["a"]["on_enter"] = [{"say_random": {"list": "vide"}}]
+    b, clock, rec = brain(raw)
+    b.engine.enter("a")
+    b.state = "a"
+    b.pump()
+    adv(b, clock, 0.5)
+    assert b.state == "veille", b.state
+    # a state that re-enters itself on say_done does not spin the loop: one event per 0.15 s at most
+    raw2 = mini(veille=[{"on": "say_done", "do": [{"say_random": {"list": "vide"}}]}],
+                variables={"lists": {"vide": {"type": "phrase", "items": []}}})
+    b2, clock2, _rec2 = brain(raw2)
+    act(b2, "say_random", list="vide")
+    adv(b2, clock2, 1.0)    # pump() would raise RuntimeError on an endless burst
+    assert 4 <= fired(b2, "say_done") <= 10, fired(b2, "say_done")
+
+
+def test_empty_list_diagnostic():
+    lists = {"vide": {"type": "phrase", "items": []}, "rempli": {"type": "phrase", "items": []},
+             "pleine": {"type": "phrase", "items": ["Oui."]}}
+    raw = mini(veille=[{"on": "start", "do": [{"say_random": {"list": "vide"}}, {"say_random": {"list": "pleine"}},
+                                               {"say_list_item": {"list": "rempli", "index": 1}}]},
+                       {"on": "intent.question", "do": [{"list_add": {"list": "rempli", "value": "Bonjour."}}]}],
+               a=[{"on": "start", "do": [{"say_list_item": {"list": "vide", "index": 2}}]}],
+               variables={"lists": lists})
+    g = parse(raw)
+    d = [x for x in g.diagnostics if x[2] == "empty_list"]
+    assert len(d) == 2 and all("'vide'" in x[1] for x in d), g.diagnostics
+    assert {x[1].split(".")[0] for x in d} == {"say_random", "say_list_item"}, d
+    # the editor path: a warning on the faulty action node (`at`) from /api/graph/check's from_visual
+    doc = V.to_visual(raw)
+    report = {}
+    _r, _l, errors = V.from_visual(doc, CFG, report)
+    ws = [w for w in report["warnings"] if w["kind"] == "empty_list"]
+    assert not errors and len(ws) == 2, (errors, report["warnings"])
+    for w in ws:
+        node = next(n for n in doc["nodes"] if n["id"] == w["at"])
+        assert node["params"]["action"] in ("say_random", "say_list_item") and node["params"]["args"]["list"] == "vide", node
+    # the shipped graph uses no empty, never-filled list
+    shipped = G.load_graph(G.DEFAULT_PATH, CFG)
+    assert not [x for x in shipped.diagnostics if x[2] == "empty_list"], shipped.diagnostics
+
+
 TESTS = [test_play_media_triad, test_volume_triad_and_anti_loop, test_mute_triad, test_deaf_triad,
          test_show_text_triad, test_say_list_item_triad, test_list_change_triad, test_dict_change_triad,
          test_timer_stop_triad, test_journal_triad, test_notification_triad, test_random_choice_and_chance,
          test_visual_roundtrip_of_new_trigger_filters, test_vocabulary_of_the_new_kinds, test_goldens_n1_only_gained_entries,
-         test_server_routes_and_controls, test_ids_and_counts]
+         test_server_routes_and_controls, test_ids_and_counts,
+         test_speaking_actions_complete_with_nothing_to_say, test_empty_list_chain_does_not_trap, test_empty_list_diagnostic]
 
 
 def main(argv):

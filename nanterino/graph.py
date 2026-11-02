@@ -212,6 +212,10 @@ LIST_KIND_RULES = {
     "wtextlist": (True, frozenset({"string", "phrase"}), "list"),
     "wdict": (True, None, "dict"), "rdict": (False, None, "dict"), "rtextdict": (False, frozenset({"string", "phrase"}), "dict"),
 }
+# Lot L27 `empty_list` diagnostic: actions that say an item of their `list` argument, and actions that add items to it
+# (wlist actions that only clear / sort / shuffle / remove never fill an empty list). A new filler action goes here.
+EMPTY_LIST_READERS = frozenset({"say_random", "say_list_item"})
+LIST_FILLERS = frozenset({"list_add", "remember_utterance"})
 # Every argument kind a node module may declare (checked by nanterino.nodes.check_family below): the kinds the
 # _Parser checks and vocabulary() renders. An unknown kind would silently render as a delay: refused at import.
 ARG_KINDS = frozenset(VAR_KIND_TYPES) | frozenset(LIST_KIND_RULES) | frozenset({
@@ -695,6 +699,7 @@ class _Parser:
         self.vars, self.lists, self.state_names = {}, {}, []   # filled by build() before any transition is read
         self.intent_names, self.list_names = [], []           # lot L11: choices of intent_ref / list_ref values
         self.diagnostics = []                                 # lot L11: (where, message, kind), non-blocking
+        self.list_reads, self.list_fills = [], set()          # lot L27: (where, call, list) of say_random / say_list_item; written lists
 
     def diag(self, where, msg, kind):
         """A non-blocking remark: kept in Graph.warnings and in Graph.diagnostics (editor badge, /api/graph/check)."""
@@ -755,8 +760,22 @@ class _Parser:
                     self.err(where, "%s.%s: unknown gaze mode %r (allowed: %s)" % (name, k, val, ", ".join(GAZE_MODES)))
                 elif kind == "seconds" and not (_num(val) and 0 < val <= SECONDS_MAX):
                     self.err(where, "%s.%s: expected a number of seconds in (0, %d]" % (name, k, SECONDS_MAX))
+            if name in EMPTY_LIST_READERS and isinstance(args.get("list"), str):
+                self.list_reads.append((where, name, args["list"]))
+            if name in LIST_FILLERS and isinstance(args.get("list"), str):   # an action that adds items to its list
+                self.list_fills.add(args["list"])
             out.append(Call(name, types.MappingProxyType(dict(args))))
         return tuple(out)
+
+    def empty_list_diagnostics(self):
+        """Lot L27: warning `empty_list` for a say_random / say_list_item whose list is empty in the `variables` block
+        and filled by no action: it never says anything (its completion event still fires, ok=False)."""
+        for where, call, name in self.list_reads:
+            li = self.lists.get(name)
+            if li is None or li.source is not None or li.kind != "list" or li.items or name in self.list_fills:
+                continue
+            self.diag(where, "%s.list: list %r is empty and no action fills it (nothing is said, the end event "
+                             "still fires)" % (call, name), "empty_list")
 
     # -- variables (lot L1)
     def var_info(self, name):
@@ -1163,6 +1182,7 @@ class _Parser:
             tr = self.transition("global transition #%d" % (i + 1), t, names, intent_events, True)
             if tr:
                 globs.append(tr)
+        self.empty_list_diagnostics()
         if self.errors:
             raise GraphError("%s: %d problem(s):\n  - %s" % (self.source, len(self.errors), "\n  - ".join(self.errors)),
                              self.items)

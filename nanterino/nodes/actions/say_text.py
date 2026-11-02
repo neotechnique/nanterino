@@ -17,4 +17,7 @@ class SayText(Action):
     args = {'text': Arg('text', 'Phrase à dire')}
 
     def run(self, ctx, text):
+        if not (isinstance(text, str) and text.strip()):   # lot L27: the validator refuses it; a compiled source may not
+            ctx.brain.complete_silently("say_text", "say_done", "text is empty")
+            return
         ctx.brain._speak_then(text, "say_done")

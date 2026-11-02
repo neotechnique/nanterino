@@ -494,8 +494,10 @@ class Brain:
         try:
             pcm, rate = self._read_wav(path)
         except Exception as e:
-            log.warning("play_media: %s not playable (%s)", name, type(e).__name__)
-            self.post("media_finished", gen=self.gen, file=name, ok=False)
+            # lot L27: journal entry here (graph_note: the live log tap must not add it twice)
+            log.warning("play_media: %s not playable (%s)", name, type(e).__name__, extra={"graph_note": True})
+            self.note_journal("warning", "graph")
+            self.post("media_finished", gen=self.gen, file=name, ok=False, reason="unreadable")
             return
         gen = self.gen
         self._media_seq = getattr(self, "_media_seq", 0) + 1
@@ -656,7 +658,7 @@ class Brain:
     def scheduled_pending(self, event: str) -> bool:
         """A `schedule` of `event` still waits (and will fire: not cancelled by a stop / off since)."""
         with self._sched_lock:
-            return any(ev == event and gen == self.gen for _due, ev, gen in self._scheduled)
+            return any(x[1] == event and x[2] == self.gen for x in self._scheduled)
 
     def event_age(self, event: str):
         """Seconds since `event` was last handled (posted events and `emit`), None = never since the start."""
@@ -789,9 +791,22 @@ class Brain:
             self._cache_phrases(graph)
         return engine
 
-    def _schedule_at(self, due: float, event: str):
+    def _schedule_at(self, due: float, event: str, **kw):
+        # entries are (due, event, gen) or, with event fields (lot L27: ok / reason), (due, event, gen, kw)
         with self._sched_lock:
-            self._scheduled.append((due, event, self.gen))
+            self._scheduled.append((due, event, self.gen, kw) if kw else (due, event, self.gen))
+
+    def complete_silently(self, action: str, done_event: str, reason: str):
+        """Lot L27: a speaking action with nothing to say (empty list, missing key, empty variable...) still ends.
+
+        Invariant: every speaking action posts its completion event, so a chain that waits for it (say_done,
+        list_item_said, the `done` of speak_phrase) never traps the robot in a state. The event carries ok=False and
+        `reason`; it is delayed like a zero-length phrase (0.15 s, the same margin as _wait_audio) so a state that
+        re-enters itself on that event cannot spin the loop. One journal warning (log + Brain.journal_notes) lets the
+        editor diagnostics see it; graph_note keeps the live log tap from adding it a second time."""
+        log.warning("%s: %s, nothing said (%s still posted)", action, reason, done_event, extra={"graph_note": True})
+        self.note_journal("warning", "graph")
+        self._schedule_at(self.now() + 0.15, done_event, ok=False, reason=reason)
 
     def _speak_then(self, text: str, done_event: str):
         self.subtitle = text
@@ -1173,8 +1188,9 @@ class Brain:
         with self._sched_lock:
             due = [x for x in self._scheduled if x[0] <= now]
             self._scheduled = [x for x in self._scheduled if x[0] > now]
-        for _, event, gen in due:
-            self.post(event, gen=gen)  # dropped by the loop if a stop/off bumped gen meanwhile
+        for x in due:
+            event, gen = x[1], x[2]
+            self.post(event, gen=gen, **(x[3] if len(x) > 3 else {}))  # dropped by the loop if a stop/off bumped gen meanwhile
         with self._sched_lock:
             ready = [x for x in self._deferred if x[0] <= now]
             self._deferred = [x for x in self._deferred if x[0] > now]

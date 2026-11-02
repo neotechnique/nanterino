@@ -5,7 +5,6 @@ brain._build_engine and called on the brain loop thread with a NodeContext (brai
 Producer of list_item_said: Brain._speak_then (the done event of the phrase).
 How to test: .venv/bin/python -m tests.test_nodes_n1 (behaviour) + tests.test_nodes_registry (metadata).
 """
-from nanterino.log import log
 from nanterino.nodes.base import Action, Arg
 from nanterino.nodes.helpers import list_index
 
@@ -25,6 +24,7 @@ class SayListItem(Action):
         i = list_index(items, index)
         item = items[i] if i is not None else None
         if not (isinstance(item, str) and item.strip()):
-            log.info("say_list_item: list %s has no text at position %r, nothing said", list, index)
+            # lot L27: list_item_said anyway (ok=False), else a chain waiting for it traps the robot
+            b.complete_silently("say_list_item", "list_item_said", "list %s has no text at position %r" % (list, index))
             return
         b._speak_then(item, "list_item_said")
