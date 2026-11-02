@@ -43,7 +43,7 @@ export function connectWs() {
 }
 export async function pollLive() {
   if (Date.now() - S.lastWs < 1500) return;
-  try { const r = await api('/api/live'); if (r.ok && r.json) onLive(r.json); } catch (e) { /* offline: heart turns red */ }
+  try { const r = await api('/api/live', { progress: false }); if (r.ok && r.json) onLive(r.json); } catch (e) { /* offline: heart turns red */ }
 }
 
 export function paintHeart() {

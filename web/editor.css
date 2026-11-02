@@ -589,3 +589,33 @@ input[type=color]{width:56px;height:28px;padding:0 2px;background:transparent;bo
 .srcchip .srcsum{color:var(--mut);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .srcsub{margin:2px 0 0 10px;padding-left:10px;border-left:2px solid var(--line)}
 .srcsub .fld{margin:6px 0}
+
+/* ---------- L22: the one non-blocking progress bar (core/progress.js) ----------
+   Fixed 3 px strip at the very top of the window, ABOVE the toolbar buttons (the toolbar has a 6 px top padding), never
+   catching the pointer. Determinate = .pfill width; .indet = moving stripe; .err = red for a moment; .fade = fade out.
+   The label chip sits in #progSlot, the LAST toolbar item: flex basis 0, no padding, min-width 0, so it only takes the
+   free space at the right end of the toolbar's last line; it is always in the layout (only the chip inside is hidden),
+   so showing the chip never moves or wraps the toolbar. z-index 500: above menus (300) and drag ghosts (400), below the
+   tooltip bubble (#tip, 1000), which must stay the topmost element. */
+:root{--prog:var(--action);--prog2:#79b8ff}
+.progress{position:fixed;left:0;top:0;width:100%;height:3px;z-index:500;pointer-events:none;overflow:hidden;
+  background:transparent;opacity:1;transition:opacity .35s ease}
+.progress[hidden]{display:none}
+.progress.fade{opacity:0}
+.progress .pfill{height:100%;width:0;background:linear-gradient(90deg,var(--prog),var(--prog2));box-shadow:0 0 6px var(--prog);
+  transition:width .3s ease}
+.progress.indet .pfill{width:35%;animation:progIndet 1.1s ease-in-out infinite}
+.progress.err .pfill{background:var(--err);box-shadow:0 0 6px var(--err)}
+.progress.err.indet .pfill{width:100%;animation:none}
+@keyframes progIndet{0%{transform:translateX(-100%)}100%{transform:translateX(290%)}}
+@media (prefers-reduced-motion: reduce){
+  .progress,.progress .pfill{transition:none}
+  .progress.indet .pfill{width:100%;animation:none;opacity:.55;
+    background:repeating-linear-gradient(90deg,var(--prog) 0 14px,transparent 14px 22px)}
+}
+.progslot{flex:1 1 0;min-width:0;display:flex;justify-content:flex-end;overflow:hidden;padding:0;margin:0}
+.progchip{flex:0 1 auto;min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  font-size:12px;padding:2px 9px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);
+  color:var(--mut);cursor:default}
+.progchip.cancel{cursor:pointer;color:var(--fg)}
+.progchip.cancel:hover{border-color:var(--err)}

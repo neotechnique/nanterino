@@ -1,4 +1,4 @@
-"""Nanterino editor web scenarios: toolbar image export: options popover, progress toast, PNG attachment.
+"""Nanterino editor web scenarios: toolbar image export: options popover, progress (L22: bar + chip), PNG attachment.
 
 Purpose : export area of the editor web suite; scenarios export.
 Boundary: drives the live editor through tests/web/driver.py (WebDriver, check()); never imports nanterino.server.
@@ -39,16 +39,19 @@ def sc_export(wd):
     o100 = js(wd, "return window.__editor.exportOpts()")
     check("zoom radios set the export scale (0.5 then 1)", o50["scale"] == 0.5 and o100["scale"] == 1, str((o50, o100)))
     js(wd, "window.__exportNoSave = true")
-    # every toast text ever shown (a cache hit ends in ~0.2 s, before a poll could read the progress text)
-    js(wd, """window.__toastLog=[]; const box=document.querySelector('#toasts'); const rec=()=>box.querySelectorAll('.toast').forEach(t=>{
-      if(!window.__toastLog.includes(t.textContent)) window.__toastLog.push(t.textContent);});
-      new MutationObserver(rec).observe(box,{subtree:true,childList:true,characterData:true});""")
+    # every toast / progress-chip text ever shown (a cache hit ends in ~0.2 s, before a poll could read the progress
+    # text). L22: the progress is on the progress bar chip (#progChip), the toasts only report the end.
+    js(wd, """window.__toastLog=[]; const box=document.querySelector('#toasts'), chip=document.querySelector('#progChip');
+      const rec=()=>{ box.querySelectorAll('.toast').forEach(t=>{ if(!window.__toastLog.includes(t.textContent)) window.__toastLog.push(t.textContent);});
+        if(!chip.hidden && !window.__toastLog.includes(chip.textContent)) window.__toastLog.push(chip.textContent); };
+      const mo=new MutationObserver(rec); mo.observe(box,{subtree:true,childList:true,characterData:true});
+      mo.observe(chip,{subtree:true,childList:true,characterData:true,attributes:true});""")
     g = rect(wd, "#btnExportGo")
     lclick(wd, g[0] + g[2] / 2, g[1] + g[3] / 2)
     time.sleep(0.4)
     first = js(wd, "return window.__toastLog.join(' | ')")
     hidden = js(wd, "return document.querySelector('#exportPop').hidden")
-    check("Exporter closes the popover and shows a progress toast", hidden and "Export de l" in first, first)
+    check("Exporter closes the popover and shows the progress (L22: progress bar chip)", hidden and "Export de l" in first, first)
     t0, info = time.time(), None
     while time.time() - t0 < 300:
         info = js(wd, "return window.__editor.exportInfo()")

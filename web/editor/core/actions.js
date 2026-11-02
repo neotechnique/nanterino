@@ -3,15 +3,16 @@
  *
  * Purpose :  validate, postDoc, save, loadAll.
  * Boundary:  network through core/api.js: GET /api/graph/vocab + /api/graph/visual, POST /api/graph/visual (save); the
- *            server validates. Moved unchanged out of the former single-file editor.js (lot M6).
+ *            server validates. Moved unchanged out of the former single-file editor.js (lot M6). L22: save() is one
+ *            covering progress task (fresh check + POST), red on refusal.
  * Depends :  core/util.js, core/state.js, core/api.js, core/serialize.js, core/history.js, core/chains.js,
  *            diagnostics/analysis.js, diagnostics/check.js, hierarchy/tree.js, panels/intents.js, variables/panel.js,
- *            core/ui.js, panels/history-panels.js
+ *            core/ui.js, panels/history-panels.js, core/progress.js
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $ } from './util.js';
 import { S, KINDS, freshIds } from './state.js';
-import { api, postJson } from './api.js';
+import { AUTO_DELAY_MS, api, postJson } from './api.js';
 import { rebuild, serialize } from './serialize.js';
 import { snap, updateBar } from './history.js';
 import { computeChains } from './chains.js';
@@ -22,6 +23,7 @@ import { renderIntents } from '../panels/intents.js';
 import { refreshVarStore } from '../variables/panel.js';
 import { toast } from './ui.js';
 import { loadVersions } from '../panels/history-panels.js';
+import { startTask } from './progress.js';
 
 // ---------- toolbar actions ----------
 export function validate(showToast) {
@@ -59,6 +61,15 @@ export async function postDoc(doc) {
 }
 export async function save() {
   if (S.navLocked) { toast('Verrouillé — lecture seule : enregistrement désactivé (L pour déverrouiller).', 'err'); return; }
+  // L22: one progress task for the whole save (its fetches add none of their own); the page stays usable meanwhile
+  const task = startTask('Enregistrement et application', { delay: AUTO_DELAY_MS, covers: true });
+  try {
+    const r = await saveSteps();
+    if (r && r.ok) task.done(); else task.fail();      // refused (local or robot): red bar, the toast says why
+    return r;
+  } catch (e) { task.fail(); throw e; }
+}
+async function saveSteps() {
   // L6: decide on a fresh dry run, not on badges up to 0.5 s old (debounce) or from an earlier refused save: a click
   // right after a fix used to be blocked by the stale error. The server re-validates on POST anyway.
   let doc = null;
@@ -68,8 +79,8 @@ export async function save() {
     if (ok) { S.serverErrors = []; S.simErrors = []; analyze(); }   // the fresh check supersedes older refusals
     doc = cur;             // check unavailable (network / 5xx): fall back to the badges, the POST validates anyway
   }
-  if (!doc || validate(false)) { validate(true); return; }
-  await postDoc(doc);
+  if (!doc || validate(false)) { validate(true); return null; }
+  return postDoc(doc);
 }
 export async function loadAll() {
   const [vocab, vis] = await Promise.all([api('/api/graph/vocab'), api('/api/graph/visual')]);

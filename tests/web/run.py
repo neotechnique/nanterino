@@ -10,7 +10,7 @@ Usage   : cd /opt/robot/nanterino && .venv/bin/python -m tests.web.run <name> [.
           One process = one browser session; l7_scenarios.sh starts one process per scenario.
 Layout  : wd.py (WebDriver session), driver.py (check(), shared helpers), one file per editor area with SCENARIOS.
 Invariant: M7 moved /opt/robot/scripts/editor6_wd.py here verbatim (26 scenarios, 441 checks); keep the per-scenario
-          check counts when moving code between files.
+          check counts when moving code between files. L22 adds scenario `progress` (area progress).
 
 History of the former scripts/editor6_wd.py (scenario -> lot, kept for reference):
 Headless Firefox checks of lot L6 (state nodes, gradient wires, ports, post-its, mouse buttons, context menu).
@@ -37,6 +37,8 @@ Usage: editor6_wd.py <scenario> [...]   scenarios: nodes wires tester buttons me
     props (lot M5: value source picker ▾ in the inspector: $x shorthand, random_from_list, nested calc with typed
     literals, incompatible sources hidden, depth limit, server type badge, Valeur fixe, save + reload, Tester value;
     editor18-props.png; saves once, rolled back).
+    progress (lot L22: the one non-blocking progress bar: boot, fast / slow fetch, aggregation, cancel chip, error,
+    no overlap / overlay, stubbed save, Valider, real non-cached export with pan + context menu; editor19-progress.png).
     L13 ADAPTED nodes, l8, postit3 and l10 (they assumed flat columns: only column frames / column post-its).
     L10 ADAPTED the older palette / "Insérer un nœud" checks (menu, postit, ctxsub, nav, nostart, menu3, tooltips, human).
 Vars L2 (2026-10-31): no State hub / go-to any more (etat is a variable); triggers have no input port; Variables panel.
@@ -52,11 +54,11 @@ from tests.web.driver import W, BASE, check, checks  # noqa: E402
 
 # Area files, in the order their scenarios appeared in the former single file (for `all`).
 AREAS = ["canvas", "tester", "menu", "frames", "variables", "tooltips", "diagnostics", "human", "hierarchy",
-         "export", "inspector"]
+         "export", "inspector", "progress"]
 # Order of the former single file, which `all` keeps (the scenarios share one browser session there).
 ALL_ORDER = ["nodes", "wires", "tester", "buttons", "menu", "postit", "ctxsub", "nav", "noinput", "vars", "testervars",
              "nostart", "wiredrag", "menu3", "tooltips", "postit2", "diag", "l6", "human", "l8", "postit3", "l10",
-             "vars2", "subgroups", "export", "props"]
+             "vars2", "subgroups", "export", "props", "progress"]
 
 
 def registry():

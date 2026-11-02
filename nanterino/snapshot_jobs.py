@@ -1,7 +1,8 @@
 """Single-flight job manager for the full-resolution graph PNG export (lot L14).
 
 Purpose : run tools/graph_snapshot.py as a low-priority subprocess for POST /api/graph/snapshot, report its progress
-          to GET /api/graph/snapshot/status and keep the produced PNGs as a small cache keyed by a hash of
+          to GET /api/graph/snapshot/status (`progress` 0-1 = tiles done / total; L22 adds `phase`: launch -> tiles ->
+          encode -> done | failed, for the editor progress bar) and keep the produced PNGs as a small cache keyed by a hash of
           (served visual document + options + editor/tool code), so an unchanged graph is answered instantly.
 Boundary: pure standard library, no FastAPI / Brain import (unit-testable: tests/test_graph_snapshot_jobs.py). The
           server gives it `build_cmd(options, out_path) -> argv`; this module never decides what the command is.
@@ -100,12 +101,13 @@ class SnapshotJobs:
                 except OSError:
                     pass
                 self._job = {"id": self._seq, "key": key, "state": "done", "cache_hit": True, "options": options,
-                             "started": now, "finished": now, "seconds": 0.0, "progress": 1.0,
+                             "started": now, "finished": now, "seconds": 0.0, "progress": 1.0, "phase": "done",
                              "width": meta.get("width"), "height": meta.get("height"), "bytes": meta.get("bytes"),
                              "created": meta.get("created"), "error": None}
                 return dict(self._job)
             self._job = {"id": self._seq, "key": key, "state": "running", "cache_hit": False, "options": options,
-                         "started": now, "finished": None, "seconds": None, "progress": 0.0, "width": None,
+                         "started": now, "finished": None, "seconds": None, "progress": 0.0, "phase": "launch",
+                         "width": None,
                          "height": None, "bytes": None, "created": None, "error": None}
             job_id = self._seq
             self._thread = threading.Thread(target=self._run, args=(job_id, key, options), daemon=True,
@@ -155,10 +157,15 @@ class SnapshotJobs:
                 line = line.rstrip("\n")
                 lines.append(line)
                 del lines[:-200]
-                if line.startswith("TILE "):
+                if line.startswith("BBOX "):
+                    # the page is loaded and measured: tiles come next (L22 phase, additive field)
+                    self._update(job_id, phase="tiles")
+                elif line.startswith("TILE "):
                     try:
                         i, n = line.split()[1].split("/")
-                        self._update(job_id, progress=round(int(i) / max(1, int(n)), 3))
+                        i, n = int(i), max(1, int(n))
+                        # last tile done: the tool now stitches and encodes the PNG (no progress line until RESULT)
+                        self._update(job_id, progress=round(i / n, 3), phase="encode" if i >= n else "tiles")
                     except ValueError:
                         pass
 
@@ -203,7 +210,8 @@ class SnapshotJobs:
 
     def _finish(self, job_id: int, t0: float, error: str | None = None, **kw):
         now = self.clock()
-        self._update(job_id, state="failed" if error else "done", error=error, finished=now,
+        self._update(job_id, state="failed" if error else "done", phase="failed" if error else "done", error=error,
+                     finished=now,
                      seconds=round(now - t0, 1), **kw)
 
     @staticmethod

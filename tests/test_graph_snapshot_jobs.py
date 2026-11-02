@@ -119,16 +119,21 @@ def test_progress_reported():
     d, calls = fresh("progress"), []
     m = SJ.SnapshotJobs(d, builder(calls, delay=2.4), timeout_s=30)
     m.start("kp", {})
-    seen = set()
+    seen, phases = set(), []
     t0 = time.time()
     while time.time() - t0 < 10:
         s = m.status()
         seen.add(s["progress"])
+        if not phases or phases[-1] != s.get("phase"):
+            phases.append(s.get("phase"))
         if s["state"] != "running":
             break
         assert s["seconds"] is not None
         time.sleep(0.1)
     assert any(0 < p < 1 for p in seen), seen
+    # L22: additive `phase` for the editor progress bar; the fake tool prints no BBOX line, so tiles -> encode -> done
+    assert "tiles" in phases and phases[-1] == "done", phases
+    assert phases.index("tiles") < phases.index("done"), phases
 
 
 def test_timeout_kills_group():

@@ -100,7 +100,7 @@ function paintLive() {
 }
 async function pollVars() {
   if (S.curTab !== 'vars') return;
-  const r = await api('/api/graph/vars');
+  const r = await api('/api/graph/vars', { progress: false });   // L22: 1 Hz poller, never on the progress bar
   if (!r.ok || !r.json) return;
   const conflicts = (x) => JSON.stringify((((x || {}).store) || {}).ignored || []);
   const was = conflicts(varsUi.live);

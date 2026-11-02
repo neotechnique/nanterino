@@ -4,19 +4,22 @@
  * Purpose :  boot(): Drawflow creation, Drawflow hooks, toolbar wiring, first load.
  * Boundary:  creates the Drawflow editor (vendored, MIT) and wires the page; network through core/api.js: GET /api/graph,
  *            POST /api/graph/reset. Moved unchanged out of the former single-file editor.js (lot M6).
+ *            L22: the boot is a progress task: editor.html shows the bar (indeterminate) from the first paint, boot()
+ *            takes it over (modules loaded = 40 %, Drawflow ready, graph loaded) and ends it; « Valider » is a covering
+ *            task (fresh server dry run, then the client summary).
  * Depends :  core/util.js, tooltips/tooltips.js, core/state.js, core/api.js, core/history.js, diagnostics/check.js,
  *            canvas/wires.js, minimap/overview.js, minimap/minimap.js, frames/nesting.js, frames/notes.js,
  *            canvas/navigation.js, menu/context-menu.js, clipboard/clipboard.js, menu/node-menu.js, hierarchy/tree.js,
  *            inspector/inspector.js, core/ui.js, core/actions.js, panels/live.js, panels/history-panels.js,
- *            canvas/trigger-guard.js, export/export.js, core/debug.js
+ *            canvas/trigger-guard.js, export/export.js, core/debug.js, core/progress.js
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h } from './util.js';
 import { installTips } from '../tooltips/tooltips.js';
 import { S, linkKey, linkProblem, nidToDf } from './state.js';
-import { api, model, postJson } from './api.js';
+import { AUTO_DELAY_MS, api, model, postJson } from './api.js';
 import { commitSoon, redo, undo } from './history.js';
-import { diagCycle } from '../diagnostics/check.js';
+import { diagCycle, freshCheck } from '../diagnostics/check.js';
 import { installRetHover, paintDragWire, paintWires, retVisible, setRetVisible } from '../canvas/wires.js';
 import { scheduleMinimap, zoomVars } from '../minimap/overview.js';
 import { miniMove, miniUp } from '../minimap/minimap.js';
@@ -39,9 +42,18 @@ import { loadJournal } from '../panels/history-panels.js';
 import { installTriggerDropGuard } from '../canvas/trigger-guard.js';
 import { toggleExport } from '../export/export.js';
 import { runDebug } from './debug.js';
+import { startTask, track } from './progress.js';
 
 // ---------- boot ----------
 export async function boot() {
+  // L22: every module is loaded when this runs; the rest of the boot is the graph load
+  const task = startTask("Chargement de l'éditeur", { progress: 0.4, covers: true });
+  try {
+    await bootSteps(task);
+    task.done();
+  } catch (e) { task.fail(); throw e; }       // main.js toasts the boot error
+}
+async function bootSteps(task) {
   // Test hook: `#hold=<port>` keeps the page "loading" until a slow local image answers, so a headless
   // `firefox --screenshot` (taken at the load event) sees the finished async rendering.
   const hold = (location.hash.match(/hold=(\d+)/) || [])[1];
@@ -163,7 +175,8 @@ export async function boot() {
   $('#btnGroup').onclick = () => addFrame();
   $('#btnNote').onclick = () => addNote();
   $('#btnUndo').onclick = undo; $('#btnRedo').onclick = redo; $('#btnFit').onclick = fit;
-  $('#btnValidate').onclick = () => validate(true);
+  $('#btnValidate').onclick = () => track('Vérification du graphe', async () => { await freshCheck(); validate(true); },
+    { delay: AUTO_DELAY_MS, covers: true }).catch(() => {});   // L22: fresh dry run first; a failure is already red + toasted
   $('#btnSave').onclick = save;
   $('#btnMsgs').onclick = () => { $('#msgs').hidden = !$('#msgs').hidden; };
   $('#btnDiag').onclick = () => diagCycle();
@@ -189,7 +202,10 @@ export async function boot() {
   $('#modal').addEventListener('click', (e) => { if (e.target.id === 'modal') $('#modal').hidden = true; });
   if (innerWidth <= 900) { document.body.classList.add('hide-left'); document.body.classList.add('hide-right'); }
 
-  await loadAll();
+  task.set(0.6);
+  const vis = await loadAll();
+  if (!vis) task.fail();                       // loadAll already toasted why
+  else task.set(0.95);
   loadJournal();
   connectWs();
   setInterval(paintHeart, 500);

@@ -10,6 +10,9 @@
 <!-- m6-modulepreload: GET /editor replaces this line with one modulepreload link per web/editor/ module -->
 </head>
 <body>
+<!-- L22: the one non-blocking progress bar (web/editor/core/progress.js): visible from the first paint for the boot,
+     3 px above the toolbar, pointer-events none; it never covers a control and never blocks the page -->
+<div id="progress" class="progress on indet" role="progressbar" aria-label="Chargement de l'éditeur" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Chargement de l'éditeur…"><div class="pfill"></div></div>
 <header id="bar">
   <button id="btnLeft" class="icon only-narrow" title="Hiérarchie">☰</button>
   <strong class="brand">Éditeur visuel</strong>
@@ -33,9 +36,11 @@
   <button id="btnYaml" title="Afficher le fichier graph.yaml actif (lecture seule)">Voir le YAML</button>
   <button id="btnReset" class="danger" title="Remplacer le graphe par celui livré avec le robot (l'actuel est sauvegardé dans Versions)">Revenir au graphe par défaut</button>
   <button id="btnRight" class="icon only-narrow" title="Inspecteur">⚙</button>
+  <!-- L22: progress label chip, right end of the toolbar's last line (empty slot when idle: no layout change) -->
+  <span id="progSlot" class="progslot"><button id="progChip" class="progchip" type="button" hidden></button></span>
 </header>
 <div id="banner" hidden></div>
-<main id="main">
+<main id="main" aria-busy="true">
   <!-- L10: the left column is the hierarchy (columns > groups > chains > post-its); nodes are added by right click -->
   <aside id="left">
     <div class="lhead">Hiérarchie</div>

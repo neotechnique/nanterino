@@ -125,6 +125,7 @@
  *   core/boot.js                  Editor core: boot.
  *   export/export.js              Export (lot L14): "Exporter l'image".
  *   core/debug.js                 Editor core: debug scenarios (#debug=...).
+ *   core/progress.js              Editor core: the one non-blocking progress bar + chip (lot L22).
  *   main.js                       entry: imports, window.__editor test hooks, boot().
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
@@ -140,7 +141,7 @@ import { hideTip } from './tooltips/tooltips.js';
 import { S, KINDS, nidToDf } from './core/state.js';
 import { listDefs, varDefs } from './variables/model.js';
 import { varUses } from './inspector/property-picker.js';
-import { dfData, dfNode, model } from './core/api.js';
+import { api, dfData, dfNode, model } from './core/api.js';
 import { nodeEl, nodePath, nodeTipOf, refreshNode } from './canvas/nodes.js';
 import { rebuild, serialize } from './core/serialize.js';
 import { commitSoon, redo, undo } from './core/history.js';
@@ -175,6 +176,7 @@ import { addStep, selectTrace, sim, simRun } from './tester/tester.js';
 import { loadJournal, loadVersions } from './panels/history-panels.js';
 import { boot } from './core/boot.js';
 import { exportOpts, startExport, toggleExport } from './export/export.js';
+import { progressInfo, startTask } from './core/progress.js';
 
 // ---------- test hooks (used by the verification scenarios; harmless in normal use) ----------
 window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () => Object.keys(dfData()).length,
@@ -186,6 +188,7 @@ window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () =
   linkMeta: () => Object.fromEntries(S.linkMeta), clipboard: () => S.clipboard, ctxOpen: () => !!S.ctx,
   meta: () => S.meta, journal: () => S.journal, renderVars, varsUi, varDefs, listDefs, varUses,
   analyze, globalIssues: () => S.globalIssues, refreshVarStore, resetVar,      // L12 test hooks
+  progress: progressInfo, startTask, api,     // L22 test hooks: progress bar state, a task, the fetch wrapper
   toggleExport, startExport, exportInfo: () => S.exportInfo, exportOpts: () => ({ ...exportOpts }), exportBusy: () => !!S.exportRun,   // L14
   noInputRefusals: () => S.noInputRefusals, kinds: () => KINDS, loadJournal, loadVersions, selectTrace, toast,
   nav: () => ({ locked: S.navLocked, hand: S.navHand, space: S.navSpace, zoom: S.editor.zoom, x: S.editor.canvas_x, y: S.editor.canvas_y }),

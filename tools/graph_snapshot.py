@@ -40,9 +40,10 @@ PAD = 40                    # margin around the graph, in image pixels
 WIN_W, WIN_H = 1600, 1000   # browser window; the inner viewport (tile size) is read from the page
 MAX_PIXELS = 250_000_000    # refuse absurd canvases instead of exhausting the Jetson's RAM
 
-# Capture-only stylesheet: hide the editor chrome, canvas fills the viewport, no animation between tiles.
+# Capture-only stylesheet: hide the editor chrome (L22: the progress bar too), canvas fills the viewport, no animation
+# between tiles.
 CHROME_CSS = """
-#bar,#banner,#left,#right,#msgs,#btnMsgs,#navBanner,#navHelp,#jumpbar,#minimap,#toasts,#modal,#tip,.ctxmenu,.exportpop{display:none!important}
+#bar,#banner,#left,#right,#msgs,#btnMsgs,#navBanner,#navHelp,#jumpbar,#minimap,#toasts,#modal,#tip,.ctxmenu,.exportpop,#progress{display:none!important}
 #drawflow{position:fixed!important;left:0!important;top:0!important;width:100vw!important;height:100vh!important;z-index:9999!important}
 #drawflow > .drawflow{transform-origin:0 0!important}
 *,*::before,*::after{transition:none!important;animation:none!important;caret-color:transparent!important}
