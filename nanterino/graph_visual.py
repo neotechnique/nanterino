@@ -234,7 +234,7 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         chains (fan-in), as long as each chain keeps a node of its own to carry its description.
     `share=False` is the old one-chain-per-transition drawing (kept for measurements and tests).
     `compact=True` (default) also drops the per-chain "state" condition: the trigger carries `params.state`
-    instead (compiler support in from_visual, mirrored by web/editor.js computeChains); `compact=False` draws
+    instead (compiler support in from_visual, mirrored by web/editor/core/chains.js computeChains); `compact=False` draws
     the explicit state-condition nodes (still compiled the same way).
     """
     layout = layout or {}
@@ -546,7 +546,7 @@ def _num(v):
 GLOBAL_NOTE = ("Règles globales : chacune peut se déclencher quel que soit l'état du robot "
                "(ou seulement dans les états choisis sur son déclencheur).")
 COLUMN_NOTE_W = GL.NODE_W + 24     # fits inside every column frame (frame = nodes + 28 px each side)
-COLUMN_NOTE_COLOR = "#fff59d"      # web/editor.js NOTE_COLORS[0]
+COLUMN_NOTE_COLOR = "#fff59d"      # web/editor/core/state.js NOTE_COLORS[0]
 AUTO_NOTE = re.compile(r"^(state:[A-Za-z0-9_.-]{1,60}|sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40})$")
 # lot L13: marker of a default sub-group frame (`gen`, not `auto`: the editor treats a truthy `auto` as a column)
 GEN_FRAME = re.compile(r"^sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40}$")

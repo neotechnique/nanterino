@@ -316,7 +316,7 @@ def hub_layout(nodes, links, y0: int = TOP, badge: int = BADGE_ROOM, pitch: int 
     layer to the right of the hub and below its row (so the hub -> trigger wires fan out down-right). The
     `global` group gets the last column (no hub). Columns are disjoint in x, so nodes never overlap between
     columns; inside a column `auto_layout()` already guarantees no overlap. The wires that return to a state hub
-    are not optimised (the editor draws them faded with a "→ État" badge, see web/editor.js).
+    are not optimised (the editor draws them faded with a "→ État" badge, see web/editor/canvas/wires.js).
     """
     # L7 fix round: the columns are built at the origin, then wrapped into rows (see _wrap_rows)
     hub_h = max([node_height(n) for n in nodes if n.get("kind") == "state"] + [0])

@@ -25,7 +25,7 @@ import time
 import uvicorn
 from fastapi import FastAPI, Request, WebSocket
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, Response
 
 from . import config
 from .audio import AudioOut, SpeakerProfiles, find_device, list_devices
@@ -39,6 +39,7 @@ from .log import log
 from .metrics import Metrics
 from .snapshot_jobs import SnapshotJobs, files_signature, snapshot_key
 from .var_store import DEFAULT_PATH as VARS_STATE_PATH, VarStore
+from . import web_assets
 from .vision import Vision
 
 cfg = config.load()
@@ -145,8 +146,28 @@ def _graph_paths() -> tuple[str, str]:
 
 
 _NO_CACHE = {"Cache-Control": "no-cache"}
-_EDITOR_ASSETS = {"editor.js": "text/javascript", "editor.css": "text/css"}
+_EDITOR_ASSETS = {"editor.css": "text/css"}   # M6: the editor script is the module tree below (/web/editor/...)
 _VENDOR_ASSETS = {"drawflow.min.js": "text/javascript", "drawflow.min.css": "text/css", "LICENSE": "text/plain"}
+
+
+_MODULES = web_assets.ModuleCache()
+
+
+@app.get("/web/editor/{path:path}")
+async def web_editor_module(path: str, request: Request):
+    """Lot M6: the editor's native ES modules (web/editor/**/*.js|css), read-only. web_assets.editor_module refuses
+    anything but lowercase module paths under web/editor/ (no `..`, no other extension, no symlink escape).
+    async + in-memory bytes (re-read when size / mtime change): ~40 small files per page load, the threadpool hop of
+    FileResponse made the split editor load slower than the single file."""
+    hit = web_assets.editor_module(WEB, path)
+    if hit is None:
+        return PlainTextResponse("not found", status_code=404)
+    body, etag = _MODULES.get(hit[0])
+    # same no-cache policy as editor.css (a redeployed module is revalidated, never served stale); unchanged = 304
+    headers = {**_NO_CACHE, "ETag": etag}
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers=headers)
+    return Response(body, media_type=hit[1], headers=headers)
 
 
 @app.get("/web/{name}")
@@ -154,7 +175,7 @@ def web_asset(name: str):
     """Editor page assets (whitelist: no directory listing, no other web file is exposed here)."""
     if name not in _EDITOR_ASSETS:
         return PlainTextResponse("not found", status_code=404)
-    # no-cache: browsers must revalidate, otherwise an edited editor.js stays stale after a deploy.
+    # no-cache: browsers must revalidate, otherwise an edited asset stays stale after a deploy.
     return FileResponse(os.path.join(WEB, name), media_type=_EDITOR_ASSETS[name], headers=_NO_CACHE)
 
 
@@ -185,7 +206,11 @@ def editor():
     path = os.path.join(WEB, "editor.html")
     if not os.path.exists(path):
         return PlainTextResponse("editor.html is not installed yet", status_code=404)
-    return FileResponse(path, headers=_NO_CACHE)
+    with open(path, encoding="utf-8") as f:
+        html = f.read()
+    # lot M6: one modulepreload per module so the browser fetches the whole tree in one wave (no import waterfall)
+    html = re.sub(r"<!-- m6-modulepreload:[^>]*-->", lambda _m: web_assets.modulepreload_links(WEB), html, count=1)
+    return HTMLResponse(html, headers=_NO_CACHE)
 
 
 @app.get("/api/graph/vocab")
@@ -334,7 +359,10 @@ def graph_trace():
 SNAPSHOT_TOOL = os.path.join(config.ROOT, "tools", "graph_snapshot.py")
 SNAPSHOT_DIR = os.path.join(config.ROOT, "exports", "graph-snapshots")   # gitignored cache (<key>.png + <key>.json)
 SNAPSHOT_PYTHON = "/usr/bin/python3"       # system Python: the venv has no PIL
-_SNAPSHOT_CODE = [os.path.join(WEB, n) for n in ("editor.html", "editor.js", "editor.css")] + [SNAPSHOT_TOOL]
+def _snapshot_code() -> list:
+    """Files whose change invalidates cached snapshots: the editor page, its stylesheet, every module of the M6 tree
+    (listed at call time, so an added module counts) and the capture tool."""
+    return [os.path.join(WEB, n) for n in ("editor.html", "editor.css")] + web_assets.editor_module_files(WEB) + [SNAPSHOT_TOOL]
 _SNAP_CROP = re.compile(r"^column=[A-Za-z0-9_-]{1,60}$")
 
 
@@ -392,7 +420,7 @@ async def graph_snapshot_start(request: Request):
         return JSONResponse({"ok": False, "error": err}, status_code=400)
 
     def start():
-        key = snapshot_key(_visual_doc(opts["doc"]), opts, files_signature(_SNAPSHOT_CODE))
+        key = snapshot_key(_visual_doc(opts["doc"]), opts, files_signature(_snapshot_code()))
         return snapshots.start(key, opts)
     return _snapshot_view(await run_in_threadpool(start))
 

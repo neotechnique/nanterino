@@ -4,9 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <title>Nanterino - Éditeur visuel</title>
-<!-- Offline page: no CDN. Drawflow (MIT) is vendored in /web/vendor/drawflow/. See editor.js header. -->
+<!-- Offline page: no CDN. Drawflow (MIT) is vendored in /web/vendor/drawflow/. See the web/editor/main.js header. -->
 <link rel="stylesheet" href="/web/vendor/drawflow/drawflow.min.css">
 <link rel="stylesheet" href="/web/editor.css">
+<!-- m6-modulepreload: GET /editor replaces this line with one modulepreload link per web/editor/ module -->
 </head>
 <body>
 <header id="bar">
@@ -68,6 +69,6 @@
 
 <div id="modal" hidden><div class="box"><h3 id="mTitle"></h3><div id="mBody"></div><div id="mBtns" class="mbtns"></div></div></div>
 <script src="/web/vendor/drawflow/drawflow.min.js"></script>
-<script src="/web/editor.js"></script>
+<script type="module" src="/web/editor/main.js"></script>
 </body>
 </html>

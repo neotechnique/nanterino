@@ -24,7 +24,8 @@ How to add a type (drop a file)
                def validate(self, v, choices=()):
                    return v in ("calme", "joyeux")
     2. Add tests (tests/test_vartypes_registry.py covers the generic contract; behaviour goes to the vars suites).
-    A new `control` also needs its widget in web/editor.js.
+    A new `control` also needs its widget in the editor: web/editor/variables/values.js (valueInput) and the `value`
+    entry of ARG_CONTROLS in web/editor/inspector/arg-fields.js.
 
 Flags (class attributes; graph.py derives its frozensets from them)
     numeric (NUMERIC_TYPES: compares / converts as numbers), ordered (ORDERED_TYPES: < <= > >= allowed), text
@@ -54,7 +55,7 @@ from typing import NamedTuple
 from nanterino.registry import RegistryError, check_identity, check_text, failer, scan_package
 
 PACKAGE = "nanterino.vartypes"   # closed: the only package scanned in production
-# Editor widgets web/editor.js renders for a variable type's `control` (inspector + variable manager).
+# Editor widgets web/editor/ renders for a variable type's `control` (inspector arg-fields.js + variable manager values.js).
 CONTROLS = frozenset({"checkbox", "number", "text", "select", "slider", "datetime", "timer", "textarea", "color", "vector"})
 # Importing the type modules binds `nanterino.vartypes.bool`, `.datetime` ... as attributes of THIS module (Python
 # sets a package attribute per imported submodule), shadowing the builtins / stdlib names here: keep private aliases.
