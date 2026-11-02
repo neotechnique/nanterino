@@ -69,6 +69,15 @@
  *           persisted values refused at load (`store.ignored` of GET /api/graph/vars, fetched once at load and after save)
  *           as global warnings. Tester: simulated variables grouped by scope (Système / Globales / Conversation),
  *           conversation ones marked "remises à zéro à chaque nouvelle conversation".
+ *           M5 (2026-11-02, contract "Propriétés"): value source picker. An inspector field whose vocabulary argument
+ *           carries `props` gets a ▾ button (« Source de la valeur »): menu grouped Valeur fixe / Variables / Listes /
+ *           Robot / Hasard / Temps / Calcul from V.properties.get, only the sources whose `out` fits the field type
+ *           (V.type_compat = server graph.compatible; `{"of": arg}` narrows the source's var / list / enum choices);
+ *           a source shows as a chip with its own args indented (argFields recursion, ▾ again on `props` args, at most
+ *           SRC_MAX_DEPTH = server MAX_DEPTH levels). Written as `{get: <id>, ...}`; `{get: variable, name: x}` /
+ *           `{get: utterance}` are stored as "$x" / "$utterance" where `$` was already allowed (never a top-level
+ *           number field). Typed literals inside sources (numOrKey): the visual compiler does not coerce them.
+ *           Cards / node tooltip say the source in words (srcWords); varUses / renameUses walk sources.
  * Invariants:
  *   - The Drawflow canvas is the working copy; every node keeps its full server model in node.data.model
  *     (unknown params such as `group` or `global: true` and unknown node fields survive a round trip).
@@ -374,6 +383,7 @@
   const opLabel = (o) => ({ '=': '=', '!=': '≠', '<': '<', '<=': '≤', '>': '>', '>=': '≥', in: 'parmi', not_in: 'hors de' }[o] || o);
   // A value as shown on a card: the etat value by its state label, `$x` as "x", lists joined.
   const valText = (name, v) => {
+    if (isSrcObj(v)) return srcWords(v);            // lot M5: a value source in words
     if (Array.isArray(v)) return v.map((x) => valText(name, x)).join(', ');
     if (name === 'etat') return stateLabel(v);
     if (typeof v === 'string' && v.startsWith('$')) return v === '$utterance' ? 'la phrase entendue' : v.slice(1);
@@ -381,13 +391,231 @@
     if (v === false) return 'faux';
     return v == null || v === '' ? '?' : String(v);
   };
+  // ---------- value sources (lot M5, contract "Propriétés") ----------
+  // A field whose vocabulary argument carries `props` takes a constant (plain control) or a value source
+  // `{get: <id>, ...args}` from V.properties.get; `$x` / `$utterance` ARE the Variable / Phrase entendue sources in
+  // shorthand. The typing rules stay on the server: V.type_compat (= graph.compatible) decides which sources a field
+  // may offer, the server check gives the final word (its messages land on the node like any diagnostic).
+  const SRC_GROUPS = [['constant', ''], ['variables', 'Variables'], ['lists', 'Listes'], ['robot', 'Robot'], ['random', 'Hasard'],
+    ['time', 'Temps'], ['calc', 'Calcul'], ['other', 'Autres']];
+  // Menu group of each source; a new source module (drop-a-file) lands in "Autres" until it is listed here.
+  const SRC_GROUP_OF = { constant: 'constant', variable: 'variables', list_item: 'lists', dict_value: 'lists', utterance: 'robot',
+    system: 'robot', config_value: 'robot', intent_match: 'robot', random_number: 'random', random_from_list: 'random',
+    elapsed: 'time', calc: 'calc' };
+  const SRC_MAX_DEPTH = 4;               // = server properties.MAX_DEPTH: a field inside 4 sources gets no ▾
+  const CALC_SIGN = { '+': '+', '-': '−', '*': '×', '/': '÷' };
+  const srcDefs = () => ((V.properties || {}).get) || [];
+  const srcDef = (id) => byId(srcDefs(), id);
+  const isSrcObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v) && typeof v.get === 'string';
+  // {id, args, short} of a value that is a source (object or `$` shorthand), null for a constant.
+  function srcOf(v) {
+    if (isSrcObj(v)) { const a = Object.assign({}, v); delete a.get; return { id: v.get, args: a, short: false }; }
+    if (v === '$utterance') return { id: 'utterance', args: {}, short: true };
+    if (typeof v === 'string' && /^\$[A-Za-z_]/.test(v)) return { id: 'variable', args: { name: v.slice(1) }, short: true };
+    return null;
+  }
+  // May a value of type `s` feed a field of type `d`? Unknown types (nothing chosen yet) never hide a source.
+  const typeCompat = (s, d) => {
+    if (!s || !d) return true;
+    const tc = V.type_compat;
+    return tc ? (tc[s] || []).includes(d) : s === d;
+  };
+  // Output type of a source with these args in a field of type ft (null = not known yet).
+  function srcOutType(def, args, ft) {
+    const o = def && def.out;
+    if (o === 'same') return ft;
+    if (typeof o === 'string') return o;
+    if (!o || !o.of) return null;
+    const a = (def.args || []).find((x) => x.name === o.of), r = (args || {})[o.of];
+    if (!a || r == null || r === '') return null;
+    if (a.type === 'var') { const d = varDef(r); return d ? d.type : null; }
+    if (a.type === 'list') { const l = listDef(r); return l ? l.type : null; }
+    if (a.types) return a.types[r] || null;          // config_value: output type per key (vocabulary)
+    const d = varDef(r); return d ? d.type : null;    // system: the system variable's own type
+  }
+  // The source's argument specs, the one named by `out.of` narrowed to the choices whose type fits the field.
+  function srcArgsFor(def, ft) {
+    const o = def.out;
+    return (def.args || []).map((a) => {
+      if (!o || typeof o !== 'object' || o.of !== a.name || !ft) return a;
+      const b = Object.assign({}, a);
+      const all = (xs, fb) => (xs && xs.length ? xs : fb);
+      if (a.type === 'var') b.var_types = all(a.var_types, V.var_types.map((t) => t.id)).filter((t) => typeCompat(t, ft));
+      else if (a.type === 'list') b.list_types = all(a.list_types, V.list_types.map((t) => t.id)).filter((t) => typeCompat(t, ft));
+      else if (a.type === 'enum') b.options = (a.options || []).filter((k) => typeCompat(a.types ? a.types[k] : (varDef(k) || {}).type, ft));
+      return b;
+    });
+  }
+  // Is the source worth offering for a field of type ft (compatible output, at least one fitting choice)?
+  function srcOffered(def, ft) {
+    const o = def.out;
+    if (o === 'same') return true;
+    if (typeof o === 'string') return typeCompat(o, ft);
+    const a = srcArgsFor(def, ft).find((x) => x.name === (o || {}).of);
+    if (!a) return true;
+    if (a.type === 'var') return varDefs().some((d) => a.var_types.includes(d.type));
+    if (a.type === 'list') return listDefs().some((l) => a.list_types.includes(l.type) && (!(a.list_kinds || []).length || a.list_kinds.includes(l.kind)));
+    if (a.type === 'enum') return a.options.length > 0;
+    return true;
+  }
+  // A source in words, for cards, tooltips and the chip ("au hasard dans salutations", "(score + 1)").
+  function srcWords(v, depth) {
+    depth = depth || 0;
+    const s = srcOf(v);
+    if (!s || depth > 8) return valText('', v);
+    const a = s.args, w = (x) => (x == null || x === '' ? '?' : srcWords(x, depth + 1));
+    const def = srcDef(s.id) || {};
+    const lab = (n, k) => (((def.args || []).find((x) => x.name === n) || {}).labels || {})[k] || k;
+    switch (s.id) {
+      case 'constant': return valText('', a.value);
+      case 'variable': return a.name || '?';
+      case 'utterance': return 'la phrase entendue';
+      case 'list_item': {
+        const L = a.list || '?', p = a.pick || 'first';
+        if (p === 'last') return 'le dernier de ' + L;
+        if (p === 'random') return 'au hasard dans ' + L;
+        if (p === 'index') return 'l’élément ' + (a.index == null ? 1 : w(a.index)) + ' de ' + L;
+        return 'le premier de ' + L;
+      }
+      case 'dict_value': return (a.dict || '?') + '[' + w(a.key) + ']';
+      case 'system': return String(lab('name', a.name || '?')).toLowerCase() + ' (robot)';
+      case 'random_number': return 'au hasard entre ' + w(a.min) + ' et ' + w(a.max);
+      case 'random_from_list': return 'au hasard dans ' + (a.list || '?');
+      case 'intent_match': return 'la phrase correspond à ' + (a.intent || '?');
+      case 'config_value': return 'réglage ' + (a.key || '?');
+      case 'elapsed': return 'temps écoulé depuis ' + (a.name || '?');
+      case 'calc':
+        if (a.op === 'min' || a.op === 'max') return a.op + '(' + w(a.a) + ', ' + w(a.b) + ')';
+        return '(' + w(a.a) + ' ' + (CALC_SIGN[a.op] || a.op || '?') + ' ' + w(a.b) + ')';
+    }
+    return String(def.label || s.id).toLowerCase();
+  }
+  // Stored form of a source: `{get: variable, name: x}` -> "$x" and `{get: utterance}` -> "$utterance" wherever `$`
+  // was already allowed (value / text fields and every argument inside a source; NOT a plain top-level number such as
+  // add_var.delta, which the parser refuses as "$x"), so documents written before M5 never churn.
+  function srcStore(o, arg, level) {
+    const keys = Object.keys(o);
+    const shortOk = level > 0 || arg.type !== 'number';
+    if (shortOk && o.get === 'variable' && keys.length === 2 && typeof o.name === 'string' && o.name) return '$' + o.name;
+    if (shortOk && o.get === 'utterance' && keys.length === 1) return '$utterance';
+    return o;
+  }
+  // Does this value (constant, `$x` or source at any depth) read the variable / list `id`?
+  function srcUses(v, id) {
+    if (v === '$' + id) return true;
+    if (!isSrcObj(v)) return false;
+    return Object.entries(v).some(([k, x]) => (k !== 'get' && ['name', 'list', 'dict'].includes(k) && x === id) || srcUses(x, id));
+  }
+  // The same source with the variable / list `old` renamed `nu` at any depth.
+  function srcRename(v, old, nu) {
+    if (v === '$' + old) return '$' + nu;
+    if (!isSrcObj(v)) return v;
+    const o = {};
+    for (const k in v) o[k] = k !== 'get' && ['name', 'list', 'dict'].includes(k) && v[k] === old ? nu : srcRename(v[k], old, nu);
+    return o;
+  }
+  // Structural hints on the sources of a node's arguments: unknown source, required argument missing (the server
+  // check gives the typed verdict, e.g. "source list_item gives a string value, integer expected").
+  function srcIssues(v, lab, depth) {
+    if (!isSrcObj(v) || (depth || 1) > SRC_MAX_DEPTH + 1) return [];
+    const s = srcOf(v), def = srcDef(s.id);
+    if (!def) return [`${lab} : source inconnue « ${s.id} ».`];
+    const out = [];
+    (def.args || []).forEach((a) => {
+      const x = s.args[a.name];
+      if ((x == null || x === '') && !('default' in a)) out.push(`${lab} (${def.label}) : à choisir : ${a.label || a.name}.`);
+      else if (a.props) out.push(...srcIssues(x, lab, (depth || 1) + 1));
+    });
+    return out;
+  }
+  function srcArgIssues(spec, args) {
+    const out = [];
+    ((spec && spec.args) || []).forEach((a) => { if (a.props) out.push(...srcIssues((args || {})[a.name], a.label || a.name)); });
+    return out;
+  }
+  // "valeur = au hasard dans salutations" lines of a node's source fields (node tooltip).
+  function srcLines(m) {
+    const p = m.params || {};
+    const spec = m.kind === 'action' ? byId(V.actions, p.action) : m.kind === 'condition' && p.type === 'guard' ? byId(V.guards, p.guard) : null;
+    return ((spec && spec.args) || []).filter((a) => a.props && srcOf((p.args || {})[a.name]))
+      .map((a) => String(a.label || a.name).toLowerCase() + ' = ' + srcWords(p.args[a.name]));
+  }
+  // The ▾ button + its grouped menu. onPick(def) receives the chosen source entry.
+  function srcButton(argName, ft, curId, onPick) {
+    const wrap = h('span', { class: 'srcdd' });
+    const btn = h('button', { type: 'button', class: 'srcbtn', 'data-tip': 'Source de la valeur', 'aria-label': 'Source de la valeur', 'data-src-for': argName }, '▾');
+    btn.addEventListener('click', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      const open = wrap.querySelector('.srcmenu');
+      document.querySelectorAll('.srcmenu').forEach((x) => x.remove());
+      document.querySelectorAll('.srcbtn.on').forEach((x) => x.classList.remove('on'));
+      if (open) return;
+      const menu = h('div', { class: 'srcmenu', role: 'menu' }), groups = new Map();
+      srcDefs().forEach((d) => {
+        if (!srcOffered(d, ft)) return;
+        const g = SRC_GROUP_OF[d.id] || 'other';
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(d);
+      });
+      SRC_GROUPS.forEach(([g, gl]) => {
+        const ds = groups.get(g); if (!ds) return;
+        if (gl) menu.append(h('div', { class: 'srcgrp' }, gl));
+        ds.forEach((d) => menu.append(h('div', { class: 'srci' + (d.id === curId ? ' on' : ''), role: 'menuitem', 'data-src': d.id, 'data-tip': d.help || '',
+          onclick: (ev) => { ev.stopPropagation(); menu.remove(); btn.classList.remove('on'); onPick(d); } }, ico(d.icon), d.label)));
+      });
+      btn.classList.add('on');
+      wrap.append(menu);
+    });
+    wrap.append(btn);
+    return wrap;
+  }
+  document.addEventListener('click', (e) => {
+    if (e.target && e.target.closest && e.target.closest('.srcmenu')) return;
+    document.querySelectorAll('.srcmenu').forEach((x) => x.remove());
+    document.querySelectorAll('.srcbtn.on').forEach((x) => x.classList.remove('on'));
+  });
+  // A source was picked for field `arg` (type ft): "Valeur fixe" writes the field's plain default (dv, '' = none);
+  // another source starts with its enum arguments pre-filled (first fitting choice), the rest is left to choose.
+  function srcPicked(d, arg, ft, set, level, dv) {
+    if (d.id === 'constant') { set(arg.name, dv === undefined ? '' : clone(dv)); return; }
+    const o = { get: d.id };
+    srcArgsFor(d, ft).forEach((a) => {
+      if (a.type === 'enum' && !('default' in a) && (a.options || []).length) o[a.name] = a.options[0];
+    });
+    set(arg.name, srcStore(o, arg, level));
+  }
+  // Inspector field holding a source: chip (icon, name, summary) + ▾, then its own argument fields indented (they
+  // may take sources in turn, up to SRC_MAX_DEPTH levels). Literals typed in sub-fields stay typed (numbers as
+  // numbers: the visual compiler never coerces text inside a nested source).
+  function srcField(arg, lab, v, s, ft, set, level, dv) {
+    const def = srcDef(s.id);
+    const obj = isSrcObj(v) ? v : Object.assign({ get: s.id }, s.args);
+    const out = def ? srcOutType(def, s.args, ft) : null;
+    const fld = h('div', { class: 'fld srcfld', 'data-arg': arg.name, 'data-src': s.id });
+    const chip = h('div', { class: 'srcchip' + (out && !typeCompat(out, ft) ? ' bad' : ''), 'data-tip': def ? def.help : 'Source inconnue' },
+      ico(def ? def.icon : 'alert-triangle'), h('span', { class: 'srcname' }, def ? def.label : '? ' + s.id),
+      s.id === 'variable' || s.id === 'utterance' ? null : h('span', { class: 'srcsum' }, srcWords(v)));
+    fld.append(h('span', {}, lab, tipi(arg.help)), h('div', { class: 'srcrow' }, chip, srcButton(arg.name, ft, s.id, (d) => srcPicked(d, arg, ft, set, level, dv))));
+    if (def && s.id !== 'constant' && (def.args || []).length) {
+      const sub = h('div', { class: 'srcsub' });
+      const nset = (name, x) => {
+        const o = Object.assign({}, obj);
+        if (x === '' || x == null) delete o[name]; else o[name] = x;
+        set(arg.name, srcStore(o, arg, level));
+      };
+      argFields(sub, srcArgsFor(def, ft), obj, nset, { level: level + 1, ft, src: def.id });
+      fld.append(sub);
+    } else if (s.id === 'constant') fld.append(h('div', { class: 'help' }, 'Valeur : ' + valText('', obj.value) + ' (choisir « Valeur fixe » pour la modifier).'));
+    return fld;
+  }
   // Nodes that use a variable or list (model ids): args name/list/value "$x", var_changed trigger name.
   function varUses(id, doc) {
     const out = [];
     ((doc || serialize()).nodes || []).forEach((n) => {
       const p = n.params || {}, a = p.args || {};
       const hit = (n.kind === 'trigger' && p.name === id) || a.name === id || a.list === id || a.dict === id
-        || a.key === '$' + id || [a.value, p.value].some((v) => v === '$' + id || (Array.isArray(v) && v.includes('$' + id)));
+        || a.key === '$' + id || [a.value, p.value].some((v) => v === '$' + id || (Array.isArray(v) && v.includes('$' + id)))
+        || Object.values(a).some((x) => isSrcObj(x) && srcUses(x, id));   // lot M5: value sources
       if (hit) out.push(n.id);
     });
     return out;
@@ -441,7 +669,7 @@
   // number outside the bounds (the server says the same as `out_of_bounds`), null when fine. "$x" references are
   // checked by the callers. Hints only: the server compiler stays the judge.
   function valueIssue(def, v, label) {
-    if (!def || v == null || v === '' || (typeof v === 'string' && v.startsWith('$'))) return null;
+    if (!def || v == null || v === '' || isSrcObj(v) || (typeof v === 'string' && v.startsWith('$'))) return null;
     const t = vtype(def.type), c = t.control, who = label || def.id;
     const bad = (m) => ({ level: 'err', message: m });
     if (numericType(def.type)) {
@@ -469,7 +697,7 @@
     const op = a.op || '=', v = a.value;
     if (ORDER_OPS.includes(op) && !ordered(d.type)) out.push(`« ${opLabel(op)} » ne s’applique qu’aux nombres, durées et dates (« ${a.name} » : ${typeLabel(d.type)}).`);
     if (v == null || v === '') return out;
-    if (v === '$utterance') return out;
+    if (v === '$utterance' || isSrcObj(v)) return out;   // lot M5: a source is typed by the server check
     if (typeof v === 'string' && v.startsWith('$')) {
       const r = varDef(v.slice(1));
       if (!r) out.push(`Variable inconnue : « ${v.slice(1)} ».`);
@@ -548,7 +776,7 @@
       case 'action': {
         if (p.action === 'set_var' && (p.args || {}).name === 'etat') return "Changer d'état → " + valText('etat', p.args.value) + (p.reason ? ' (' + p.reason + ')' : '');
         const a = byId(V.actions, p.action);
-        const args = Object.entries(p.args || {}).map(([k, v]) => `${k}=${v}`).join(', ');
+        const args = Object.entries(p.args || {}).map(([k, v]) => `${k}=${isSrcObj(v) ? srcWords(v) : v}`).join(', ');
         return (a ? a.label : '? ' + (p.action || '')) + (args ? ' (' + args + ')' : '') + (p.phase === 'then' ? ' [après]' : '');
       }
       case 'goto': return '→ ' + stateLabel(p.state) + (p.reason ? ' (' + p.reason + ')' : '');
@@ -590,6 +818,7 @@
     if (!m) return '';
     const lines = [headTip(m) || (KINDS[m.kind] || {}).label];
     const s = summary(m); if (s) lines.push('Réglages : ' + s);
+    srcLines(m).forEach((l) => lines.push('Source : ' + l));          // lot M5: "valeur = au hasard dans salutations"
     const p = nodePath(m); if (p) lines.push(p);
     if (m.description) lines.push('Note : ' + m.description);
     (issues.get(m.id) || []).filter((i) => i.level !== 'todo').forEach((i) => lines.push((ISSUE_PREFIX[i.level] || '') + i.message));
@@ -952,6 +1181,7 @@
         if (p.type === 'guard' && !byId(V.guards, p.guard)) add(id, 'err', 'Garde inconnue ou manquante.');
         else if (p.type === 'guard') {
           argIssues(byId(V.guards, p.guard), p.args || {}).forEach((msg) => add(id, 'err', msg));
+          srcArgIssues(byId(V.guards, p.guard), p.args || {}).forEach((msg) => add(id, 'err', msg));   // lot M5
           if (['var_compare', 'date_compare'].includes(p.guard)) compareIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
           dictValueIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
         }
@@ -959,6 +1189,7 @@
         if (!byId(V.actions, p.action)) add(id, 'err', 'Action inconnue ou manquante.');
         else {
           argIssues(byId(V.actions, p.action), p.args || {}).forEach((msg) => add(id, 'err', msg));
+          srcArgIssues(byId(V.actions, p.action), p.args || {}).forEach((msg) => add(id, 'err', msg));   // lot M5
           // L12: a constant of the wrong type for the variable / dict (bounds are the server's out_of_bounds warning)
           if (p.action === 'set_var' && (p.args || {}).name !== 'etat') compareIssues(Object.assign({}, p.args, { op: '=' })).forEach((msg) => add(id, 'err', msg));
           dictValueIssues(p.args || {}).forEach((msg) => add(id, 'err', msg));
@@ -3526,6 +3757,13 @@
       const lref = cur.dict || cur.list; if (lref) { const l = listDef(lref); return l ? l.type : null; }
       return null;
     };
+    // lot M5: type a value source must give for this field (`props`: "of" = the variable / list / dict named by
+    // `of`, "same" = the enclosing field's type, else a type id); null = not known yet (nothing chosen)
+    const propType = (arg) => {
+      if (arg.props === 'of') { const d = refDef(arg); return d ? d.type : null; }
+      if (arg.props === 'same') return ctx.ft || null;
+      return arg.props || null;
+    };
     (specArgs || []).forEach((arg, i) => {
       const v = cur[arg.name], lab = arg.label || arg.name;
       const F = (l, c, hp) => field(l, c, hp, arg.help);   // lot L5: argument help as a tooltip
@@ -3534,6 +3772,20 @@
         set(arg.name, x);
         if (dependent && def) { const dv = def.id === 'etat' ? (V.states[0] || {}).id : defaultValueFor(def.type, def.choices); if (dv !== undefined) set(dependent.name, dv); }
       };
+      // lot M5: the field takes a value source (vocabulary `props`): a source (or `$x` / `$utterance`) shows as its chip
+      // + sub-fields; a constant keeps the plain control below, with the ▾ added next to its label (post-step)
+      const ft = arg.props ? propType(arg) : null, level = ctx.level || 0;
+      const srcOk = !!ft && level < SRC_MAX_DEPTH && !(arg.type === 'value' && ['in', 'not_in'].includes(cur.op));
+      let dv;                                // plain default written by « Valeur fixe »
+      if (srcOk && arg.type === 'value') {
+        const rd = refDef(arg);
+        dv = rd && rd.id === 'etat' && kindOf(arg.of) !== 'list' ? (V.states[0] || {}).id : defaultValueFor(ft, (rd || {}).choices);
+      }
+      const n0 = box.children.length;
+      if (srcOk) {
+        const s = srcOf(v);
+        if (s) { box.append(srcField(arg, lab, v, s, ft, set, level, dv)); return; }
+      }
       if (arg.type === 'var') {
         const opts = varDefs().filter((d) => (!(arg.var_types || []).length || arg.var_types.includes(d.type))
           && (!arg.writable || !d.readonly || (d.id === 'etat' && ctx.id === 'set_var')));
@@ -3648,9 +3900,21 @@
         if (arg.utterance) wrap.append(checkCtl('une clé de la phrase entendue ($utterance)', utt, (c) => set(arg.name, c ? '$utterance' : '')));
         const ref = typeof v === 'string' && v.startsWith('$') && v !== '$utterance' ? v.slice(1) : null;
         box.append(F(lab, wrap, ref && !varDef(ref) ? `Variable inconnue : « ${ref} ».` : arg.vars ? '« $nom » = la valeur de la variable texte nom.' : ''));
+      } else if (arg.type === 'intent') {
+        // lot M5: an intent of the vocabulary (source intent_match; never the implicit `question`)
+        const opts = (V.intents || []).filter((it) => it.id !== 'question').map((it) => ({ v: it.id, l: it.label && it.label.length <= 40 ? it.label : it.id }));
+        box.append(F(lab, selectCtl([{ v: '', l: '(choisir un motif)' }].concat(opts), v == null ? '' : v, (x) => set(arg.name, x)), opts.length ? '' : 'Aucun motif.'));
       } else if (arg.max_len > 100) {
         box.append(F(lab, areaCtl(v, (x) => set(arg.name, x), arg.max_len), `${arg.max_len} caractères au plus.` + (arg.optional ? ' Facultatif.' : '')));
       } else box.append(F(lab, textCtl(v, (x) => set(arg.name, x)), arg.optional ? 'Facultatif.' : ''));
+      if (srcOk) {   // lot M5: ▾ next to the plain control's label (outside the <label>: a button inside would take its clicks)
+        const f = Array.from(box.children).slice(n0).find((e) => e.classList.contains('fld'));
+        if (f) {
+          const w = h('div', { class: 'srcwrap' });
+          f.replaceWith(w);
+          w.append(f, srcButton(arg.name, ft, 'constant', (d) => srcPicked(d, arg, ft, set, level, dv)));
+        }
+      }
     });
   }
 
@@ -3903,6 +4167,12 @@
       if (a.dict === old) { a.dict = nu; hit = true; }
       if (a.key === '$' + old) { a.key = '$' + nu; hit = true; }
       ['value'].forEach((k) => { if (a[k] !== undefined && swap(a[k]) !== a[k]) { a[k] = swap(a[k]); hit = true; } if (p[k] !== undefined && m.kind === 'trigger' && swap(p[k]) !== p[k]) { p[k] = swap(p[k]); hit = true; } });
+      // lot M5: value sources (any argument, any depth) reading the renamed variable / list
+      Object.keys(a).forEach((k) => {
+        if (!isSrcObj(a[k])) return;
+        const r = srcRename(a[k], old, nu);
+        if (JSON.stringify(r) !== JSON.stringify(a[k])) { a[k] = r; hit = true; }
+      });
       if (hit) refreshNode(dfid);
     }
   }
@@ -5134,7 +5404,7 @@
     patchNode: (nid, params) => {
       const df = nidToDf.get(nid), m = df != null ? model(df) : null; if (!m) return false;
       for (const k in params) { if (params[k] === null) delete m.params[k]; else m.params[k] = clone(params[k]); }
-      refreshNode(df); if (selDf === df) renderInspector(); analyze(); commitSoon(); return true;
+      refreshNode(df); if (String(selDf) === String(df)) renderInspector(); analyze(); commitSoon(); return true;   // M5: Drawflow ids are strings or numbers
     },
     rebuild: (d) => rebuild(d, true),
     dfState: () => ({ drag: editor.drag, editorSel: editor.editor_selected, ele: editor.ele_selected ? (editor.ele_selected.id || editor.ele_selected.className) : null }) };   // L4 test hook: load a (legacy) document without touching the server

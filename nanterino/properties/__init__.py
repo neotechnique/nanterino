@@ -424,7 +424,9 @@ def arg_schema(name, arg, graph_mod, cfg, default=None, has_default=False) -> di
     elif k == "intent":
         d.update(type="intent")
     elif k == "cfgkey":
-        d.update(type="enum", options=[n for n in CFG_PUBLIC if cfg_type((cfg or {}).get(n)) is not None])
+        opts = [n for n in CFG_PUBLIC if cfg_type((cfg or {}).get(n)) is not None]
+        # lot M5 (additive): output type per key, so the editor only offers the keys a field can take
+        d.update(type="enum", options=opts, types={n: cfg_type(cfg[n]) for n in opts})
     elif k == "pick":
         d.update(type="enum", options=list(PICKS), labels=_dict(PICKS))
     elif k == "calcop":

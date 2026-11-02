@@ -147,6 +147,7 @@ def strip_m4(v: dict) -> dict:
     """The vocabulary without the lot M4 keys (top-level `properties`, per-argument `props`), order preserved."""
     v = dict(v)
     v.pop("properties")
+    v.pop("type_compat", None)   # lot M5 key (its own golden check: test_goldens_m5_only_gained_keys)
     for fam in ("actions", "guards"):
         v[fam] = [dict(a, args=[{k: x for k, x in arg.items() if k != "props"} for arg in a["args"]]) for a in v[fam]]
     return v
@@ -160,6 +161,42 @@ def test_goldens_only_gained_keys():
             old = f.read()
         stripped = json.dumps(strip_m4(json.loads(text)), ensure_ascii=False, indent=1) + "\n"
         assert stripped.encode("utf-8") == old, "%s minus the M4 keys is not the pre-M4 golden" % name
+
+
+def strip_m5(v: dict) -> dict:
+    """The vocabulary without the lot M5 keys (top-level `type_compat`, `types` of the config_value key argument)."""
+    v = dict(v)
+    v.pop("type_compat")
+    props = dict(v["properties"])
+    props["get"] = [dict(e, args=[{k: x for k, x in a.items() if k != "types"} for a in e["args"]]) for e in props["get"]]
+    v["properties"] = props
+    return v
+
+
+def test_goldens_m5_only_gained_keys():
+    """Lot M5: the editor's source picker reads `type_compat` (= graph.compatible for every pair of types) and the
+    output type of each readable config key; both are additive: without them the JSON is the pre-M5 golden byte for
+    byte."""
+    dumps = vocab_dumps(G)
+    assert not golden_diff(dumps), "the M5 goldens differ: %s" % golden_diff(dumps)
+    for name, text in dumps.items():
+        with open(os.path.join(GOLDEN, name.replace(".json", ".pre-m5.json")), "rb") as f:
+            old = f.read()
+        cur = json.loads(text)
+        stripped = json.dumps(strip_m5(cur), ensure_ascii=False, indent=1) + "\n"
+        assert stripped.encode("utf-8") == old, "%s minus the M5 keys is not the pre-M5 golden" % name
+        assert list(cur)[-1] == "type_compat", "type_compat must be the last key"
+    v = G.vocabulary(CFG)
+    tc = v["type_compat"]
+    assert set(tc) == set(G.VAR_TYPES), "one entry per variable type"
+    for s_ in G.VAR_TYPES:
+        for d in G.VAR_TYPES:
+            assert (d in tc[s_]) == G.compatible(s_, d), "type_compat[%s] disagrees with compatible() on %s" % (s_, d)
+    assert "number" in tc["integer"] and "integer" in tc["number"] and "bool" not in tc["number"]
+    key = next(e for e in v["properties"]["get"] if e["id"] == "config_value")["args"][0]
+    assert key["types"] and set(key["types"]) == set(key["options"]), key
+    for k, t in key["types"].items():
+        assert t == P.cfg_type(CFG[k]), (k, t)
 
 
 # ---------------------------------------------------------------- (2) output types + run-time values
@@ -573,7 +610,7 @@ def test_simulator_scenario_with_properties():
     assert not [d for d in g.diagnostics if d[2] == "division_by_zero"]
 
 
-TESTS = [test_discovery_and_vocabulary, test_goldens_only_gained_keys, test_constant_variable_utterance_system,
+TESTS = [test_discovery_and_vocabulary, test_goldens_only_gained_keys, test_goldens_m5_only_gained_keys, test_constant_variable_utterance_system,
          test_list_and_dict_sources, test_random_number_intent_config_elapsed, test_calc_ops_nesting_and_division_by_zero,
          test_shorthand_equivalence, test_refusals_are_clear, test_constant_bounds_diagnostic,
          test_set_targets_clamp_push_and_keys, test_pre_resolved_kinds, test_yaml_and_visual_roundtrip,

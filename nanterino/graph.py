@@ -1277,7 +1277,10 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             "theme_slots": dict(THEME_SLOTS),
             "variables": variable_entries(graph, cfg),
             # lot M4 (additive key, last): value sources + write targets for the editor's source picker (lot M5)
-            "properties": _props.vocabulary(_self_mod, cfg)}
+            "properties": _props.vocabulary(_self_mod, cfg),
+            # lot M5 (additive key, last): which value types may feed which field type (compatible(src, dst)), so the
+            # editor's source picker never re-implements the typing rules: {src type: [field types it may feed]}
+            "type_compat": {s: [d for d in VAR_TYPES if compatible(s, d)] for s in VAR_TYPES}}
 
 
 def _type_entry(k: str, graph: "Graph | None", cfg: dict) -> dict:

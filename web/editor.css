@@ -568,3 +568,24 @@ input[type=color]{width:56px;height:28px;padding:0 2px;background:transparent;bo
 .exportpop .exopt{display:flex;align-items:center;gap:6px;padding:3px 0;cursor:pointer}
 .exportpop .exhint{font-size:12px;color:var(--mut);margin:6px 0 8px}
 .exportpop .exbtns{display:flex;gap:8px;justify-content:flex-end}
+/* lot M5: value source picker (GC2-style ▾ next to an inspector field, chip + indented sub-fields) */
+.srcwrap{position:relative}
+.srcwrap>.srcdd{position:absolute;right:0;top:-2px}
+.srcdd{position:relative;display:inline-block;flex:none}
+.srcbtn{padding:0 7px;line-height:20px;font-size:12px;color:var(--mut);min-width:26px}
+.srcbtn:hover,.srcbtn.on{color:var(--fg);border-color:var(--action)}
+.srcmenu{position:absolute;right:0;top:100%;z-index:30;min-width:230px;max-height:320px;overflow:auto;background:var(--panel2);
+  border:1px solid var(--line);border-radius:6px;box-shadow:0 6px 18px #000b;margin-top:2px;padding:2px 0}
+.srcgrp{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding:6px 10px 2px}
+.srci{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 16px;cursor:pointer;white-space:nowrap}
+.srci:hover,.srci.on{background:#2f3644}
+.srci .ico{width:16px;height:16px}
+.srcrow{display:flex;align-items:center;gap:6px}
+.srcchip{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid var(--line);border-left:3px solid var(--action);
+  border-radius:6px;background:#1f2a3a}
+.srcchip.bad{border-left-color:var(--err)}
+.srcchip .ico{width:15px;height:15px;flex:none}
+.srcchip .srcname{font-weight:600;white-space:nowrap}
+.srcchip .srcsum{color:var(--mut);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.srcsub{margin:2px 0 0 10px;padding-left:10px;border-left:2px solid var(--line)}
+.srcsub .fld{margin:6px 0}

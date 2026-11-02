@@ -3104,6 +3104,21 @@
        "goodbye",
        "repair_text"
       ],
+      "types": {
+       "silence_relance_s": "number",
+       "silence_cloture_s": "number",
+       "cloture_to_veille_s": "number",
+       "lost_face_s": "number",
+       "idle_long_s": "number",
+       "volume": "number",
+       "face_scale": "number",
+       "auto_greet_on_face": "bool",
+       "barge_in": "bool",
+       "greeting": "string",
+       "relance": "string",
+       "goodbye": "string",
+       "repair_text": "string"
+      },
       "label": "Réglage"
      }
     ]
@@ -3288,6 +3303,103 @@
      }
     ]
    }
+  ]
+ },
+ "type_compat": {
+  "bool": [
+   "bool"
+  ],
+  "number": [
+   "number",
+   "duration",
+   "integer",
+   "percent"
+  ],
+  "string": [
+   "string",
+   "choice",
+   "phrase"
+  ],
+  "choice": [
+   "string",
+   "choice",
+   "phrase"
+  ],
+  "duration": [
+   "number",
+   "duration",
+   "integer",
+   "percent"
+  ],
+  "integer": [
+   "number",
+   "duration",
+   "integer",
+   "percent"
+  ],
+  "percent": [
+   "number",
+   "duration",
+   "integer",
+   "percent"
+  ],
+  "datetime": [
+   "string",
+   "datetime",
+   "phrase"
+  ],
+  "timer": [
+   "number",
+   "duration",
+   "integer",
+   "percent",
+   "timer"
+  ],
+  "expression": [
+   "string",
+   "expression",
+   "phrase"
+  ],
+  "gaze": [
+   "string",
+   "gaze",
+   "phrase"
+  ],
+  "phrase": [
+   "string",
+   "choice",
+   "phrase"
+  ],
+  "media": [
+   "string",
+   "phrase",
+   "media"
+  ],
+  "intent_ref": [
+   "string",
+   "phrase",
+   "intent_ref"
+  ],
+  "list_ref": [
+   "string",
+   "phrase",
+   "list_ref"
+  ],
+  "state_ref": [
+   "string",
+   "phrase",
+   "state_ref"
+  ],
+  "color": [
+   "string",
+   "phrase",
+   "color"
+  ],
+  "vector2": [
+   "vector2"
+  ],
+  "vector3": [
+   "vector3"
   ]
  }
 }
