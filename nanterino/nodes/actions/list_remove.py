@@ -19,4 +19,6 @@ class ListRemove(Action):
     def run(self, ctx, list, value):  # noqa: A002 (argument names fixed by the graph vocabulary)
         b = ctx.brain
         v = b._resolve(value, ctx.kw)
+        before = b.list_copy(list)   # lot N1: list_changed when something was removed (listened lists only)
         b.lists[list] = [x for x in b.lists.get(list, []) if x != v]
+        b.list_touched(list, before)

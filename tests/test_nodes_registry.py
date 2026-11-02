@@ -239,7 +239,7 @@ def test_discovery_finds_every_action():
     files = sorted(f[:-3] for f in os.listdir(os.path.join(PKG, "nodes", "actions"))
                    if f.endswith(".py") and not f.startswith("_"))
     assert sorted(nodes.ACTIONS) == files, set(files) ^ set(nodes.ACTIONS)
-    assert len(files) == 38, len(files)
+    assert len(files) == 50, len(files)   # 38 + 12 (lot N1)
     assert list(G.ACTION_DOC) == list(nodes.ACTIONS) == list(G.ACTION_SPECS)
     for nid, n in nodes.ACTIONS.items():
         assert n.id == nid and type(n).__module__ == "nanterino.nodes.actions." + nid, (nid, type(n).__module__)
@@ -295,7 +295,7 @@ def test_drop_a_file():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["actions"][-1] == "say_hello" and len(res["actions"]) == 39, res["actions"]   # no `order`: last
+    assert res["actions"][-1] == "say_hello" and len(res["actions"]) == 51, res["actions"]   # no `order`: last (50 since lot N1)
     assert "say_hello" in res["specs"] and res["vocab_actions"][-1] == "say_hello"
     h = res["vocab_hello"]
     assert h["label"] == "Dire bonjour" and h["theme"] == "parole" and h["icon"] == "volume", h
@@ -312,7 +312,7 @@ def test_missing_module_breaks_golden():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert "say_text" not in res["actions"] and len(res["actions"]) == 37
+    assert "say_text" not in res["actions"] and len(res["actions"]) == 49
     assert sorted(res["golden_diff"]) == ["vocab-default-graph.json", "vocab-no-graph.json"], res["golden_diff"]
 
 
@@ -361,9 +361,9 @@ def family_files(fam: str) -> list:
 
 
 def test_discovery_finds_every_condition_and_trigger():
-    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 18, list(nodes.CONDITIONS)
-    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 25, list(nodes.TRIGGERS)
-    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 81
+    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 31, list(nodes.CONDITIONS)   # 18 + 13 (lot N1)
+    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 38, list(nodes.TRIGGERS)   # 25 + 13 (lot N1)
+    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 119   # 81 + 38 (lot N1)
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         for nid, n in reg.items():
             assert n.id == nid and type(n).__module__ == "nanterino.nodes.%s.%s" % (fam, nid), (nid, type(n).__module__)
@@ -377,7 +377,7 @@ def test_discovery_finds_every_condition_and_trigger():
         assert G.GUARD_AS_VARS.get(nid) == n.as_vars
     assert G.GUARD_AS_VARS == {"turns_left": "tours < max_tours", "repairs_left": "reparations < max_reparations"}
     assert G.INTERNAL_EVENTS == {"utterance", "tick"} and G.EVENTS == frozenset(nodes.TRIGGERS)
-    assert G.WATCH_EVENTS == ("var_changed", "timer_reached"), G.WATCH_EVENTS
+    assert G.WATCH_EVENTS == ("var_changed", "timer_reached", "list_changed", "dict_changed", "timer_stopped", "journal_entry"), G.WATCH_EVENTS   # lot N1
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         icons = set(G.all_icons())
         for n in reg.values():
@@ -471,8 +471,8 @@ def test_drop_a_condition_and_a_trigger():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 19, res["conditions"]
-    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 26, res["triggers"]
+    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 32, res["conditions"]
+    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 39, res["triggers"]
     assert "always_true" in res["guards"] and "bouton_test" in res["events"]
     assert res["vocab_guards"][-1] == "always_true" and res["vocab_events"][-1] == "bouton_test"
     a = res["vocab_always"]

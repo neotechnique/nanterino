@@ -19,4 +19,6 @@ class DictSet(Action):
     def run(self, ctx, dict, key, value):  # noqa: A002 (argument names fixed by the graph vocabulary)
         from nanterino import properties   # lazy: graph.py imports the node packages
         # lot M4: through the `dict_key` set target (key resolved / stripped / cut as before, value type clamp)
+        before = ctx.brain.list_copy(dict)   # lot N1: dict_changed when the content changed (listened dicts only)
         properties.write("dict_key", ctx, ctx.brain._resolve(value, ctx.kw), dict=dict, key=key)
+        ctx.brain.list_touched(dict, before)

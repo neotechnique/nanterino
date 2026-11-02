@@ -17,4 +17,7 @@ class TimerReset(Action):
     args = {'name': Arg('timervar', 'Chrono')}
 
     def run(self, ctx, name):
+        running = ctx.brain._elapsed(name) is not None
         ctx.brain._set_var(name, None)
+        if running:   # lot N1: timer_stopped (listened timers only, anti-loop like var_changed)
+            ctx.brain._changed("timer_stopped", name=name)

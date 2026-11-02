@@ -19,4 +19,6 @@ class ListAdd(Action):
     def run(self, ctx, list, value):  # noqa: A002 (argument names fixed by the graph vocabulary)
         # lot M4: through the `list_item` set target (item type clamp, then the list mode's push like list_push)
         from nanterino import properties
+        before = ctx.brain.list_copy(list)   # lot N1: list_changed when the content changed (listened lists only)
         properties.write("list_item", ctx, ctx.brain._resolve(value, ctx.kw), list=list)
+        ctx.brain.list_touched(list, before)

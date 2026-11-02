@@ -12,6 +12,11 @@ Lot L14 (2026-11-01): full-resolution PNG export of the graph: POST /api/graph/s
 process group: neither the event loop nor the robot loop waits for it), GET /api/graph/snapshot/status reports it,
 GET /api/graph/snapshot.png serves the PNG as an attachment. GET /api/graph/visual?source=default serves the packaged
 graph with its automatic layout (read-only; the capture of `--doc default` loads it into its own headless page).
+Lot N1 (2026-11-02): the dashboard's mute / volume controls go through Brain.set_muted / Brain.set_volume (deaf already
+used Brain.set_deaf) so the graph triggers mute_changed / volume_changed / deaf_changed fire for them too; the brain's
+`volume_hook` / `flag_hook` give the graph actions the same effect (speaker profile, persisted flags). Dashboard
+notifications (graph action notify_dashboard): GET /api/notifications lists the pending ones (also `notifications`
+in GET /api/status), POST /api/notifications/click {"id"} clicks one (posts notification_clicked). Additive only.
 """
 import asyncio
 import atexit
@@ -56,6 +61,9 @@ stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"], cfg.get("ll
 var_store = VarStore(VARS_STATE_PATH)   # lot L11: `persist: true` graph variables (written <= 1x / 2 s)
 atexit.register(var_store.flush)        # a service stop keeps the last values
 brain = Brain(cfg, out, stt, llm, tts, corpus, var_store=var_store)
+# lot N1: graph actions set_volume / set_mute / set_deaf act like the dashboard (speaker profile, persisted flags)
+brain.volume_hook = lambda v: speakers.update(volume=v)
+brain.flag_hook = lambda key, value: config.save_overrides({key: value})
 
 
 def _llm_warmer():
@@ -114,7 +122,7 @@ def dash():
 @app.get("/api/status")
 def status():
     return {**brain.snapshot(), "metrics": metrics.data, "engines": engines(),
-            "volume": out.volume, "sheets": len(corpus.sheets),
+            "volume": out.volume, "sheets": len(corpus.sheets), "notifications": brain.notifications_view(),
             "speaker": {"sink": speakers.current, **speakers.profile()}, "config": {
                 k: cfg[k] for k in ("mic_device", "out_device", "barge_in", "spoken_sentences")}}
 
@@ -349,6 +357,22 @@ async def graph_version_restore(vid: str):
         "Version restaurée et appliquée." if applied else "Version restaurée : elle sera appliquée à la prochaine veille.")}
 
 
+@app.get("/api/notifications")
+def notifications():
+    """Lot N1: pending dashboard notifications of the graph action notify_dashboard (oldest first)."""
+    return {"notifications": brain.notifications_view()}
+
+
+@app.post("/api/notifications/click")
+async def notification_click(body: dict):
+    """Lot N1: {"id": n} clicks a pending notification (it leaves the list, the graph gets notification_clicked)."""
+    nid = body.get("id")
+    if isinstance(nid, bool) or not isinstance(nid, int):
+        return JSONResponse({"ok": False, "error": "id (entier) attendu"}, status_code=400)
+    ok = brain.click_notification(nid)
+    return JSONResponse({"ok": ok, "notifications": brain.notifications_view()}, status_code=200 if ok else 404)
+
+
 @app.get("/api/graph/trace")
 def graph_trace():
     """Live journal: the last chains that fired (oldest first)."""
@@ -488,7 +512,7 @@ async def control(body: dict):
             config.save_overrides({"power": "off" if action == "off" else "on"})
     elif action == "mute":  # value true/false; default toggles
         v = body.get("value")
-        out.muted = (not out.muted) if v is None else bool(v)
+        brain.set_muted((not out.muted) if v is None else bool(v), external=True)   # lot N1: posts mute_changed
         config.save_overrides({"muted": out.muted})  # survives restarts (user: "laisse en muet")
         if out.muted:
             out.stop()
@@ -500,7 +524,7 @@ async def control(body: dict):
         wav = await run_in_threadpool(tts.synth, body["text"])
         out.play(wav, tts.rate)
     elif action == "volume":  # stored in the current speaker's profile
-        speakers.update(volume=max(0.0, min(1.0, float(body.get("value", 0.8)))))
+        brain.set_volume(max(0.0, min(1.0, float(body.get("value", 0.8)))), external=True)   # lot N1: volume_hook + volume_changed
     elif action == "keepalive_db":  # "off" = pure digital silence
         v = body.get("value")
         speakers.update(keepalive_noise_db=None if v in (None, "", "off") else float(v))

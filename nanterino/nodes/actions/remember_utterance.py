@@ -20,4 +20,6 @@ class RememberUtterance(Action):
     def run(self, ctx, list):  # noqa: A002 (argument names fixed by the graph vocabulary)
         text = ctx.brain._resolve("$utterance", ctx.kw)
         if isinstance(text, str) and text.strip():
+            before = ctx.brain.list_copy(list)   # lot N1: list_changed (listened lists only)
             list_push(ctx, list, text.strip())
+            ctx.brain.list_touched(list, before)

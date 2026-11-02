@@ -143,6 +143,9 @@ def test_discovery_and_vocabulary():
     json.dumps(v)
 
 
+from tests.test_nodes_n1 import strip_n1  # noqa: E402 (lot N1: its own additive golden check)
+
+
 def strip_m4(v: dict) -> dict:
     """The vocabulary without the lot M4 keys (top-level `properties`, per-argument `props`), order preserved."""
     v = dict(v)
@@ -159,7 +162,7 @@ def test_goldens_only_gained_keys():
     for name, text in dumps.items():
         with open(os.path.join(GOLDEN, name.replace(".json", ".pre-m4.json")), "rb") as f:
             old = f.read()
-        stripped = json.dumps(strip_m4(json.loads(text)), ensure_ascii=False, indent=1) + "\n"
+        stripped = json.dumps(strip_m4(strip_n1(json.loads(text))), ensure_ascii=False, indent=1) + "\n"   # lot N1 entries first
         assert stripped.encode("utf-8") == old, "%s minus the M4 keys is not the pre-M4 golden" % name
 
 
@@ -183,7 +186,7 @@ def test_goldens_m5_only_gained_keys():
         with open(os.path.join(GOLDEN, name.replace(".json", ".pre-m5.json")), "rb") as f:
             old = f.read()
         cur = json.loads(text)
-        stripped = json.dumps(strip_m5(cur), ensure_ascii=False, indent=1) + "\n"
+        stripped = json.dumps(strip_m5(strip_n1(cur)), ensure_ascii=False, indent=1) + "\n"   # lot N1 entries first
         assert stripped.encode("utf-8") == old, "%s minus the M5 keys is not the pre-M5 golden" % name
         assert list(cur)[-1] == "type_compat", "type_compat must be the last key"
     v = G.vocabulary(CFG)

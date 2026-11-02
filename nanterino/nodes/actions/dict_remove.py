@@ -19,4 +19,6 @@ class DictRemove(Action):
     def run(self, ctx, dict, key):  # noqa: A002 (argument names fixed by the graph vocabulary)
         b = ctx.brain
         k = b._resolve(key, ctx.kw)
+        before = b.list_copy(dict)   # lot N1: dict_changed when a key was removed (listened dicts only)
         (b.lists.get(dict) or {}).pop(k, None)
+        b.list_touched(dict, before)

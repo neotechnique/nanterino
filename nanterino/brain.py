@@ -48,6 +48,16 @@ the same way to nanterino/nodes/conditions/<id>.py (test()); var_changed / timer
 trigger modules (nanterino/nodes/triggers/), while posting them (+ the anti-loop depth) stays here. Shared runtime
 helpers (list_push, match_key) live in nanterino/nodes/helpers.py.
 
+Concept triads (lot N1, 2026-11-02): the brain owns the state behind the N1 nodes and POSTS their triggers on the real
+code paths: play_media (media_started / media_finished, `_media`), set_volume / set_muted / set_deaf (also called by
+server.py's dashboard controls: volume_changed / mute_changed / deaf_changed; `volume_hook` / `flag_hook` let the server
+apply a volume through the speaker profile and persist muted / deaf like the buttons), show_text (text_shown /
+text_cleared from the heartbeat, `_shown`), list / dictionary changes (list_changed / dict_changed through
+`list_touched`), timer_reset (timer_stopped), the robot journal (`journal_notes`: log_note entries + WARNING/ERROR
+records of the live robot's log via nanterino/journal.py; journal_entry) and dashboard notifications (notify,
+click_notification; notification_clicked). Every state-change trigger goes through `_changed`: same anti-loop as
+var_changed (a change made by a chain a change event started posts nothing), watch triggers only for a listened name.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -73,6 +83,7 @@ from .listmodes import LISTMODES
 from .nodes import NodeContext
 from .audio import AudioIn, find_device
 from . import hours as hours_mod
+from . import journal as journal_mod
 from .log import log
 
 VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
@@ -89,6 +100,12 @@ MULTI_FACES_S = 1.0    # personnes_multiples: >= 2 faces for this long
 SENSOR_PERIOD_S = 1.0  # opening-hours check rate (the other sensor rules run every tick)
 SIM_ANSWER_S, SIM_SONG_S = 2.0, 3.0   # virtual durations of a simulated answer / song (simulator only)
 SAY_TEXTS_MAX = 40     # free phrases pre-synthesised per graph (memory bound)
+# Lot N1: state-change triggers the brain posts through `_changed` (anti-loop depth carried like var_changed).
+CHANGE_EVENTS = frozenset({"media_started", "volume_changed", "mute_changed", "deaf_changed", "text_shown",
+                           "text_cleared", "list_changed", "dict_changed", "timer_stopped", "journal_entry"})
+JOURNAL_KEEP = 200        # robot journal entries kept for recent_error (wall time, level, source)
+JOURNAL_POST_GAP_S = 0.2  # journal_entry from the log tap: at most one per 0.2 s (an error burst is one event)
+NOTIFY_MAX = 20           # pending dashboard notifications kept (oldest dropped)
 
 
 # Single words Whisper typically invents on breath/noise; other single words are real answers
@@ -221,8 +238,18 @@ class Brain:
         self._visitors = {"date": "", "count": 0}
         self._graph = None
         self.rng = random.Random()
+        # Lot N1: media playback, text shown by show_text, dashboard notifications, robot journal, server hooks.
+        self._media = None            # media/ file play_media is playing (None = none)
+        self._shown = None            # (text, until monotonic) of the last show_text still on screen
+        self.notifications, self._notif_seq, self._notif_lock = [], 0, threading.Lock()
+        self.journal_notes = collections.deque(maxlen=JOURNAL_KEEP)   # (wall epoch, level, "graph" | "robot")
+        self._journal_post_at = -1e9
+        self._watch = {}              # watch trigger id -> what the active graph listens to (subscribe())
+        self.volume_hook = None       # server.py: fn(volume 0..1) through the speaker profile; None = out.volume
+        self.flag_hook = None         # server.py: fn(key, value) persisting muted / deaf like the dashboard buttons
         self.engine = self._build_engine()
         if self._threaded:
+            journal_mod.attach(self)  # the live robot's WARNING / ERROR log records feed journal_notes
             self._start_threads()
         else:
             self._boot()   # simulator: no threads, the caller drives pump() with a manual clock
@@ -360,13 +387,190 @@ class Brain:
             self._handle(kind, kw)
         raise RuntimeError("boucle d'événements : plus de %d événements sans fin" % limit)
 
-    def set_deaf(self, deaf: bool):
+    def set_deaf(self, deaf: bool, external: bool = True, persist: bool = False):
+        """Deaf mode (dashboard button, or the set_deaf action with external=False, persist=True); deaf_changed when
+        the value changed. `external` (dashboard) counts as a depth-1 change for the anti-loop."""
+        changed = bool(deaf) != bool(self.deaf)
         self.deaf = deaf
         if deaf:
             self.mic.stop()
         elif self.state in (VEILLE, ECOUTE) or (self.state == RELANCE and not self.out.busy):
             self.mic.start()
         log.info("deaf=%s", deaf)
+        if changed:
+            if persist and self.flag_hook is not None:
+                self.flag_hook("deaf", bool(deaf))
+            self._changed("deaf_changed", external=external, value=bool(deaf))
+
+    # ------------------------------------------------------------------ lot N1: controls, media, text, lists, journal
+    def _changed(self, event: str, external: bool = False, name=None, **kw) -> bool:
+        """Post a state-change trigger (CHANGE_EVENTS). A watch trigger (list_changed, dict_changed, timer_stopped,
+        journal_entry) is posted only when an enabled transition listens to `name` (journal_entry: to any level).
+        Anti-loop like var_changed: a change made while handling a change event posts nothing (logged once per
+        event); an external change (dashboard, log tap) counts as depth 1, so its own chain cannot re-trigger."""
+        if event in self._watch:
+            sub = self._watch[event]
+            if not sub or (name is not None and name not in sub):
+                return False
+        if name is not None:
+            kw["name"] = name
+        if external:
+            self.post(event, depth=MAX_VAR_CASCADE, **kw)
+            return True
+        if self._var_depth >= MAX_VAR_CASCADE:
+            if event not in self._cascade_logged:
+                self._cascade_logged.add(event)
+                log.warning("graph: %s dropped (cascade limit %d)", event, MAX_VAR_CASCADE)
+            return False
+        self.post(event, depth=self._var_depth + 1, **kw)
+        return True
+
+    def set_volume(self, volume: float, external: bool = False):
+        """Speaker volume 0..1 (dashboard slider via server.py, set_volume action); volume_changed (value = the
+        `volume` system variable, 0..100) when the audible value changed."""
+        before = self.var_value("volume")
+        v = min(1.0, max(0.0, float(volume)))
+        if self.volume_hook is not None:
+            self.volume_hook(v)       # live robot: stored in the current speaker's profile, applied to AudioOut
+        else:
+            self.out.volume = v
+        after = self.var_value("volume")
+        if after != before:
+            self._changed("volume_changed", external=external, value=after)
+
+    def set_muted(self, muted: bool, external: bool = False, persist: bool = False):
+        """Mute (dashboard button via server.py, set_mute action): AudioOut keeps running but nothing is heard;
+        muting silences what is playing. mute_changed when the value changed."""
+        muted = bool(muted)
+        if bool(self.out.muted) == muted:
+            return
+        self.out.muted = muted
+        if muted:
+            self.out.stop()
+        log.info("muted=%s", muted)
+        if persist and self.flag_hook is not None:
+            self.flag_hook("muted", muted)
+        self._changed("mute_changed", external=external, value=muted)
+
+    @staticmethod
+    def _read_wav(path: str):
+        """16-bit PCM wav -> (mono int16 samples, rate); stereo is averaged."""
+        import wave
+        with wave.open(path) as w:
+            if w.getsampwidth() != 2:
+                raise ValueError("16-bit PCM expected")
+            ch, rate = w.getnchannels(), w.getframerate()
+            pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16)
+        if ch > 1:
+            pcm = pcm[: len(pcm) // ch * ch].reshape(-1, ch).mean(axis=1).astype(np.int16)
+        return pcm, rate
+
+    def play_media(self, name: str):
+        """play_media: a .wav of media/ (cfg `media_dir` overrides) through the speech output, so `muted` is honoured.
+        media_started when it starts, media_finished when it ends (at once, with ok=False, when the file cannot be
+        read); stop / hush / off (generation bump) cancel it without media_finished."""
+        path = os.path.join(self.cfg.get("media_dir") or graph_mod.MEDIA_DIR, name)
+        try:
+            pcm, rate = self._read_wav(path)
+        except Exception as e:
+            log.warning("play_media: %s not playable (%s)", name, type(e).__name__)
+            self.post("media_finished", gen=self.gen, file=name, ok=False)
+            return
+        gen = self.gen
+        self._media_seq = getattr(self, "_media_seq", 0) + 1
+        seq = self._media_seq
+        self._media = name
+        self.out.play(pcm, rate)
+        log.info("media start file=%s s=%.1f", name, len(pcm) / max(1, rate))
+        self._changed("media_started", file=name)
+        if not self._threaded:   # simulator: the fake output's duration, like a spoken phrase
+            self._schedule_at(self.now() + 0.15 + float(getattr(self.out, "dur", 1.0)), "media_finished")
+            return
+
+        def run():
+            self._wait_audio(gen)
+            if self._alive(gen) and self._media_seq == seq:   # a newer play_media owns the end event
+                self.post("media_finished", gen=gen, file=name, ok=True)
+        threading.Thread(target=run, daemon=True, name="media").start()
+
+    def show_text(self, text: str, seconds: float):
+        """show_text: the face's subtitle line shows `text` for `seconds` (text_shown now; text_cleared from the
+        heartbeat when the time is up or when speech replaced it)."""
+        self.subtitle = text
+        self._shown = (text, self.now() + float(seconds))
+        self._changed("text_shown")
+
+    def text_displayed(self) -> bool:
+        sh = self._shown
+        return sh is not None and self.subtitle == sh[0] and self.now() < sh[1]
+
+    def _text_tick(self, now: float):
+        sh = self._shown
+        if sh is None or (self.subtitle == sh[0] and now < sh[1]):
+            return
+        if self.subtitle == sh[0]:
+            self.subtitle = ""
+        self._shown = None
+        self._changed("text_cleared")
+
+    def list_copy(self, name: str):
+        """Copy of a user list / dictionary before a node changes it (compare with list_touched)."""
+        v = self.lists.get(name)
+        return dict(v) if isinstance(v, dict) else list(v) if v is not None else None
+
+    def list_touched(self, name: str, before) -> bool:
+        """After a list / dictionary action: list_changed / dict_changed when the content really changed."""
+        after = self.lists.get(name)
+        if after == before and type(after) is type(before):
+            return False
+        return self._changed("dict_changed" if isinstance(after, dict) else "list_changed", name=name)
+
+    def note_journal(self, level: str, source: str = "graph", external: bool = False):
+        """One robot journal entry (log_note, or a WARNING / ERROR record of the live log via nanterino/journal.py:
+        external=True, any thread). journal_entry is posted when a transition listens to it; a record logged by a
+        chain a change event started (depth >= MAX_VAR_CASCADE, on the loop thread) is kept but posts nothing, and the
+        log tap posts at most one event per JOURNAL_POST_GAP_S (an error burst must not flood the loop)."""
+        self.journal_notes.append((self.wall(), level, source))
+        if not self._watch.get("journal_entry"):
+            return
+        if external:
+            on_loop = not self._threaded or threading.current_thread() is getattr(self, "_loop_thread", None)
+            if on_loop and self._var_depth >= MAX_VAR_CASCADE:
+                return
+            now = self.now()
+            if now - self._journal_post_at < JOURNAL_POST_GAP_S:
+                return
+            self._journal_post_at = now
+        self._changed("journal_entry", external=external, value=level, source=source)
+
+    def recent_error(self, seconds: float) -> bool:
+        wall = self.wall()
+        return any(lv == "error" and wall - t <= seconds for t, lv, _src in list(self.journal_notes))
+
+    def notify(self, text: str, level: str) -> int:
+        """notify_dashboard: a pending notification for the dashboard (GET /api/notifications, /api/status)."""
+        with self._notif_lock:
+            self._notif_seq += 1
+            nid = self._notif_seq
+            self.notifications.append({"id": nid, "t": round(self.wall(), 3), "text": text, "level": level})
+            del self.notifications[:-NOTIFY_MAX]
+        log.info("dashboard notification id=%d level=%s", nid, level)
+        return nid
+
+    def notifications_view(self) -> list:
+        with self._notif_lock:
+            return [dict(n) for n in self.notifications]
+
+    def click_notification(self, nid) -> bool:
+        """POST /api/notifications/click: the notification leaves the pending list, notification_clicked is posted."""
+        with self._notif_lock:
+            hit = next((n for n in self.notifications if n["id"] == nid), None)
+            if hit is not None:
+                self.notifications.remove(hit)
+        if hit is None:
+            return False
+        self.post("notification_clicked", id=hit["id"], level=hit["level"])
+        return True
 
     def _mic_on(self):
         """Every mic opening goes through here so the deaf mode can never be bypassed."""
@@ -377,6 +581,7 @@ class Brain:
     def _cancel_all(self):
         """Silence now and invalidate every running speak/answer thread."""
         self.gen += 1
+        self._media = None   # lot N1: a cancelled play_media posts no media_finished
         self.out.stop()
 
     def _alive(self, gen: int) -> bool:
@@ -448,6 +653,9 @@ class Brain:
         self.lists = {n: _fresh_items(li) for n, li in graph.lists.items() if not li.source}
         self._watched, self._cascade_logged = graph.watched_vars(), set()
         self._timer_watch, self._timer_fired, self._bags = graph.timer_watches(), set(), {}
+        # lot N1: list_changed / dict_changed / timer_stopped / journal_entry are posted only when listened to
+        self._watch = {k: n.subscribe(graph) for k, n in nodes.TRIGGERS.items()
+                       if n.args and k not in ("var_changed", "timer_reached")}
         self._load_persisted(graph)
 
         # ---- actions (lot M1, 2026-11-01): one module per action (nanterino/nodes/actions/<id>.py), bound here.
@@ -547,6 +755,7 @@ class Brain:
 
     def shutdown(self):
         """Stop the three threads (tests; the service itself never calls it)."""
+        journal_mod.detach(self)
         self._closing.set()
         self.post_priority("_quit")
 
@@ -568,9 +777,11 @@ class Brain:
             return
         if "gen" in kw and kw["gen"] != self.gen:
             return  # late event from a cancelled thread
+        if kind == "media_finished":
+            self._media = None   # lot N1: media_playing is false from here on
         if isinstance(kw.get("text"), str):
             self.last_text = kw["text"]     # `$utterance` of the variable conditions / actions
-        self._var_depth = kw.get("depth", 0) if kind in graph_mod.WATCH_EVENTS else 0   # anti-loop (L1, L11)
+        self._var_depth = kw.get("depth", 0) if kind in graph_mod.WATCH_EVENTS or kind in CHANGE_EVENTS else 0   # anti-loop (L1, L11, N1)
         try:
             self.engine.dispatch(kind, kw)
         finally:
@@ -847,6 +1058,7 @@ class Brain:
             self._release_scheduled(now)
             self._sensors(now)
             self._timers_tick()        # lot L11: timer_reached
+            self._text_tick(now)       # lot N1: text_cleared
             self._persist_tick(now)    # lot L11: persisted variables -> var_store
             self.engine.tick(now)
         except Exception:

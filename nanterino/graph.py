@@ -216,7 +216,12 @@ LIST_KIND_RULES = {
 # _Parser checks and vocabulary() renders. An unknown kind would silently render as a delay: refused at import.
 ARG_KINDS = frozenset(VAR_KIND_TYPES) | frozenset(LIST_KIND_RULES) | frozenset({
     "cfgkey", "event", "delay", "text", "expression", "seconds", "gazemode", "value", "listvalue", "op", "number",
-    "dictkey", "seconds0", "hhmm", "weekdays", "optext"})
+    "dictkey", "seconds0", "hhmm", "weekdays", "optext", "onoff", "loglevel", "media"})
+# Lot N1 (2026-11-02) enumerated kinds: on/off switches (set_mute / set_deaf), journal levels (log_note,
+# notify_dashboard, journal_entry) and a playable media file (play_media: a .wav of media/).
+ONOFF = {"on": "Activé", "off": "Désactivé"}
+LOG_LEVELS = {"info": "Information", "warning": "Avertissement", "error": "Erreur"}
+PLAYABLE_EXTS = (".wav",)
 # Lot M4 (properties): the argument kinds whose field accepts a value source `{get: ...}`, with the field type the
 # source must fit ("of" = the type of the variable / list / dictionary the call names; else a variable type id). The
 # names-of-things kinds (variables, lists, events, enumerations ...) stay plain references. `text` (say_text) is not
@@ -230,6 +235,8 @@ SHORTHAND_KINDS = frozenset({"value", "listvalue", "dictkey"})
 PRE_RESOLVE_KINDS = frozenset(PROPERTY_FIELD) - SHORTHAND_KINDS
 # Events whose transitions carry `var:` / `value:` (lot M2: the triggers that declare args; a tuple, in order).
 WATCH_EVENTS = tuple(n.id for n in _TRIGGER_NODES.values() if n.args)
+# Lot N1: the argument names each of them declares (journal_entry filters on `value:` only, no `var:`).
+EVENT_ARGS = {n.id: tuple(n.args) for n in _TRIGGER_NODES.values() if n.args}
 # Read-only views of the brain's own state: (type, label, help). `etat` gets the state names as choices, `jour` the
 # WEEKDAYS ids. Lot L11 adds the clock / face / audio views after the five counters (their order is part of the API).
 SYSTEM_VARS = {
@@ -438,6 +445,9 @@ ARG_KIND_HELP = {
     "hhmm": "Heure au format hh:mm (00:00 à 23:59).",
     "weekdays": "Un ou plusieurs jours de la semaine.",
     "optext": "Texte dit quand la clé est absente ; vide = rien n'est dit.",
+    "onoff": "Activé ou désactivé.",
+    "loglevel": "Niveau du message : information, avertissement ou erreur.",
+    "media": "Fichier son (.wav) du dossier media/ du robot.",
 }
 
 
@@ -789,6 +799,8 @@ class _Parser:
         those instead of the raw mapping (a shorthand source compiles to its `$x` / `$utterance` / literal form, which
         then goes through the pre-M4 checks below, messages included)."""
         target = None                                   # (type, choices) the `value` argument must match
+        # lot N1: a guard whose `op` compares a count (list_count_compare: no value argument) orders any list
+        count_op = "count" in spec and not any(kd in ("value", "listvalue") for kd in spec.values())
         target_var = None                               # lot L11: user Variable behind `target` (bounds diagnostic)
         fixed = {}
         for k, kind in spec.items():
@@ -842,7 +854,7 @@ class _Parser:
             elif kind == "op":
                 if val not in OPS:
                     self.err(where, "%s: unknown operator %r (allowed: %s)" % (what, val, " ".join(OPS)))
-                elif val in ORDER_OPS and target and target[0] not in ORDERED_TYPES:
+                elif val in ORDER_OPS and target and target[0] not in ORDERED_TYPES and not count_op:
                     self.err(where, "%s: %r only compares numbers, durations or dates" % (what, val))
             elif kind == "number":
                 if not _num(val):
@@ -857,6 +869,15 @@ class _Parser:
                 if not (isinstance(val, list) and val and all(isinstance(d, str) and d in WEEKDAYS for d in val)
                         and len(set(val)) == len(val)):
                     self.err(where, "%s: expected distinct days among %s" % (what, ", ".join(WEEKDAYS)))
+            elif kind == "onoff":
+                if val not in ONOFF:
+                    self.err(where, "%s: expected on or off, got %r" % (what, val))
+            elif kind == "loglevel":
+                if val not in LOG_LEVELS:
+                    self.err(where, "%s: unknown level %r (allowed: %s)" % (what, val, ", ".join(LOG_LEVELS)))
+            elif kind == "media":
+                if not (isinstance(val, str) and MEDIA_NAME.match(val) and val.lower().endswith(PLAYABLE_EXTS)):
+                    self.err(where, "%s: expected a .wav file name of media/, got %r" % (what, val))
             elif kind == "optext":
                 if not (isinstance(val, str) and len(val) <= TEXT_MAX):
                     self.err(where, "%s: expected a text of at most %d characters (may be empty)" % (what, TEXT_MAX))
@@ -1211,6 +1232,13 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             return {"name": a, "type": "enum", "options": list(OPS), "labels": dict(OPS), "label": alabel}
         if kind == "number":
             return {"name": a, "type": "number", "options": [], "label": alabel}
+        if kind == "onoff":     # lot N1
+            return {"name": a, "type": "enum", "options": list(ONOFF), "labels": dict(ONOFF), "label": alabel}
+        if kind == "loglevel":
+            return {"name": a, "type": "enum", "options": list(LOG_LEVELS), "labels": dict(LOG_LEVELS), "label": alabel}
+        if kind == "media":
+            return {"name": a, "type": "enum", "options": [m for m in media_files(cfg) if m.lower().endswith(PLAYABLE_EXTS)],
+                    "label": alabel}
         return None
 
     actions = []
@@ -1424,7 +1452,7 @@ class GraphEngine:
         (the module's default ANY)."""
         if tr.on not in WATCH_EVENTS:
             return True
-        args = {"name": tr.var}
+        args = {"name": tr.var} if "name" in _TRIGGER_NODES[tr.on].args else {}
         if tr.value is not NOVALUE:
             args["value"] = tr.value
         return bool(_TRIGGER_NODES[tr.on].match(_nodes.NodeContext(self.brain, kw, self.cfg, self.graph), tr.on, **args))

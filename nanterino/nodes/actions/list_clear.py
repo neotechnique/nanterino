@@ -17,4 +17,6 @@ class ListClear(Action):
     args = {'list': Arg('wlist', 'Liste')}
 
     def run(self, ctx, list):  # noqa: A002 (argument names fixed by the graph vocabulary)
+        before = ctx.brain.list_copy(list)   # lot N1: list_changed when it was not empty (listened lists only)
         ctx.brain.lists[list] = []
+        ctx.brain.list_touched(list, before)

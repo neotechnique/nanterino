@@ -28,3 +28,27 @@ def match_key(brain, kw: dict, name: str, key):
         return next((k for k in d if k.strip() and k.lower() in text), None)
     k = brain._resolve(key, kw)
     return k if isinstance(k, str) and k in d else None
+
+
+def sort_key(x):
+    """Ascending order of list_sort / list_sorted (lot N1): numbers by value, texts without case; a number sorts
+    before a text so a mixed list never raises."""
+    if isinstance(x, str):
+        return (1, x.casefold(), x)
+    if isinstance(x, (int, float)) and not isinstance(x, bool):
+        return (0, x, "")
+    return (2, str(x), "")
+
+
+def list_index(items, index):
+    """0-based position of `index` (1 = first, -1 = last; lot N1 say_list_item / list_index_exists), None when the
+    number is not an integer or out of range."""
+    if isinstance(index, bool) or not isinstance(index, (int, float)) or index != int(index) or index == 0:
+        return None
+    i = int(index)
+    n = len(items)
+    if 1 <= i <= n:
+        return i - 1
+    if -n <= i <= -1:
+        return n + i
+    return None

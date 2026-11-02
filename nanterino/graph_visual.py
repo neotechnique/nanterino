@@ -306,7 +306,8 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
         else:
             trig = {"type": "event", "event": t.get("on")}
             if t.get("on") in G.WATCH_EVENTS:   # lot L1 / L11: the watched variable (and value / seconds) ride on the trigger
-                trig["name"] = t.get("var")
+                if t.get("var") is not None or "name" in G.EVENT_ARGS.get(t.get("on"), ()):   # lot N1: journal_entry has no name
+                    trig["name"] = t.get("var")
                 if "value" in t:
                     trig["value"] = t["value"]
         trig["enabled"] = t.get("enabled", True) is not False   # False: kept in the file, ignored by the engine
@@ -1126,6 +1127,11 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
                 elif kind == "event" and p.get("event") == "timer_reached":   # lot L11: seconds may arrive as text
                     t["var"] = p.get("name")
                     t["value"] = G.coerce_value("number", p.get("value"))
+                elif kind == "event" and p.get("event") in G.WATCH_EVENTS:   # lot N1: list / dict / timer / journal filters
+                    if "name" in G.EVENT_ARGS.get(p.get("event"), ()):
+                        t["var"] = p.get("name")
+                    if "value" in p and p.get("value") not in (None, ""):
+                        t["value"] = p["value"]
                 if when:
                     t["when"] = when
                 if do:
