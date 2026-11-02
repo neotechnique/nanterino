@@ -205,7 +205,9 @@ def _human_drag(wd, sel, x1, y1, at=None, hold_check=None, steps=10, ms=60):
     x0, y0 = at or (r[0] + min(40, r[2] / 2), r[1] + r[3] / 2)
     hit = js(wd, "const e=document.elementFromPoint(arguments[0],arguments[1]); return !!(e && e.closest(arguments[2]))", [x0, y0, sel])
     if not hit:   # the press would land on something else (minimap, panel, another frame's title)
-        print("WARN human drag start not on", sel, (x0, y0), flush=True)
+        what = js(wd, """const e=document.elementFromPoint(arguments[0],arguments[1]); if(!e) return null; const f=e.closest('.frame,.postit,.drawflow-node');
+          return [e.tagName, e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className, f ? (f.dataset.fid || f.dataset.nid || f.id) : null]""", [x0, y0])
+        print("WARN human drag start not on", sel, (x0, y0), "rect", r, "hit", what, flush=True)
     end_ok = js(wd, "const e=document.elementFromPoint(arguments[0],arguments[1]); return !!(e && e.closest('#drawflow') && !e.closest('#minimap,#jumpbar'))", [x1, y1])
     if not end_ok:
         print("WARN human drag end outside the canvas", (x1, y1), flush=True)
@@ -585,10 +587,16 @@ def sc_l8(wd):
         fd, fe = js(wd, """const E=window.__editor; const mk=(x,y,t)=>{ E.addFrame({x,y}); const f=E.frames()[E.frames().length-1]; f.title=t; E.editFrame(f,{}); return f.id; };
           return [mk(arguments[0]-900,arguments[1]+40,'D'), mk(arguments[0]-900,arguments[1]+420,'E')]""", [col["x"], col["y"]])
         check("groups D, E created left of the first column, top level", _fr(wd, fd).get("parent") is None and _fr(wd, fe).get("parent") is None, str([_fr(wd, fd), _fr(wd, fe)]))
+        # CHANGED (G2 follow-up): frame only the column's left part. Framing its whole width (1660 px since G2) zoomed out
+        # below the overview threshold (SEM_ZOOM): the column then shows its overview card and its title is hidden, so
+        # the column could not be grabbed by its title (measured: elementFromPoint on the title = the canvas).
+        colw = min(col["w"], 700)
         js(wd, "window.__editor.focusRect({x0:arguments[0]-1000,y0:arguments[1]-160,x1:arguments[0]+arguments[2]+80,y1:arguments[1]+arguments[3]})",
-           [col["x"], col["y"], col["w"], colh])
+           [col["x"], col["y"], colw, colh])
         time.sleep(0.5)
-        tx, ty = js(wd, C2S_JS, [col["x"] + col["w"] / 2, col["y"] + colh * 0.6])
+        check("column drag view stays above the overview zoom (column title visible)",
+              not js(wd, "return document.querySelector('#drawflow').classList.contains('semzoom')"), "semzoom")
+        tx, ty = js(wd, C2S_JS, [col["x"] + colw / 2, col["y"] + colh * 0.6])
         hold = _human_drag(wd, '.frame[data-fid="%s"] .ftitle' % fd, tx, ty, hold_check=_held)
         col1, D1 = _fr(wd, col["id"]), _fr(wd, fd)
         # ADAPTED (L13): the default columns hold sub-groups, so the smallest group under the pointer may be one of the
