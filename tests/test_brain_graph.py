@@ -20,12 +20,15 @@ file blindly. Run the changed / new scenarios with `--only a,b --out /tmp/x.json
 each diff and write one line per changed scenario in tests/golden/behaviour-changes-<lot>.md, keep the previous file
 as tests/golden/brain-trace-baseline.pre-<lot>.json, then merge the reviewed traces into brain-trace-baseline.json
 (json.dump(..., ensure_ascii=False, indent=0, sort_keys=True)). G1 changed no existing trace and added 3 scenarios.
+G2 (2026-11-02) changed no existing trace either and added 4 (g2_*); since G2 the brain's rng is seeded (H), because the
+shipped graph draws at random (greeting choice, shuffle bags).
 
 How to run (repo root, venv python; pytest is not installed):
     python -m tests.test_brain_graph --record     # write the baseline trace (old brain only)
     python -m tests.test_brain_graph              # compare with the baseline (+ graph tests if present)
     python -m tests.test_brain_graph --only a,b   # subset;  --out FILE  write the traces elsewhere
 """
+import datetime
 import functools
 import json
 import os
@@ -77,6 +80,9 @@ class H:
         brain_mod.AudioIn = functools.partial(FakeIn, self.rec)
         brain_mod.find_device = lambda *a, **k: None
         self.brain = brain_mod.Brain(cfg, self.out, self.stt, self.llm, self.tts, FakeCorpus())
+        # G2: the shipped graph draws at random (random_chance, say_random shuffle bags); a fixed seed makes every
+        # trace reproducible (draws only happen on the brain loop thread, in event order). Same seed as sim.simulate.
+        self.brain.rng.seed(0)
         orig = self.brain._go
 
         def go(state, reason):
@@ -433,6 +439,44 @@ def _(h):
     h.wait_state("relance", 6); h.wait_state("veille", 8); h.settle(); h.at("end")
 
 
+# ---- lot G2 (2026-11-02): richer greeting (conversation_started), opening hours; see
+# tests/golden/behaviour-changes-G2.md. Seeded rng (H): the picks below are the same on every run.
+@sc("g2_greetings_vary")
+def _(h):
+    for i in range(9):   # nine conversations: config greeting first, then the draws (varied phrases never repeat in a bag)
+        h.post("start"); h.wait_state("ecoute"); h.settle(); h.at("greeted_%d" % i)
+        h.post("stop"); h.wait_state("veille"); h.settle()
+
+
+@sc("g2_group_greeting")
+def _(h):
+    h.brain.set_faces(2); h.settle()   # two visitors: personnes_multiples is posted after 1 s (no rule uses it)
+    h.post("visage"); h.wait_state("ecoute"); h.settle(); h.at("group_greeted")
+
+
+HOURS = {"lun-dim": "09:00-18:00"}
+
+
+def _wall_at(h, hour):
+    """Pin the brain's wall clock (opening hours read it) to a fixed local day at `hour`: never the real time."""
+    t = datetime.datetime(2026, 11, 2, hour, 0).timestamp()
+    h.brain.wall = lambda: t
+    h.settle()
+
+
+@sc("g2_face_outside_hours", opening_hours=HOURS)
+def _(h):
+    _wall_at(h, 20)
+    h.post("visage"); h.settle(); h.at("closed")          # only a journal note, the robot stays in veille
+    h.post("start"); h.wait_state("ecoute"); h.settle(); h.at("start_still_greets")
+
+
+@sc("g2_face_inside_hours", opening_hours=HOURS)
+def _(h):
+    _wall_at(h, 10)
+    h.post("visage"); h.wait_state("ecoute"); h.settle(); h.at("open")
+
+
 def run_scenario(name):
     fn, over = SCENARIOS[name]
     h = H(over)
@@ -508,8 +552,8 @@ def test_invalid_graphs_rejected():
     cases = {
         "unknown state 'nowhere'": base.replace("to: ecoute\n        description: \"Salutation", "to: nowhere\n        description: \"Salutation"),
         "unknown action": base.replace("on_enter: [clear_conversation, reset_repairs, mic_on]", "on_enter: [clear_conversation, fly_away]"),
-        # G1: the visage guard is now a list (auto greet AND not deaf)
-        "unknown guard": base.replace("when: [auto_greet_on_face, {not: is_deaf}]", "when: moon_is_full"),
+        # G1: the visage guard is now a list (auto greet AND not deaf); G2 adds the opening-hours guard
+        "unknown guard": base.replace("when: [auto_greet_on_face, {not: is_deaf}, dans_les_horaires]", "when: moon_is_full"),
         "unknown event": base.replace("- on: visage\n", "- on: nobody_home\n"),
         "required state": base.replace("  eteint:\n", "  eteint_renamed:\n"),
         "not a config key": base.replace("text: greeting,", "text: no_such_key,"),
@@ -577,10 +621,13 @@ def test_deaf_never_traps():
     """Lot G1: deaf (mic forced off), no input at all: from every conversation state the robot reaches veille within
     DEAF_BOUND_S, and a face seen afterwards does not take it out of veille. `eteint` is excluded on purpose: it is
     the operator's off switch and only « on » / « start » leave it."""
-    for state in [s for s in STATES if s != "eteint"]:
+    # G2: + "groupe" = a conversation started by the button in front of two faces (group greeting chain)
+    for state in [s for s in STATES if s != "eteint"] + ["groupe"]:
         h = H({"deaf": True, "silence_relance_s": 0.6, "silence_cloture_s": 1.0})
         try:
-            if state == "veille":
+            if state == "groupe":
+                h.brain.set_faces(2); h.settle()
+            if state in ("veille", "groupe"):
                 h.post("start"); h.wait_state("accueil")          # a conversation started by the button
             else:
                 reach(h, state)
@@ -597,6 +644,52 @@ def test_deaf_never_traps():
             raise AssertionError("from %s: %s" % (state, e)) from None
         finally:
             h.close()
+
+
+def test_g2_greeting_never_traps():
+    """Lot G2: the accueil greeting now starts on conversation_started. Every new chain must end in ecoute / veille:
+    (a) accueil entered WITHOUT a conversation start (an edited graph moving there from ecoute): the safety delay
+    still leaves it; (b) an emptied salutations list still ends (say_random posts say_done, L27); (c) a deaf group
+    greeting returns to veille like any deaf conversation; (d) a face outside the opening hours leaves the robot in
+    veille, and Start still works."""
+    h = H({"silence_relance_s": 3.0, "silence_cloture_s": 1.0})
+    try:   # (a)
+        h.post("start"); h.wait_state("ecoute"); h.settle()
+        # force the move the shipped graph never makes, on the brain loop thread (defer runs from the heartbeat)
+        h.brain.defer(0.0, lambda: h.brain._go("accueil", "test_sans_debut"))
+        h.wait_state("accueil", 3)
+        t0 = time.monotonic()
+        h.wait_state("ecoute", 6)
+        took = time.monotonic() - t0
+        assert took >= 0.9, "left accueil before the safety delay (%.1fs): something else moved it" % took
+        assert any(e[:4] == ["go", "accueil", "ecoute", "accueil_secours"] for e in h.rec.events), h.rec.events[-6:]
+        print("  accueil without a conversation start -> ecoute in %.1fs (accueil_secours)" % took, flush=True)
+    finally:
+        h.close()
+    h = H({})
+    try:   # (b)
+        h.post("start"); h.wait_state("ecoute"); h.post("stop"); h.wait_state("veille"); h.settle()
+        h.brain.vars["choix_salutation"] = 2
+        h.brain.lists["salutations"] = []
+        h.post("start"); h.wait_state("ecoute", 3)
+        assert any(e[:4] == ["go", "accueil", "ecoute", "say_done"] for e in h.rec.events), h.rec.events[-6:]
+    finally:
+        h.close()
+    h = H({"deaf": True, "silence_relance_s": 0.6, "silence_cloture_s": 1.0})
+    try:   # (c)
+        h.brain.set_faces(3); h.settle()
+        h.post("start"); h.wait_state("accueil"); h.wait_state("veille", DEAF_BOUND_S)
+        assert any(e[0] == "play" and ("à tous" in e[1] or "vous tous" in e[1]) for e in h.rec.events), h.rec.events
+    finally:
+        h.close()
+    h = H({"opening_hours": {"lun-dim": "09:00-18:00"}})
+    try:   # (d)
+        _wall_at(h, 22)
+        h.post("visage"); h.settle(0.6)
+        assert h.brain.state == "veille", h.brain.state
+        h.post("start"); h.wait_state("ecoute", 3)
+    finally:
+        h.close()
 
 
 def test_heartbeat_rate_and_lag():
@@ -647,7 +740,8 @@ def test_watchdog_trips_once_and_recovers():
 
 EXTRA_TESTS = [test_default_graph_valid, test_invalid_graphs_rejected,
                test_invalid_override_falls_back_and_robot_starts, test_valid_override_and_reload_rules,
-               test_visage_perdu_is_ignored_by_default_graph, test_deaf_never_traps, test_heartbeat_rate_and_lag,
+               test_visage_perdu_is_ignored_by_default_graph, test_deaf_never_traps, test_g2_greeting_never_traps,
+               test_heartbeat_rate_and_lag,
                test_watchdog_trips_once_and_recovers]
 
 

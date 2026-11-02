@@ -358,7 +358,8 @@ def test_simulator_returns_vars_per_step():
     seen = [e["vars"]["names"]["etat"] for e in res["trace"]]
     assert seen[0] == "veille" and "ecoute" in seen, seen
     assert res["final"]["vars"]["names"]["tours"] == 1 and res["final"]["vars"]["names"]["max_tours"] == 12
-    assert sorted(res["final"]["vars"]["lists"]) == ["mots_appel", "mots_refus", "salutations"]
+    # CHANGED (lot G2): + salutations_groupe (group greeting)
+    assert sorted(res["final"]["vars"]["lists"]) == ["mots_appel", "mots_refus", "salutations", "salutations_groupe"]
     assert res["final"]["vars"]["lists"]["mots_appel"] == ["nanter"]
 
 
@@ -426,9 +427,12 @@ def test_if_else_is_one_condition():
     assert [(n["group"], n["params"]["guard"]) for n in negs] == [("relance", "mic_active")], \
         "a negated twin condition is still drawn: %s" % [(n["group"], n["params"]) for n in negs]
     # CHANGED (lot G1): + the veille visage if/else on is_deaf
+    # CHANGED (lot G2): + veille opening hours (nested under is_deaf Faux), accueil greeting choice (face count, then
+    # choix_salutation under its Faux)
     assert sorted((by[l["from"]]["group"], by[l["from"]]["params"]["guard"]) for l in false) == [
+        ("accueil", "face_count_compare"), ("accueil", "var_compare"),
         ("ecoute", "repairs_left"), ("ecoute", "turns_left"), ("relance", "repairs_left"), ("relance", "turns_left"),
-        ("veille", "is_deaf")], false
+        ("veille", "dans_les_horaires"), ("veille", "is_deaf")], false
     for l in false:   # each Faux output belongs to a condition whose Vrai output is used too
         assert any(k["from"] == l["from"] and k["port"] == "true" for k in doc["links"]), l
     raw2, _l, errs = V.from_visual(doc, CFG)
@@ -442,7 +446,7 @@ def test_if_else_is_one_condition():
     # redrawing the recompiled graph gives the same drawing (stable round trip)
     doc2 = V.to_visual(raw2)
     assert len(doc2["nodes"]) == len(doc["nodes"]) and len(doc2["links"]) == len(doc["links"])
-    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 5     # CHANGED (lot G1): 4 -> 5 (veille is_deaf)
+    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 8     # CHANGED (lot G1): 4 -> 5 (veille is_deaf); G2: 5 -> 8 (veille hours, accueil x2)
 
 
 def test_hand_wired_false_branch_compiles():

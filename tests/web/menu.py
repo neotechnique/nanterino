@@ -102,6 +102,12 @@ def sc_menu(wd):
         w = wire_point(wd, "a.kind==='action' && b.kind==='state'")
     if w is None:   # L7: 1280 x 700 view, returning wires thin: any chain-internal wire in view
         w = wire_point(wd, "b.kind==='action' && a.kind!=='state'")
+    if w is None:   # CHANGED (lot G2): the grown veille column can leave no clear wire in view: centre an action->action link
+        dd = doc(wd)
+        kinds = {n["id"]: n["kind"] for n in dd["nodes"]}
+        lk = next(l for l in dd["links"] if kinds.get(l["from"]) == "action" and kinds.get(l["to"]) == "action")
+        center_on(wd, lk["from"])
+        w = wire_point(wd, "a.kind==='action' && b.kind==='action'")
     print("WIRE", w)
     rclick(wd, w["x"], w["y"])
     top = menu_labels(wd)[0]

@@ -171,6 +171,9 @@ def var_layout(nodes, links, y0: int = TOP, head: dict | None = None, note_h=Non
 SUB_RULES = {
     (None, "visage"): "reveil", (None, "intent.appel"): "reveil", ("veille", "start"): "reveil",
     (None, "ask"): "question_tapee", (None, "greeting_done"): "fin_salutation",
+    # G2: the accueil greeting starts on conversation_started; a varied greeting ends with say_done
+    ("accueil", "conversation_started"): "salutation", ("accueil", "say_done"): "fin_salutation",
+    ("global", "conversation_ended"): "fin_conversation",
     (None, "intent.question"): "questions", (None, "not_understood"): "pas_compris",
     (None, "intent.au_revoir"): "depart", (None, "visage_perdu"): "depart",
     (None, "intent.chanson"): "chanson", (None, "sing"): "chanson",
@@ -180,9 +183,11 @@ SUB_RULES = {
     ("global", "stop"): "boutons", ("global", "off"): "boutons", ("global", "hush"): "tais_toi",
 }
 SUB_AFTER = {"silence_relance_s": "silence_relance", "silence_cloture_s": "silence_cloture"}
-SUB_ORDER = ["entree", "boutons", "tais_toi", "reveil", "fin_salutation", "questions", "pas_compris",
+# (column, delay) first (G2: the accueil safety delay is not a silence rule), then SUB_AFTER
+SUB_AFTER_COL = {("accueil", "silence_cloture_s"): "secours"}
+SUB_ORDER = ["entree", "boutons", "tais_toi", "reveil", "salutation", "fin_salutation", "secours", "questions", "pas_compris",
              "silence_relance", "fin_reponse", "interruption", "fin_relance", "silence_cloture", "depart", "chanson",
-             "question_tapee", "au_revoir_termine", "retour_veille", "rallumer", "autres"]
+             "question_tapee", "fin_conversation", "au_revoir_termine", "retour_veille", "rallumer", "autres"]
 SUB_TITLES = {
     "entree": "Entrée", "reveil": "Réveil", "question_tapee": "Question tapée", "fin_salutation": "Fin de salutation",
     "questions": "Questions", "pas_compris": "Pas compris", "silence_relance": "Silence → relance",
@@ -190,11 +195,12 @@ SUB_TITLES = {
     "fin_reponse": "Fin de réponse", "interruption": "Interruption", "fin_relance": "Fin de relance",
     "au_revoir_termine": "Au revoir terminé", "retour_veille": "Retour en veille", "rallumer": "Rallumer",
     "boutons": "Boutons", "tais_toi": "Tais-toi", "autres": "Autres",
+    "salutation": "Salutation", "secours": "Secours", "fin_conversation": "Fin de conversation",
 }
 # short French post-it text of a sub-group: (column, key) first, then the key alone
 SUB_TEXTS = {
     ("veille", "entree"): "En veille : la conversation est oubliée et le micro se rouvre.",
-    ("accueil", "entree"): "Micro coupé, le robot dit sa salutation.",
+    ("accueil", "entree"): "Micro coupé ; la salutation part du début de la conversation.",
     ("ecoute", "entree"): "Sous-titre « j'écoute », compteur de silence remis à zéro, micro ouvert.",
     ("relance", "entree"): "Micro coupé, le robot relance le visiteur.",
     ("cloture", "entree"): "Micro coupé, historique effacé, le robot dit au revoir.",
@@ -202,9 +208,14 @@ SUB_TEXTS = {
     "entree": "Ce que le robot fait en arrivant dans cet état.",
     "reveil": "Un visage, le bouton Démarrer ou « Nanterino » : le robot salue.",
     # G1: the veille column also holds the "face seen while deaf" note chain
-    ("veille", "reveil"): "Un visage (sauf robot sourd), le bouton Démarrer ou « Nanterino » : le robot salue.",
+    ("veille", "reveil"): "Un visage (sauf robot sourd ou hors des horaires d'ouverture), le bouton Démarrer ou « Nanterino » : le robot salue.",
     "question_tapee": "Question tapée au tableau de bord : traitée comme une phrase entendue.",
     "fin_salutation": "Salutation finie : le robot écoute.",
+    # G2: the accueil column (greeting choice + safety delay)
+    "salutation": "Début de conversation : salut au groupe (2 visages ou plus), sinon la phrase de la configuration ou une phrase variée.",
+    ("accueil", "fin_salutation"): "Salutation finie (phrase de la configuration ou variée) : le robot écoute.",
+    "secours": "Rien n'a fini la salutation après 15 s : écouter quand même (jamais bloqué en accueil).",
+    "fin_conversation": "Fin d'une conversation : tirer au hasard la prochaine salutation d'un visiteur seul.",
     "questions": "Une question reçoit une réponse ; après trop d'échanges, le robot conclut.",
     "pas_compris": "Parole inexploitable : faire répéter (2 fois au plus), puis ne plus insister.",
     "silence_relance": "Silence prolongé : relancer le visiteur.",
@@ -237,7 +248,7 @@ def sub_key(group, trig: dict) -> str | None:
     if not trig:
         return None
     if trig.get("type") == "after":
-        return SUB_AFTER.get(str(trig.get("delay")))
+        return SUB_AFTER_COL.get((group, str(trig.get("delay")))) or SUB_AFTER.get(str(trig.get("delay")))
     ev = trig.get("event")
     if ev == "var_changed" and trig.get("name") == "etat" and trig.get("value") == group:
         return "entree"

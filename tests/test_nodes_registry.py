@@ -494,7 +494,8 @@ def test_drop_a_condition_and_a_trigger():
 
 def test_missing_condition_or_trigger_breaks_golden():
     """Built-in mutation check per family: a guard / event file that disappeared changes the vocabulary."""
-    for fam, name in (("conditions", "list_empty"), ("triggers", "say_done")):
+    # the removed files must be unused by the shipped graph (else it no longer loads): G2 made it use say_done
+    for fam, name in (("conditions", "list_empty"), ("triggers", "media_finished")):
         root = package_copy("mutant_" + fam)
         os.remove(os.path.join(root, "nanterino", "nodes", fam, name + ".py"))
         rc, out = run_probe(root)

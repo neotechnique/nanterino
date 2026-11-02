@@ -179,7 +179,8 @@ def test_sim_matches_real_brain_and_parity():
     assert first["step"] == -1 and first["chain"] == "veille/enter" and first["reason"] == "start"
     chains = [e["chain"] for e in res["trace"] if e["moved"]]
     # CHANGED (lot G1): the visage greeting is veille/t1 (t0 = the deaf-face note chain)
-    assert chains == ["veille/t1", "accueil/t0", "ecoute/t1", "cloture/t1"], chains
+    # CHANGED (lot G2): accueil greeting_done is accueil/t3 (t0..t2 = the greeting choice on conversation_started)
+    assert chains == ["veille/t1", "accueil/t3", "ecoute/t1", "cloture/t1"], chains
     # CHANGED (lot L1): `final` also carries the variable values (system ones included)
     fv = res["final"].pop("vars")
     assert fv["names"]["etat"] == "veille" and fv["names"]["tours"] == 0 and "salutations" in fv["lists"], fv
@@ -473,8 +474,9 @@ def test_journal_keeps_50_and_feeds_last_transition():
         e = h.brain.trace()
         start = next(x for x in reversed(e) if x["event"] == "start")
         # CHANGED (lot G1): veille/t1 -> veille/t2, the deaf-face note chain was inserted before the visage greeting
-        assert start["chain"] == "veille/t2" and start["moved"] and (start["from"], start["to"], start["reason"]) == ("veille", "accueil", "ui")
-        assert e[-1]["reason"] == "greeting_done" and e[-1]["chain"] == "accueil/t0"
+        # CHANGED (lot G2): veille/t2 -> veille/t3 (+ the outside-hours note chain); greeting_done accueil/t0 -> t3
+        assert start["chain"] == "veille/t3" and start["moved"] and (start["from"], start["to"], start["reason"]) == ("veille", "accueil", "ui")
+        assert e[-1]["reason"] == "greeting_done" and e[-1]["chain"] == "accueil/t3"
         assert h.brain.snapshot()["heartbeat"]["trips"] == 0
     finally:
         h.close()

@@ -181,7 +181,8 @@ def test_vocabulary():
     ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
     assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])
     assert [x["id"] for x in v["variables"]["names"][:len(G.SYSTEM_VARS)]] == list(G.SYSTEM_VARS)   # CHANGED (lot L11): 13 system vars
-    assert {x["id"] for x in v["variables"]["lists"]} == {"mots_refus", "mots_appel", "salutations"}
+    # CHANGED (lot G2): the shipped graph speaks two greeting lists
+    assert {x["id"] for x in v["variables"]["lists"]} == {"mots_refus", "mots_appel", "salutations", "salutations_groupe"}
     assert {a["id"] for a in v["actions"]} == set(G.ACTION_SPECS)
     assert {x["id"] for x in v["guards"]} == set(G.GUARDS)
     assert {e["id"] for e in v["events"]} == set(G.EVENTS) - set(G.INTERNAL_EVENTS)
@@ -508,8 +509,9 @@ def test_sharing_lighter_and_equivalent():
     assert len(new["nodes"]) <= 0.90 * len(old["nodes"]) and len(new["links"]) <= 0.97 * len(old["links"])
     assert len(comp["nodes"]) <= 0.76 * len(old["nodes"]) and len(comp["links"]) <= 0.80 * len(old["links"])
     # CHANGED (lot G1): the shipped graph grew from 182 to 198 legacy nodes (deaf note + micro-fermé timeout +
-    # max_turns notes); same 76 % ratio on the new size.
-    assert len(comp["nodes"]) <= 0.76 * 198, "compact (default) drawing of the shipped graph"
+    # max_turns notes); same 76 % ratio on the new size. CHANGED (lot G2): 198 -> 233 legacy nodes (greeting choice,
+    # opening hours, accueil safety delay, next-greeting draw); same ratio.
+    assert len(comp["nodes"]) <= 0.76 * 233, "compact (default) drawing of the shipped graph"
     assert [(n["kind"], n["params"]) for n in V.to_visual(raw, legacy=True)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the legacy default"
     hub = V.to_visual(raw, form="hub")      # CHANGED (lot L1): the hub drawing is no longer the default
     print("  hub drawing: nodes %d, links %d" % (len(hub["nodes"]), len(hub["links"])))
@@ -983,13 +985,13 @@ def test_default_column_postits():
 
 SUBGROUPS_WANTED = {   # lot L13: shipped graph -> sub-group titles per column (reading order)
     "veille": ["Entrée", "Réveil", "Question tapée"],
-    "accueil": ["Entrée", "Fin de salutation"],
+    "accueil": ["Entrée", "Salutation", "Fin de salutation", "Secours"],   # CHANGED (lot G2)
     "ecoute": ["Entrée", "Questions", "Pas compris", "Silence → relance", "Départ du visiteur", "Chanson"],
     "reponse": ["Fin de réponse", "Interruption"],
     "relance": ["Entrée", "Questions", "Pas compris", "Fin de relance", "Silence → clôture", "Départ du visiteur", "Chanson"],
     "cloture": ["Entrée", "Au revoir terminé", "Retour en veille"],
     "eteint": ["Entrée", "Rallumer"],
-    "global": ["Boutons", "Tais-toi", "Chanson", "Question tapée"],
+    "global": ["Boutons", "Tais-toi", "Chanson", "Question tapée", "Fin de conversation"],   # CHANGED (lot G2)
 }
 
 

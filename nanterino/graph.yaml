@@ -23,6 +23,13 @@
 #   - en relance, si le micro est fermé, la clôture arrive quand même après silence_cloture_s (depuis l'entrée
 #     en relance), avec une note au journal et une notification au tableau de bord.
 #   Détail et justification : tests/golden/behaviour-changes-G1.md.
+# Lot G2 (2026-11-02) : comportement plus riche avec les nouveaux nœuds :
+#   - salutation choisie au début de la conversation (déclencheur « Une conversation commence ») : une phrase pour un
+#     groupe (2 visages ou plus), sinon la phrase d'accueil de la configuration une fois sur deux, sinon une phrase
+#     variée (listes salutations / salutations_groupe, sac mélangé) ; un délai de secours fait passer en écoute ;
+#   - hors des horaires d'ouverture (clé opening_hours, vide par défaut = toujours ouvert), un visage n'entraîne pas
+#     d'accueil automatique (note au journal) ; Démarrer et « Nanterino » saluent toujours.
+#   Détail et justification : tests/golden/behaviour-changes-G2.md.
 version: 1
 
 states:
@@ -35,10 +42,16 @@ states:
         when: [auto_greet_on_face, is_deaf]
         do: [{log_note: {level: info, text: "Visage vu, mais robot sourd : pas d'accueil automatique."}}]
         description: "Robot sourd (G1) : il n'entendrait pas la réponse, donc pas d'accueil automatique ; seulement une note au journal."
+      # G2: outside the opening hours (config `opening_hours`) a face is only noted; the hours rule nests as an if/else
+      # under the Faux branch of is_deaf. Empty `opening_hours` (the default) = always open: behaviour unchanged.
       - on: visage
-        when: [auto_greet_on_face, {not: is_deaf}]
+        when: [auto_greet_on_face, {not: is_deaf}, dans_les_horaires]
         to: accueil
-        description: "Un visage apparaît devant la caméra (accueil automatique activé, robot pas sourd) : saluer."
+        description: "Un visage apparaît devant la caméra (accueil automatique activé, robot pas sourd, dans les horaires d'ouverture) : saluer."
+      - on: visage
+        when: [auto_greet_on_face, {not: is_deaf}, {not: dans_les_horaires}]
+        do: [{log_note: {level: info, text: "Visage vu hors des horaires d'ouverture : pas d'accueil automatique."}}]
+        description: "Hors des horaires d'ouverture (G2, clé opening_hours de la configuration) : pas d'accueil automatique, seulement une note au journal. Démarrer et « Nanterino » saluent toujours."
       - on: start
         to: accueil
         reason: $source
@@ -55,11 +68,39 @@ states:
 
   accueil:
     description: "Le robot salue le visiteur ; le micro est coupé pendant qu'il parle."
-    on_enter: [mic_off, {speak_phrase: {text: greeting, done: greeting_done}}]
+    on_enter: [mic_off]
     transitions:
+      # G2: the greeting is chosen on `conversation_started` (posted by the brain on every move out of veille / eteint,
+      # handled right after this on_enter). Nested if/else, pure guards only: every applicable non-moving chain runs
+      # (dispatch), so the three branches must exclude each other. A group gets a group phrase; otherwise
+      # `choix_salutation` (drawn at the end of the previous conversation, global rule) picks the config greeting
+      # (dashboard text, 1) or a varied phrase from the shuffle bag (2). A random_chance guard here would be drawn
+      # once per rule and could fire two branches or none.
+      - on: conversation_started
+        when: {face_count_compare: {op: ">=", count: 2}}
+        do: [{say_random: {list: salutations_groupe}}]
+        description: "Plusieurs visiteurs devant la caméra (2 visages ou plus) : une salutation pour le groupe, tirée au hasard."
+      - on: conversation_started
+        when: [{not: {face_count_compare: {op: ">=", count: 2}}}, {var_compare: {name: choix_salutation, op: "=", value: 1}}]
+        do: [{speak_phrase: {text: greeting, done: greeting_done}}]
+        description: "Un visiteur, choix 1 (une fois sur deux, et toujours la première fois après le démarrage) : la phrase d'accueil de la configuration, modifiable au tableau de bord."
+      - on: conversation_started
+        when: [{not: {face_count_compare: {op: ">=", count: 2}}}, {not: {var_compare: {name: choix_salutation, op: "=", value: 1}}}]
+        do: [{say_random: {list: salutations}}]
+        description: "Un visiteur, choix 2 : une autre salutation, tirée au hasard sans répétition (liste salutations)."
       - on: greeting_done
         to: ecoute
         description: "Salutation terminée : écouter le visiteur."
+      - on: say_done
+        to: ecoute
+        description: "Salutation variée terminée : écouter le visiteur."
+      - after: silence_cloture_s
+        since: state
+        when: not_speaking
+        do: [{log_note: {level: warning, text: "Accueil sans salutation terminée : passage en écoute."}}]
+        to: ecoute
+        reason: accueil_secours
+        description: "Secours (G2) : rien n'a terminé la salutation après silence_cloture_s (15 s), écouter quand même ; le robot ne reste jamais bloqué en accueil."
 
   ecoute:
     description: "Le robot écoute la question du visiteur."
@@ -234,6 +275,11 @@ global:
     not_in: [eteint, veille]
     do: [as_utterance]
     description: "Question tapée sur le tableau de bord : la traiter comme si elle avait été dite."
+  # G2: draw the next single-visitor greeting here, not in accueil: guards are judged before any action of the same
+  # event runs, so a value drawn on conversation_started could not steer that event's own branches.
+  - on: conversation_ended
+    do: [{random_choice: {name: choix_salutation, count: 2}}]
+    description: "Fin d'une conversation : tirer au hasard la prochaine salutation (1 = phrase de la configuration, 2 = phrase variée)."
 
 intents:
   appel:
@@ -263,7 +309,8 @@ intents:
 #           persist: true (variables globales seulement) garde la valeur dans state/vars.json au redémarrage.
 #   lists : kind dict = dictionnaire clé → valeur ; mode plain / shuffle (sac mélangé) / history (avec max).
 #   Système en plus : heure, jour, derniere_phrase, visage_vu, volume, expression, regard, nb_visiteurs_jour.
-# Les exemples ci-dessous ne sont utilisés par aucune transition (comportement inchangé).
+# chrono_visite et humeur_visage sont des exemples utilisés par aucune transition ; depuis G2, salutations et
+# salutations_groupe sont dites par l'état accueil.
 variables:
   names:
     chrono_visite:
@@ -275,6 +322,12 @@ variables:
       type: expression
       value: neutre
       description: "Exemple : une expression du visage gardée en variable."
+    choix_salutation:
+      type: integer
+      value: 1
+      min: 1
+      max: 2
+      description: "Prochaine salutation d'un visiteur seul (G2) : 1 = phrase d'accueil de la configuration, 2 = phrase variée. Tirée à la fin de chaque conversation ; 1 au démarrage."
   lists:
     mots_refus:
       type: string
@@ -284,8 +337,18 @@ variables:
       type: string
       intent: appel
       description: "Mots qui réveillent le robot en veille (intention appel)."
+    # G2: spoken by the accueil state (say_random). The config greeting stays the other half of the single-visitor
+    # greetings; every phrase here is pre-synthesised at graph load like say_text (graph.say_texts).
     salutations:
       type: string
-      items: ["Bonjour !", "Bonjour, bienvenue !", "Bonjour, je suis Nanterino."]
+      items: ["Bonjour et bienvenue ! Moi, c'est Nanterino. Je peux vous guider dans Nanterre ou vous donner des idées pour la planète. Que voulez-vous savoir ?",
+              "Bonjour ! Je suis Nanterino, le robot de Nanterre. Un lieu à trouver, un geste pour l'environnement ? Je vous écoute.",
+              "Bonjour ! Ravi de vous voir. Posez-moi une question sur Nanterre ou sur l'écologie, je vous réponds."]
       mode: shuffle
-      description: "Exemple : phrases d'accueil pour l'action « Dire une phrase au hasard » (sac mélangé : pas de répétition avant d'avoir tout dit)."
+      description: "Salutations variées pour un visiteur, dites une fois sur deux à la place de la phrase d'accueil de la configuration (sac mélangé : pas de répétition avant d'avoir tout dit)."
+    salutations_groupe:
+      type: string
+      items: ["Bonjour à tous ! Je suis Nanterino. Je connais les lieux de Nanterre et les bons gestes pour la planète. Posez-moi vos questions, une personne à la fois.",
+              "Bonjour à vous tous, bienvenue ! Moi, c'est Nanterino. Qui veut me poser la première question ?"]
+      mode: shuffle
+      description: "Salutations pour un groupe (2 visages ou plus au début de la conversation), sac mélangé."

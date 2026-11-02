@@ -329,10 +329,11 @@ def test_goldens_n2_only_gained_entries():
 
 
 def test_shipped_graph_uses_no_n2_node():
-    """The shipped graph.yaml is unchanged by N2: the user decides later where to use the new nodes."""
+    """The shipped graph.yaml was unchanged by N2 (the user decides where to use the new nodes); the user approved G2
+    (2026-11-02, tests/golden/behaviour-changes-G2.md), which uses exactly these N2 nodes, and no other."""
     text = open(G.DEFAULT_PATH, encoding="utf-8").read()
     used = [i for i in N2["triggers"] + N2["conditions"] if i in text]
-    assert not used, used
+    assert sorted(used) == ["conversation_ended", "conversation_started", "face_count_compare"], used
 
 
 TESTS = [test_mic_triad_and_anti_loop, test_mic_anti_loop, test_mic_level_and_silence, test_expression_triad,

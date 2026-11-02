@@ -95,9 +95,10 @@ def sc_wires(wd):
     print("FALSE WIRES", fw, "doc false links", nfalse, "negated condition nodes", len(negs))
     # CHANGED (lot G1): 5 if/else pairs (+ veille is_deaf) and ONE lone negated condition (relance `not mic_active`,
     # no positive twin on the same trigger)
-    check("if/else: 5 Faux links in the shipped graph, only the lone relance negated condition", nfalse == 5 and
+    # CHANGED (lot G2): 8 Faux links (+ veille opening hours, accueil face count and choix_salutation)
+    check("if/else: 8 Faux links in the shipped graph, only the lone relance negated condition", nfalse == 8 and
           [(n["group"], n["params"].get("guard")) for n in negs] == [("relance", "mic_active")], "%d %d" % (nfalse, len(negs)))
-    check("Faux wires: gradient starts with the condition colour #56d364", len(fw) == 5 and all(x.startswith("#56d364>") for x in fw), str(fw))
+    check("Faux wires: gradient starts with the condition colour #56d364", len(fw) == 8 and all(x.startswith("#56d364>") for x in fw), str(fw))
     # the wire being dragged out of a Faux port starts green too (pointer held between two WebDriver action calls)
     cnd = next(n["id"] for n in d["nodes"] if n["kind"] == "condition" and n["params"].get("guard") == "turns_left" and n.get("group") == "ecoute")
     center_on(wd, cnd)

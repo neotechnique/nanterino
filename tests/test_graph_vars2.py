@@ -518,7 +518,8 @@ def test_default_graph_examples_do_not_change_behaviour():
     assert not [v for v in g.variables.values() if v.persist] and not [li for li in g.lists.values() if li.persist]
     assert g.lists["salutations"].mode == "shuffle" and not g.diagnostics
     used = {c.args.get("list") for s in g.states.values() for t in s.transitions for c in t.do + t.then}
-    assert "salutations" not in used                       # the shuffle example is not spoken by the shipped graph
+    # CHANGED (lot G2): the shuffle lists are now spoken by accueil; the other examples stay unused
+    assert {"salutations", "salutations_groupe"} <= used and g.lists["salutations_groupe"].mode == "shuffle"
     assert not g.timer_watches()
 
 

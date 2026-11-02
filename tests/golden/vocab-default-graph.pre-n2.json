@@ -2978,7 +2978,11 @@
     },
     {
      "id": "salutations",
-     "label": "Exemple : phrases d'accueil pour l'action « Dire une phrase au hasard » (sac mélangé : pas de répétition avant d'avoir tout dit)."
+     "label": "Salutations variées pour un visiteur, dites une fois sur deux à la place de la phrase d'accueil de la configuration (sac mélangé : pas de répétition avant d'avoir tout dit)."
+    },
+    {
+     "id": "salutations_groupe",
+     "label": "Salutations pour un groupe (2 visages ou plus au début de la conversation), sac mélangé."
     }
    ]
   },
@@ -3597,6 +3601,18 @@
     "readonly": false,
     "scope": "global",
     "persist": false
+   },
+   {
+    "id": "choix_salutation",
+    "type": "integer",
+    "value": 1,
+    "description": "Prochaine salutation d'un visiteur seul (G2) : 1 = phrase d'accueil de la configuration, 2 = phrase variée. Tirée à la fin de chaque conversation ; 1 au démarrage.",
+    "system": false,
+    "readonly": false,
+    "scope": "global",
+    "persist": false,
+    "min": 1,
+    "max": 2
    }
   ],
   "lists": [
@@ -3642,11 +3658,26 @@
     "id": "salutations",
     "type": "string",
     "items": [
-     "Bonjour !",
-     "Bonjour, bienvenue !",
-     "Bonjour, je suis Nanterino."
+     "Bonjour et bienvenue ! Moi, c'est Nanterino. Je peux vous guider dans Nanterre ou vous donner des idées pour la planète. Que voulez-vous savoir ?",
+     "Bonjour ! Je suis Nanterino, le robot de Nanterre. Un lieu à trouver, un geste pour l'environnement ? Je vous écoute.",
+     "Bonjour ! Ravi de vous voir. Posez-moi une question sur Nanterre ou sur l'écologie, je vous réponds."
     ],
-    "description": "Exemple : phrases d'accueil pour l'action « Dire une phrase au hasard » (sac mélangé : pas de répétition avant d'avoir tout dit).",
+    "description": "Salutations variées pour un visiteur, dites une fois sur deux à la place de la phrase d'accueil de la configuration (sac mélangé : pas de répétition avant d'avoir tout dit).",
+    "readonly": false,
+    "kind": "list",
+    "mode": "shuffle",
+    "max": null,
+    "scope": "global",
+    "persist": false
+   },
+   {
+    "id": "salutations_groupe",
+    "type": "string",
+    "items": [
+     "Bonjour à tous ! Je suis Nanterino. Je connais les lieux de Nanterre et les bons gestes pour la planète. Posez-moi vos questions, une personne à la fois.",
+     "Bonjour à vous tous, bienvenue ! Moi, c'est Nanterino. Qui veut me poser la première question ?"
+    ],
+    "description": "Salutations pour un groupe (2 visages ou plus au début de la conversation), sac mélangé.",
     "readonly": false,
     "kind": "list",
     "mode": "shuffle",
