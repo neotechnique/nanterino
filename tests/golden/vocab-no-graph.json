@@ -2407,7 +2407,7 @@
   {
    "id": "log_state",
    "label": "Noter l'état du robot dans le journal",
-   "help": "Écrit dans le journal l'état, les tours, les visages, le micro, muet, sourd et le volume (jamais ce que dit le visiteur), puis « Une entrée arrive au journal ».",
+   "help": "Écrit dans le journal l'état, les tours, les visages, le micro, muet, sourd, le volume, les visiteurs du jour et de la veille et les erreurs et avertissements des dernières 24 h (jamais ce que dit le visiteur), puis « Une entrée arrive au journal ».",
    "icon": "flag",
    "theme": "systeme",
    "args": []

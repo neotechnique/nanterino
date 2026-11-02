@@ -424,14 +424,20 @@ def test_if_else_is_one_condition():
     false = [l for l in doc["links"] if l["port"] == "false"]
     # CHANGED (lot G1): the relance "micro fermé" timeout is a lone `{not: mic_active}` guard (no positive twin with
     # the same trigger: its sibling counts since last_speech), so it is the one negated condition drawn on its own.
-    assert [(n["group"], n["params"]["guard"]) for n in negs] == [("relance", "mic_active")], \
+    # CHANGED (lot G3): + the ecoute relance held back while no face is seen (its twin, the visitor-left timeout, waits
+    # 11 s instead of silence_relance_s: another trigger) and the hourly summary skipped at midnight.
+    assert [(n["group"], n["params"]["guard"]) for n in negs] == [("ecoute", "no_face_since"), ("relance", "mic_active"),
+                                                                    ("global", "time_between")], \
         "a negated twin condition is still drawn: %s" % [(n["group"], n["params"]) for n in negs]
     # CHANGED (lot G1): + the veille visage if/else on is_deaf
     # CHANGED (lot G2): + veille opening hours (nested under is_deaf Faux), accueil greeting choice (face count, then
     # choix_salutation under its Faux)
+    # CHANGED (lot G3): + the repair help phrase (reparations = max_reparations, nested under {not: repairs_left}) in
+    # ecoute and relance, + the loud noise bound (var_at_bound bruits_forts) in global
     assert sorted((by[l["from"]]["group"], by[l["from"]]["params"]["guard"]) for l in false) == [
         ("accueil", "face_count_compare"), ("accueil", "var_compare"),
-        ("ecoute", "repairs_left"), ("ecoute", "turns_left"), ("relance", "repairs_left"), ("relance", "turns_left"),
+        ("ecoute", "repairs_left"), ("ecoute", "turns_left"), ("ecoute", "var_compare"), ("global", "var_at_bound"),
+        ("relance", "repairs_left"), ("relance", "turns_left"), ("relance", "var_compare"),
         ("veille", "dans_les_horaires"), ("veille", "is_deaf")], false
     for l in false:   # each Faux output belongs to a condition whose Vrai output is used too
         assert any(k["from"] == l["from"] and k["port"] == "true" for k in doc["links"]), l
@@ -446,7 +452,7 @@ def test_if_else_is_one_condition():
     # redrawing the recompiled graph gives the same drawing (stable round trip)
     doc2 = V.to_visual(raw2)
     assert len(doc2["nodes"]) == len(doc["nodes"]) and len(doc2["links"]) == len(doc["links"])
-    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 8     # CHANGED (lot G1): 4 -> 5 (veille is_deaf); G2: 5 -> 8 (veille hours, accueil x2)
+    assert sum(1 for l in doc2["links"] if l["port"] == "false") == 11    # CHANGED (lot G1): 4 -> 5 (veille is_deaf); G2: 5 -> 8 (veille hours, accueil x2); G3: 8 -> 11 (repair help x2, loud noise)
 
 
 def test_hand_wired_false_branch_compiles():

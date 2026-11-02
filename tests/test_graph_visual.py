@@ -511,8 +511,9 @@ def test_sharing_lighter_and_equivalent():
     assert len(comp["nodes"]) <= 0.76 * len(old["nodes"]) and len(comp["links"]) <= 0.80 * len(old["links"])
     # CHANGED (lot G1): the shipped graph grew from 182 to 198 legacy nodes (deaf note + micro-fermé timeout +
     # max_turns notes); same 76 % ratio on the new size. CHANGED (lot G2): 198 -> 233 legacy nodes (greeting choice,
-    # opening hours, accueil safety delay, next-greeting draw); same ratio.
-    assert len(comp["nodes"]) <= 0.76 * 233, "compact (default) drawing of the shipped graph"
+    # opening hours, accueil safety delay, next-greeting draw); same ratio. CHANGED (lot G3): 233 -> 301 legacy nodes
+    # (visitor left x2, repair help x2 + say_done x2, loud noise x2, journal summary x2); same ratio.
+    assert len(comp["nodes"]) <= 0.76 * 301, "compact (default) drawing of the shipped graph"
     assert [(n["kind"], n["params"]) for n in V.to_visual(raw, legacy=True)["nodes"]] == [(n["kind"], n["params"]) for n in comp["nodes"]], "compact is the legacy default"
     hub = V.to_visual(raw, form="hub")      # CHANGED (lot L1): the hub drawing is no longer the default
     print("  hub drawing: nodes %d, links %d" % (len(hub["nodes"]), len(hub["links"])))
@@ -553,7 +554,12 @@ def test_layout_no_overlap_and_few_crossings():
         # CHANGED: in the hub drawing the wires that return to a state node are excluded from the bound (they cross
         # the whole canvas by nature); crossings inside the chains must still stay low
         x = GL.crossings(doc["nodes"], doc["links"], pos, chains_only=not kw.get("legacy"))
-        assert x <= 12, (kw, x)
+        # CHANGED (lot G3): the legacy go-to drawing (not the editor's drawing since lot L1) of the grown shipped graph
+        # (157 -> 200 compact nodes, long ecoute / relance bands) has 26-29 crossings with all its wires (9-10 before);
+        # the variables drawing the editor shows stays at 0 (checked below and in test_graph_vars)
+        assert x <= (12 if not kw.get("legacy") else 32), (kw, x)
+        if not kw:
+            assert x == 0, x
         if not kw:   # CHANGED (lot L1): the default is the variables drawing: no returning wire at all
             print("  variables drawing: %d crossings inside chains, %d with all wires" % (
                 x, GL.crossings(doc["nodes"], doc["links"], pos)))
@@ -987,12 +993,15 @@ def test_default_column_postits():
 SUBGROUPS_WANTED = {   # lot L13: shipped graph -> sub-group titles per column (reading order)
     "veille": ["Entrée", "Réveil", "Question tapée"],
     "accueil": ["Entrée", "Salutation", "Fin de salutation", "Secours"],   # CHANGED (lot G2)
-    "ecoute": ["Entrée", "Questions", "Pas compris", "Silence → relance", "Départ du visiteur", "Chanson"],
+    "ecoute": ["Entrée", "Questions", "Pas compris", "Fin de l'aide", "Silence → relance", "Visiteur parti",   # CHANGED (lot G3)
+               "Départ du visiteur", "Chanson"],
     "reponse": ["Fin de réponse", "Interruption"],
-    "relance": ["Entrée", "Questions", "Pas compris", "Fin de relance", "Silence → clôture", "Départ du visiteur", "Chanson"],
+    "relance": ["Entrée", "Questions", "Pas compris", "Fin de l'aide", "Fin de relance", "Silence → clôture",   # CHANGED (lot G3)
+                "Visiteur parti", "Départ du visiteur", "Chanson"],
     "cloture": ["Entrée", "Au revoir terminé", "Retour en veille"],
     "eteint": ["Entrée", "Rallumer"],
-    "global": ["Boutons", "Tais-toi", "Chanson", "Question tapée", "Fin de conversation"],   # CHANGED (lot G2)
+    "global": ["Boutons", "Tais-toi", "Chanson", "Question tapée", "Fin de conversation", "Bruit fort",   # CHANGED (G2, G3)
+               "Bilan du journal"],
 }
 
 

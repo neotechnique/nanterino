@@ -261,6 +261,7 @@ class Brain:
         self._store, self._persist_seen, self._persist_ignored = var_store, {}, []
         self._timer_watch, self._timer_fired, self._bags = (), set(), {}
         self._visitors = {"date": "", "count": 0}
+        self._visitors_prev = None   # lot G3: {date, count} of the last finished day (log_state daily summary)
         self._graph = None
         self.rng = random.Random()
         # Lot N1: media playback, text shown by show_text, dashboard notifications, robot journal, server hooks.
@@ -1037,6 +1038,8 @@ class Brain:
     def _visitors_today(self) -> int:
         today = self._wall_dt().date().isoformat()
         if self._visitors["date"] != today:   # midnight (or first use): a new day starts at 0
+            if self._visitors["date"]:        # lot G3: keep the finished day for the midnight summary (log_state)
+                self._visitors_prev = dict(self._visitors)
             self._visitors = {"date": today, "count": 0}
         return self._visitors["count"]
 

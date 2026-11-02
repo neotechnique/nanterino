@@ -22,6 +22,8 @@ as tests/golden/brain-trace-baseline.pre-<lot>.json, then merge the reviewed tra
 (json.dump(..., ensure_ascii=False, indent=0, sort_keys=True)). G1 changed no existing trace and added 3 scenarios.
 G2 (2026-11-02) changed no existing trace either and added 4 (g2_*); since G2 the brain's rng is seeded (H), because the
 shipped graph draws at random (greeting choice, shuffle bags).
+G3 (2026-11-02) changed one existing trace on purpose (not_understood_x3: the help phrase at the repair bound) and added
+10 (g3_*); previous file tests/golden/brain-trace-baseline.pre-g3.json, review in tests/golden/behaviour-changes-G3.md.
 
 How to run (repo root, venv python; pytest is not installed):
     python -m tests.test_brain_graph --record     # write the baseline trace (old brain only)
@@ -31,6 +33,7 @@ How to run (repo root, venv python; pytest is not installed):
 import datetime
 import functools
 import json
+import logging
 import os
 import sys
 import threading
@@ -43,6 +46,7 @@ from robotlog import get_logger  # noqa: E402
 
 from nanterino import brain as brain_mod  # noqa: E402
 from nanterino import config  # noqa: E402
+from nanterino.log import log as nlog  # noqa: E402  (G3 journal summary scenario: the robot's own logger)
 from nanterino.sim import FakeCorpus, FakeIn, FakeLLM, FakeOut, FakeSTT, FakeTTS, Rec  # noqa: E402,F401
 
 log = get_logger("test_brain_graph")
@@ -477,6 +481,149 @@ def _(h):
     h.post("visage"); h.wait_state("ecoute"); h.settle(); h.at("open")
 
 
+# ---- lot G3 (2026-11-02): visitor left, voice / transcription aware relance, loud noise, journal summary, repair help;
+# see tests/golden/behaviour-changes-G3.md. Real (scaled) time like every scenario: the 20 s without a face is set on
+# the brain's own time base (_faces_zero_since, what no_face_since reads), the 11 s silence of the visitor-left rule is
+# really waited (it is a graph constant, not a config delay). Faces: set_faces never posts `visage` (no auto greeting).
+def _no_face_for(h, seconds):
+    """The camera has seen no face for `seconds` already (no_face_since), without waiting for it."""
+    h.brain.set_faces(0)
+    h.brain._faces_zero_since = h.brain.now() - seconds
+
+
+@sc("g3_visitor_left_in_ecoute")
+def _(h):
+    _no_face_for(h, 30)
+    h.post("start"); h.wait_state("ecoute"); h.settle(); h.at("listening")
+    time.sleep(4.0); h.at("no_relance_for_an_empty_room")     # silence_relance_s (3 s) passed: no relance
+    h.wait_state("cloture", 12); h.wait_state("veille", 6); h.settle(); h.at("end")
+
+
+@sc("g3_face_back_relances")
+def _(h):
+    _no_face_for(h, 30)
+    h.post("start"); h.wait_state("ecoute"); h.settle()
+    time.sleep(4.0); h.at("waiting")                          # relance held back: no face for 20 s
+    h.brain.set_faces(1); h.wait_state("relance", 3); h.settle(); h.at("relanced")   # a face again: relance at once
+    h.post("stop"); h.wait_state("veille"); h.settle()
+
+
+@sc("g3_visitor_left_in_relance", silence_cloture_s=20.0)
+def _(h):
+    h.brain.set_faces(1)
+    h.post("start"); h.wait_state("relance", 8); h.settle(); h.at("relance_open")   # a face: the usual relance
+    _no_face_for(h, 30)                                       # ... then the visitor walks away
+    h.wait_state("cloture", 14); h.wait_state("veille", 6); h.settle(); h.at("end")
+
+
+@sc("g3_visitor_talking_is_not_cut")
+def _(h):
+    _no_face_for(h, 30)
+    h.post("start"); h.wait_state("ecoute"); h.settle()
+    time.sleep(8.0); h.speech_start(); h.at("voice")         # a voice off camera: the silence clock restarts
+    time.sleep(1.0); h.brain._busy = True                     # ... and its utterance is being transcribed (slow STT)
+    time.sleep(11.5); h.at("still_listening")                 # 12.5 s after the voice: not cut while transcribing
+    h.brain._busy = False
+    h.say("Où est le parc ?"); h.wait_state("reponse", 3); h.wait_state("ecoute", 5); h.settle(); h.at("answered")
+    h.post("stop"); h.wait_state("veille"); h.settle()
+
+
+@sc("g3_relance_voice_restarts_delay")
+def _(h):
+    h.brain.set_faces(1)
+    h.post("start"); h.wait_state("relance", 8); h.settle()   # relance said, mic open again (relance_done)
+    time.sleep(2.0); h.speech_start()
+    time.sleep(2.0); h.at("voice_kept")                       # 4 s after relance_done (> 3 s) but 2 s after the voice
+    h.wait_state("cloture", 4); h.wait_state("veille", 6); h.settle(); h.at("end")
+
+
+@sc("g3_relance_waits_transcription")
+def _(h):
+    h.brain.set_faces(1)
+    h.post("start"); h.wait_state("relance", 8); h.settle()
+    h.speech_start(); time.sleep(0.5); h.brain._busy = True   # the visitor answers; the STT is slow
+    time.sleep(4.0); h.at("busy_kept")                        # silence_cloture_s (3 s) passed during the transcription
+    h.brain._busy = False
+    h.say("Où est le parc ?"); h.wait_state("reponse", 3); h.wait_state("ecoute", 5); h.settle(); h.at("answered")
+    h.post("stop"); h.wait_state("veille"); h.settle()
+
+
+def _noise(h):
+    """One loud noise on the open mic: level 0.7 for three heartbeat ticks, then quiet (loud_noise re-arms below 0.3)."""
+    h.brain.mic.level = 0.7; time.sleep(0.3)
+    h.brain.mic.level = 0.0; time.sleep(0.3)
+
+
+def _var(h, name):
+    h.rec.add("var", name, h.brain.vars.get(name))
+
+
+@sc("g3_loud_noise_bounded")
+def _(h):
+    h.brain.set_faces(1)
+    h.post("start"); h.wait_state("ecoute"); h.settle()
+    time.sleep(1.5); _noise(h); _var(h, "bruits_forts")        # 1st noise: silence delay restarted
+    time.sleep(1.5); _noise(h); _var(h, "bruits_forts")        # 2nd: restarted again (bound reached)
+    h.at("two_noises")                                         # > 3 s in ecoute, still listening
+    time.sleep(1.0); _noise(h); _var(h, "bruits_forts")        # 3rd: only a note, the delay keeps running
+    h.wait_state("relance", 4); h.settle(); h.at("relanced")
+    h.post("stop"); h.wait_state("veille"); h.settle(); _var(h, "bruits_forts")   # conversation scope: back to 0
+
+
+def _wall_dt(h, *dt):
+    t = datetime.datetime(*dt).timestamp()
+    h.brain.wall = lambda: t
+
+
+SUMMARY_KEYS = ("etat", "visiteurs_jour", "visiteurs_veille", "erreurs_24h", "avertissements_24h")
+
+
+def _summary(msg):
+    """The counters of a log_state line (or the midnight note), never anything a visitor said."""
+    if msg.startswith("graph note: Nouveau jour"):
+        return "note nouveau jour"
+    fields = dict(p.split("=", 1) for p in msg[len("graph state: "):].replace(" (", "_(").split(" ") if "=" in p)
+    return " ".join("%s=%s" % (k, fields.get(k)) for k in SUMMARY_KEYS)
+
+
+@sc("g3_journal_summary")
+def _(h):
+    lines = []
+    handler = logging.Handler()
+    handler.emit = lambda r: lines.append(r.getMessage())
+    nlog.addHandler(handler)
+    try:
+        _wall_dt(h, 2026, 11, 2, 10, 0, 5); time.sleep(1.3)     # the clock check has seen 10:00 (first check: no event)
+        h.post("start"); h.wait_state("ecoute"); h.post("stop"); h.wait_state("veille"); h.settle()   # 1 visitor today
+        _wall_dt(h, 2026, 11, 2, 11, 0, 5); time.sleep(1.3)     # hour_changed 11: hourly state line
+        _wall_dt(h, 2026, 11, 3, 0, 0, 5); time.sleep(1.3)      # midnight: hour 0 skipped, day_changed: note + line
+    finally:
+        nlog.removeHandler(handler)
+    for m in lines:
+        if m.startswith("graph state:") or m.startswith("graph note: Nouveau jour"):
+            h.rec.add("journal", _summary(m))
+
+
+@sc("g3_repair_help_in_relance")
+def _(h):
+    h.post("start"); h.settle()
+    for i in range(2):
+        h.say("euh"); h.settle(); h.at("repeat_%d" % i)      # two « répétez » (relance)
+    h.say("euh"); h.settle(); h.at("help")                    # bound: one help phrase, mic closed then reopened
+    h.say("euh"); h.settle(); h.at("silent_after_help")       # later ones: silent
+    h.post("stop"); h.wait_state("veille"); h.settle()
+
+
+@sc("g3_repair_help_in_ecoute")
+def _(h):
+    h.post("start"); h.settle()
+    h.say("euh"); h.settle(); h.say("euh"); h.settle()        # two « répétez »: the counter is at its bound
+    h.post("hush"); h.wait_state("ecoute"); h.settle()        # « tais-toi » in relance: back to ecoute, counter kept
+    h.say("euh"); h.settle(); h.at("help")                    # the help phrase in ecoute
+    h.say("euh"); h.settle(); h.at("silent_after_help")
+    h.post("stop"); h.wait_state("veille"); h.settle()
+
+
 def run_scenario(name):
     fn, over = SCENARIOS[name]
     h = H(over)
@@ -692,6 +839,68 @@ def test_g2_greeting_never_traps():
         h.close()
 
 
+G3_BOUND_S = 18.0   # visitor-left 11 s (a graph constant) + goodbye clip + 0.3 s pause, or relance 0.6 s + micro_ferme 1 s
+
+
+def test_g3_never_traps():
+    """Lot G3: every new chain ends. (a) deaf, no face for 20 s: from every conversation state the robot reaches veille
+    within G3_BOUND_S (the ecoute relance waits for the visitor-left rule, which needs no mic); (b) the help phrase is
+    cut by « tais-toi » in ecoute (no say_done, mic left closed): the relance delay still runs, the robot ends in
+    veille; (c) a loud noise every second in ecoute: two silence restarts at most, the robot still relances and
+    concludes (bruits_forts bound); (d) after the help phrase nothing else comes: back to veille by the usual delays."""
+    for state in [s for s in STATES if s != "eteint"]:   # (a)
+        h = H({"deaf": True, "silence_relance_s": 0.6, "silence_cloture_s": 1.0})
+        try:
+            _no_face_for(h, 30)
+            if state == "veille":
+                h.post("start"); h.wait_state("accueil")
+            else:
+                reach(h, state)
+            h.unhold()
+            t0 = time.monotonic()
+            h.wait_state("veille", G3_BOUND_S)
+            print("  G3 deaf, no face, from %-8s -> veille in %.1fs" % (state, time.monotonic() - t0), flush=True)
+        except AssertionError as e:
+            raise AssertionError("(a) from %s: %s" % (state, e)) from None
+        finally:
+            h.close()
+    h = H({"silence_relance_s": 1.0, "silence_cloture_s": 1.0})
+    try:   # (b)
+        h.post("start"); h.settle()
+        h.say("euh"); h.settle(); h.say("euh"); h.settle()
+        h.post("hush"); h.wait_state("ecoute"); h.settle()
+        h.hold()                                  # the help phrase keeps playing ...
+        h.say("euh"); h.wait(lambda: h.brain.out.busy, 3)
+        h.post("hush")                            # ... and is cut: no say_done, the mic stays closed
+        h.out.dur = 0.1
+        h.wait_state("veille", G3_BOUND_S)
+        assert any(e[:4] == ["go", "relance", "cloture", "silence"] for e in h.rec.events), h.rec.events[-8:]
+    finally:
+        h.close()
+    h = H({"silence_relance_s": 2.0, "silence_cloture_s": 2.0})
+    try:   # (c)
+        h.brain.set_faces(1)
+        h.post("start"); h.wait_state("ecoute"); h.settle()
+        t0, end = time.monotonic(), time.monotonic() + 30
+        while h.brain.state != "veille" and time.monotonic() < end:
+            _noise(h); time.sleep(0.4)            # one loud noise per second, the whole time
+        took = time.monotonic() - t0
+        assert h.brain.state == "veille", "a noisy hall kept the robot in %s" % h.brain.state
+        assert h.brain.vars.get("bruits_forts") == 0, h.brain.vars.get("bruits_forts")
+        print("  G3 loud noise every second -> veille in %.1fs" % took, flush=True)
+    finally:
+        h.close()
+    h = H({"silence_relance_s": 1.0, "silence_cloture_s": 1.0})
+    try:   # (d)
+        h.post("start"); h.settle()
+        for _ in range(3):
+            h.say("euh"); h.settle()
+        assert any(e[0] == "play" and e[1].startswith("Je n'arrive pas") for e in h.rec.events), h.rec.events[-6:]
+        h.wait_state("veille", G3_BOUND_S)
+    finally:
+        h.close()
+
+
 def test_heartbeat_rate_and_lag():
     h = H({})
     try:
@@ -741,7 +950,7 @@ def test_watchdog_trips_once_and_recovers():
 EXTRA_TESTS = [test_default_graph_valid, test_invalid_graphs_rejected,
                test_invalid_override_falls_back_and_robot_starts, test_valid_override_and_reload_rules,
                test_visage_perdu_is_ignored_by_default_graph, test_deaf_never_traps, test_g2_greeting_never_traps,
-               test_heartbeat_rate_and_lag,
+               test_g3_never_traps, test_heartbeat_rate_and_lag,
                test_watchdog_trips_once_and_recovers]
 
 

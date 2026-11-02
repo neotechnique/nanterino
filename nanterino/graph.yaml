@@ -30,6 +30,20 @@
 #   - hors des horaires d'ouverture (clé opening_hours, vide par défaut = toujours ouvert), un visage n'entraîne pas
 #     d'accueil automatique (note au journal) ; Démarrer et « Nanterino » saluent toujours.
 #   Détail et justification : tests/golden/behaviour-changes-G2.md.
+# Lot G3 (2026-11-02) : nœuds du lot N3 :
+#   - visiteur parti : en écoute et en relance, plus aucun visage depuis 20 s ET 11 s de silence (le micro coupe une
+#     phrase du visiteur à max_utterance_s = 10 s + 0,8 s de fin de phrase : au-delà, personne ne parle), robot muet de
+#     son côté et aucune transcription en cours : dire au revoir (motif visiteur_parti) au lieu de relancer une salle
+#     vide. Seuils = constantes du graphe (20 et 11), modifiables dans l'éditeur. L'exemple visage_perdu reste désactivé ;
+#   - le début d'une phrase du visiteur remet déjà le chrono de silence à zéro (Brain._on_speech_start) : pas de règle en
+#     double ; en relance, la clôture sur silence attend en plus la fin d'une transcription en cours ;
+#   - bruit fort pendant la conversation : note au journal et chrono de silence remis à zéro, 2 fois au plus par
+#     conversation (variable bruits_forts), pour ne jamais garder le robot éveillé dans un hall bruyant ;
+#   - bilan au journal : chaque heure et à minuit, une ligne d'état avec les visiteurs du jour (et de la veille) et le
+#     nombre d'erreurs (jamais de texte du visiteur) ;
+#   - trop de « pas compris » : à la limite des demandes de répétition, une phrase d'aide courte (voix calculée au
+#     chargement), puis le micro se rouvre et les délais habituels reprennent.
+#   Détail et justification : tests/golden/behaviour-changes-G3.md.
 version: 1
 
 states:
@@ -106,12 +120,23 @@ states:
     description: "Le robot écoute la question du visiteur."
     on_enter: [subtitle_listening, reset_silence, mic_on]
     transitions:
+      # G3: an empty room is not relaunched. The pair splits on the same no-face guard: no face for 20 s -> the relance
+      # waits and the visitor-left rule below says goodbye at 11 s of silence (a face back in time -> relance at once).
+      # 11 s > max_utterance_s (10) + vad_silence_ms (0.8 s): the mic thread resets last_speech at every speech start
+      # and at every utterance end, so 11 s of silence means nobody is talking; not_busy = no transcription running.
       - after: silence_relance_s
         since: last_speech
-        when: not_busy
+        when: [not_busy, {not: {no_face_since: {op: ">=", seconds: 20}}}]
         to: relance
         reason: silence
-        description: "Silence prolongé (silence_relance_s, 8 s) et aucune transcription en cours : relancer."
+        description: "Silence prolongé (silence_relance_s, 8 s) et aucune transcription en cours : relancer (G3 : sauf si plus aucun visage depuis 20 s)."
+      - after: 11
+        since: last_speech
+        when: [not_busy, not_speaking, {no_face_since: {op: ">=", seconds: 20}}]
+        do: [{log_note: {level: info, text: "Plus de visage depuis 20 s ni de parole depuis 11 s : au revoir (visiteur parti)."}}]
+        to: cloture
+        reason: visiteur_parti
+        description: "Visiteur parti (G3) : plus aucun visage depuis 20 s et 11 s de silence (au-delà de la phrase la plus longue), le robot ne parle pas et ne transcrit rien : dire au revoir sans relancer une salle vide."
       - on: intent.au_revoir
         to: cloture
         reason: refus
@@ -139,10 +164,20 @@ states:
         to: relance
         reason: pas_compris
         description: "Bruit ou parole inexploitable : demander de répéter (2 fois au plus de suite)."
+      # G3: at the bound (reparations = max_reparations, i.e. the first "pas compris" after two « répétez ») one short help
+      # phrase, mic closed while it plays (the robot must not hear itself), reopened on say_done; later ones stay silent.
+      # Nested if/else under {not: repairs_left}, pure guards (judged before count_repair runs).
       - on: not_understood
-        when: [not_speaking, {not: repairs_left}]
+        when: [not_speaking, {not: repairs_left}, {var_compare: {name: reparations, op: "=", value: $max_reparations}}]
+        do: [count_repair, mic_off, {say_text: {text: "Je n'arrive pas à bien vous entendre. Approchez-vous un peu et posez une question courte."}}]
+        description: "Trop de « pas compris » (G3) : une phrase d'aide, une seule fois, micro coupé pendant qu'il parle."
+      - on: not_understood
+        when: [not_speaking, {not: repairs_left}, {not: {var_compare: {name: reparations, op: "=", value: $max_reparations}}}]
         do: [count_repair]
-        description: "Déjà deux demandes de répétition : ne plus insister, les délais prennent le relais."
+        description: "Aide déjà donnée : ne plus insister, les délais prennent le relais."
+      - on: say_done
+        do: [reset_silence, mic_on]
+        description: "Phrase d'aide terminée (G3) : rouvrir le micro, le chrono de silence repart de zéro."
       - on: visage_perdu
         enabled: false
         to: cloture
@@ -167,15 +202,28 @@ states:
       - on: relance_done
         do: [reset_silence, mic_on]
         description: "Relance terminée : rouvrir le micro, fenêtre de réponse de silence_cloture_s."
+      # G3: the speech start already moved last_speech (Brain._on_speech_start), so a visitor who starts answering
+      # restarts this delay without any extra rule; not_busy also waits for a transcription still running.
       - after: silence_cloture_s
         since: last_speech
-        when: mic_active
+        when: [mic_active, not_busy]
         to: cloture
         reason: silence
-        description: "Toujours rien (silence_cloture_s, 15 s) : conclure."
+        description: "Toujours rien (silence_cloture_s, 15 s, compté depuis le début de la dernière phrase entendue) et aucune transcription en cours : conclure."
+      # G3: visitor left (same guard as in ecoute); mic_active = the window opened by relance_done (a deaf robot keeps
+      # the micro_ferme rule below).
+      - after: 11
+        since: last_speech
+        when: [mic_active, not_busy, not_speaking, {no_face_since: {op: ">=", seconds: 20}}]
+        do: [{log_note: {level: info, text: "Plus de visage depuis 20 s ni de parole depuis 11 s : au revoir (visiteur parti)."}}]
+        to: cloture
+        reason: visiteur_parti
+        description: "Visiteur parti (G3) : après la relance, plus aucun visage depuis 20 s et 11 s de silence : conclure sans attendre silence_cloture_s."
+      # G3: robot_quiet_since >= 1 closes the short window between the end of a phrase (help phrase, relance) and its
+      # done event, during which the mic is still closed.
       - after: silence_cloture_s
         since: state
-        when: [{not: mic_active}, not_speaking]
+        when: [{not: mic_active}, not_speaking, {robot_quiet_since: {op: ">=", seconds: 1}}]
         do: [{log_note: {level: info, text: "Relance sans micro ouvert (sourd ou micro absent) : clôture."}},
              {notify_dashboard: {text: "Micro fermé (mode sourd ?) : la conversation s'est close sans réponse.", level: warning}}]
         to: cloture
@@ -208,10 +256,18 @@ states:
         to: relance
         reason: pas_compris
         description: "Parole inexploitable : demander de répéter (2 fois au plus de suite)."
+      # G3: same help phrase as in ecoute (nested if/else, pure guards).
       - on: not_understood
-        when: [not_speaking, {not: repairs_left}]
+        when: [not_speaking, {not: repairs_left}, {var_compare: {name: reparations, op: "=", value: $max_reparations}}]
+        do: [count_repair, mic_off, {say_text: {text: "Je n'arrive pas à bien vous entendre. Approchez-vous un peu et posez une question courte."}}]
+        description: "Trop de « pas compris » (G3) : une phrase d'aide, une seule fois, micro coupé pendant qu'il parle."
+      - on: not_understood
+        when: [not_speaking, {not: repairs_left}, {not: {var_compare: {name: reparations, op: "=", value: $max_reparations}}}]
         do: [count_repair]
-        description: "Déjà deux demandes de répétition : ne plus insister."
+        description: "Aide déjà donnée : ne plus insister."
+      - on: say_done
+        do: [reset_silence, mic_on]
+        description: "Phrase d'aide terminée (G3) : rouvrir le micro, nouvelle fenêtre de réponse de silence_cloture_s."
       - on: visage_perdu
         enabled: false
         to: cloture
@@ -280,6 +336,31 @@ global:
   - on: conversation_ended
     do: [{random_choice: {name: choix_salutation, count: 2}}]
     description: "Fin d'une conversation : tirer au hasard la prochaine salutation (1 = phrase de la configuration, 2 = phrase variée)."
+  # G3: a loud noise (open mic level >= 60, re-armed below 30) during the conversation restarts the silence delay, so the
+  # robot does not relance or conclude over a crash; bounded: bruits_forts (scope conversation, max 2) stops it after
+  # two noises, a noisy hall can delay the end by two silence windows at most. Pure exclusive guards (non-moving
+  # chains); positive guard first so the pair draws as one if/else.
+  - on: loud_noise
+    only_in: [ecoute, relance]
+    when: {var_at_bound: {name: bruits_forts}}
+    do: [{log_note: {level: info, text: "Bruit fort : délai déjà prolongé 2 fois dans cette conversation, rien de plus."}}]
+    description: "Bruit fort, limite atteinte (G3) : seulement une note, pour que le robot finisse quand même par conclure dans un hall bruyant."
+  - on: loud_noise
+    only_in: [ecoute, relance]
+    when: {not: {var_at_bound: {name: bruits_forts}}}
+    do: [{log_note: {level: info, text: "Bruit fort pendant la conversation : délai de silence prolongé."}},
+         {add_var: {name: bruits_forts, delta: 1}}, reset_silence]
+    description: "Bruit fort pendant la conversation (G3) : note au journal, le délai de silence repart de zéro (2 fois au plus par conversation)."
+  # G3: journal summary (counters only, never what a visitor said). The state line carries the visitors of the day and
+  # of the previous day and the errors of the last 24 h; at midnight hour_changed comes first and day_changed writes it.
+  - on: hour_changed
+    when: {not: {time_between: {start: "00:00", end: "01:00"}}}
+    do: [log_state]
+    description: "Bilan de l'heure (G3) : une ligne d'état au journal (visiteurs du jour, erreurs), sauf à minuit."
+  - on: day_changed
+    do: [{log_note: {level: info, text: "Nouveau jour : bilan de la veille (visiteurs_veille, erreurs des dernières 24 h) sur la ligne suivante."}},
+         log_state]
+    description: "Bilan du jour (G3) : à minuit, une note puis une ligne d'état avec les visiteurs de la veille ; le compteur du jour repart de zéro."
 
 intents:
   appel:
@@ -328,6 +409,12 @@ variables:
       min: 1
       max: 2
       description: "Prochaine salutation d'un visiteur seul (G2) : 1 = phrase d'accueil de la configuration, 2 = phrase variée. Tirée à la fin de chaque conversation ; 1 au démarrage."
+    bruits_forts:
+      type: integer
+      value: 0
+      max: 2
+      scope: conversation
+      description: "Bruits forts qui ont déjà prolongé le délai de silence dans cette conversation (G3) ; à 2 (sa limite), un bruit ne prolonge plus rien. Remise à 0 à chaque conversation."
   lists:
     mots_refus:
       type: string

@@ -314,11 +314,13 @@ def test_drop_a_file():
 def test_missing_module_breaks_golden():
     """Built-in mutation check: the golden test detects an action file that disappeared."""
     root = package_copy("mutant")
-    os.remove(os.path.join(root, "nanterino", "nodes", "actions", "say_text.py"))
+    # CHANGED (lot G3): show_text, not say_text, since the shipped graph says its repair help phrase with say_text
+    # (a missing module the shipped graph uses makes the probe fail to load it, which is another check)
+    os.remove(os.path.join(root, "nanterino", "nodes", "actions", "show_text.py"))
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert "say_text" not in res["actions"] and len(res["actions"]) == 64   # 65 since lot N3
+    assert "show_text" not in res["actions"] and len(res["actions"]) == 64   # 65 since lot N3
     assert sorted(res["golden_diff"]) == ["vocab-default-graph.json", "vocab-no-graph.json"], res["golden_diff"]
 
 

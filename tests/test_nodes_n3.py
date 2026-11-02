@@ -485,6 +485,8 @@ def test_systeme_nodes():
         log.removeHandler(handler)
     msg = [m for m in seen if m.startswith("graph state:")]
     assert msg and "etat=veille" in msg[0] and "secret" not in " ".join(seen), seen
+    # G3 (daily / hourly summary): visitor counters and the journal's errors / warnings (clear_errors left the warning)
+    assert "visiteurs_jour=0 visiteurs_veille=? erreurs_24h=0 avertissements_24h=1" in msg[0], msg[0]
     assert b.journal_notes[-1][1] == "info"
     assert not guard(b, "graph_update_waiting")
     b.graph_pending = True
@@ -544,11 +546,14 @@ def test_goldens_n3_only_gained_entries():
         assert stripped.encode("utf-8") == old, "%s minus the N3 entries (moved themes restored) is not the pre-N3 golden" % name
 
 
-def test_shipped_graph_uses_no_n3_node():
-    """Lot N3 leaves graph.yaml unchanged (see the lot report: no clear behaviour gain worth a re-baseline)."""
+def test_shipped_graph_uses_only_g3_n3_nodes():
+    """Lot N3 left graph.yaml unchanged; the user approved G3 (2026-11-02, tests/golden/behaviour-changes-G3.md), which
+    uses exactly these N3 nodes, and no other (replaces test_shipped_graph_uses_no_n3_node). The trigger voice_detected
+    is deliberately NOT used: Brain._on_speech_start already restarts the silence clock (a rule would double count)."""
     text = open(G.DEFAULT_PATH, encoding="utf-8").read()
     used = [i for ids in N3.values() for i in ids if i in text]
-    assert used == [], used
+    assert sorted(used) == ["day_changed", "hour_changed", "log_state", "loud_noise", "no_face_since",
+                            "robot_quiet_since", "var_at_bound"], used
 
 
 TESTS = [test_speech_started_quiet_and_said, test_speaker_level_and_phrase_ready, test_media_is_and_song_available,
@@ -557,7 +562,7 @@ TESTS = [test_speech_started_quiet_and_said, test_speaker_level_and_phrase_ready
          test_vars_restored_and_save_now, test_list_emptied_and_filled, test_dict_key_triads, test_hour_and_day_changed,
          test_schedule_cancel_triad, test_reset_idle_and_shift_date, test_systeme_nodes,
          test_theme_moves_and_per_theme_counts, test_visual_roundtrip, test_vocabulary_of_the_new_nodes,
-         test_goldens_n3_only_gained_entries, test_shipped_graph_uses_no_n3_node]
+         test_goldens_n3_only_gained_entries, test_shipped_graph_uses_only_g3_n3_nodes]
 
 
 def main(argv):

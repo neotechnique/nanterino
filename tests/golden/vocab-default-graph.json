@@ -2407,7 +2407,7 @@
   {
    "id": "log_state",
    "label": "Noter l'état du robot dans le journal",
-   "help": "Écrit dans le journal l'état, les tours, les visages, le micro, muet, sourd et le volume (jamais ce que dit le visiteur), puis « Une entrée arrive au journal ».",
+   "help": "Écrit dans le journal l'état, les tours, les visages, le micro, muet, sourd, le volume, les visiteurs du jour et de la veille et les erreurs et avertissements des dernières 24 h (jamais ce que dit le visiteur), puis « Une entrée arrive au journal ».",
    "icon": "flag",
    "theme": "systeme",
    "args": []
@@ -5370,6 +5370,17 @@
     "scope": "global",
     "persist": false,
     "min": 1,
+    "max": 2
+   },
+   {
+    "id": "bruits_forts",
+    "type": "integer",
+    "value": 0,
+    "description": "Bruits forts qui ont déjà prolongé le délai de silence dans cette conversation (G3) ; à 2 (sa limite), un bruit ne prolonge plus rien. Remise à 0 à chaque conversation.",
+    "system": false,
+    "readonly": false,
+    "scope": "conversation",
+    "persist": false,
     "max": 2
    }
   ],

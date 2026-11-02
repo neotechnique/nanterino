@@ -2720,6 +2720,17 @@
     "persist": false,
     "min": 1,
     "max": 2
+   },
+   {
+    "id": "bruits_forts",
+    "type": "integer",
+    "value": 0,
+    "description": "Bruits forts qui ont déjà prolongé le délai de silence dans cette conversation (G3) ; à 2 (sa limite), un bruit ne prolonge plus rien. Remise à 0 à chaque conversation.",
+    "system": false,
+    "readonly": false,
+    "scope": "conversation",
+    "persist": false,
+    "max": 2
    }
   ],
   "lists": [

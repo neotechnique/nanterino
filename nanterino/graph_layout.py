@@ -175,6 +175,10 @@ SUB_RULES = {
     ("accueil", "conversation_started"): "salutation", ("accueil", "say_done"): "fin_salutation",
     ("global", "conversation_ended"): "fin_conversation",
     (None, "intent.question"): "questions", (None, "not_understood"): "pas_compris",
+    # G3: the help phrase at the repair bound ends with say_done (ecoute, relance; accueil keeps its own rule above);
+    # loud noises and the journal summary are global rules
+    (None, "say_done"): "fin_aide", ("global", "loud_noise"): "bruit",
+    ("global", "hour_changed"): "bilan", ("global", "day_changed"): "bilan",
     (None, "intent.au_revoir"): "depart", (None, "visage_perdu"): "depart",
     (None, "intent.chanson"): "chanson", (None, "sing"): "chanson",
     (None, "answer_done"): "fin_reponse", (None, "barge_in"): "interruption",
@@ -184,10 +188,14 @@ SUB_RULES = {
 }
 SUB_AFTER = {"silence_relance_s": "silence_relance", "silence_cloture_s": "silence_cloture"}
 # (column, delay) first (G2: the accueil safety delay is not a silence rule), then SUB_AFTER
-SUB_AFTER_COL = {("accueil", "silence_cloture_s"): "secours"}
+# G3: the visitor-left rules use the graph constant 11 (seconds of silence, see graph.yaml); an edited delay simply
+# leaves that chain loose (no frame), it never breaks the drawing
+SUB_AFTER_COL = {("accueil", "silence_cloture_s"): "secours", ("ecoute", "11"): "visiteur_parti",
+                 ("relance", "11"): "visiteur_parti"}
 SUB_ORDER = ["entree", "boutons", "tais_toi", "reveil", "salutation", "fin_salutation", "secours", "questions", "pas_compris",
-             "silence_relance", "fin_reponse", "interruption", "fin_relance", "silence_cloture", "depart", "chanson",
-             "question_tapee", "fin_conversation", "au_revoir_termine", "retour_veille", "rallumer", "autres"]
+             "fin_aide", "silence_relance", "fin_reponse", "interruption", "fin_relance", "silence_cloture",
+             "visiteur_parti", "depart", "chanson", "question_tapee", "fin_conversation", "bruit", "bilan",
+             "au_revoir_termine", "retour_veille", "rallumer", "autres"]
 SUB_TITLES = {
     "entree": "Entrée", "reveil": "Réveil", "question_tapee": "Question tapée", "fin_salutation": "Fin de salutation",
     "questions": "Questions", "pas_compris": "Pas compris", "silence_relance": "Silence → relance",
@@ -196,6 +204,7 @@ SUB_TITLES = {
     "au_revoir_termine": "Au revoir terminé", "retour_veille": "Retour en veille", "rallumer": "Rallumer",
     "boutons": "Boutons", "tais_toi": "Tais-toi", "autres": "Autres",
     "salutation": "Salutation", "secours": "Secours", "fin_conversation": "Fin de conversation",
+    "visiteur_parti": "Visiteur parti", "fin_aide": "Fin de l'aide", "bruit": "Bruit fort", "bilan": "Bilan du journal",
 }
 # short French post-it text of a sub-group: (column, key) first, then the key alone
 SUB_TEXTS = {
@@ -217,9 +226,15 @@ SUB_TEXTS = {
     "secours": "Rien n'a fini la salutation après 15 s : écouter quand même (jamais bloqué en accueil).",
     "fin_conversation": "Fin d'une conversation : tirer au hasard la prochaine salutation d'un visiteur seul.",
     "questions": "Une question reçoit une réponse ; après trop d'échanges, le robot conclut.",
-    "pas_compris": "Parole inexploitable : faire répéter (2 fois au plus), puis ne plus insister.",
-    "silence_relance": "Silence prolongé : relancer le visiteur.",
-    "silence_cloture": "Toujours rien après la relance (ou micro fermé, robot sourd) : conclure.",
+    "pas_compris": "Parole inexploitable : faire répéter (2 fois au plus), puis une phrase d'aide, puis ne plus insister.",
+    "silence_relance": "Silence prolongé : relancer le visiteur, sauf s'il n'y a plus de visage depuis 20 s.",
+    "silence_cloture": "Toujours rien après la relance, aucune transcription en cours (ou micro fermé, robot sourd) : conclure.",
+    # G3 sub-groups
+    "visiteur_parti": "Plus de visage depuis 20 s et 11 s de silence : dire au revoir sans relancer une salle vide.",
+    ("relance", "visiteur_parti"): "Après la relance, plus de visage depuis 20 s et 11 s de silence : conclure plus tôt.",
+    "fin_aide": "Phrase d'aide dite : rouvrir le micro, le chrono de silence repart de zéro.",
+    "bruit": "Bruit fort pendant la conversation : note au journal, délai de silence prolongé (2 fois au plus).",
+    "bilan": "Chaque heure et à minuit : une ligne d'état au journal (visiteurs, erreurs), jamais ce que dit le visiteur.",
     "depart": "Le visiteur part (au revoir, ou visage perdu si activé) : dire au revoir.",
     "chanson": "Une chanson demandée : le robot chante.",
     ("global", "chanson"): "Événement sing : couper le reste et chanter (sauf éteint).",

@@ -13,7 +13,9 @@ cd /opt/robot/nanterino || exit 2
 rc=0
 for t in test_brain_graph test_graph_visual test_graph_features test_graph_vars test_graph_vars2 test_nodes_registry test_vartypes_registry test_properties test_nodes_n1 test_nodes_n2 test_nodes_n3 test_graph_snapshot_jobs test_web_assets test_web_modules; do
   start=$(date +%s)
-  timeout 400 .venv/bin/python -m tests.$t > /tmp/graph-tests-$t.log 2>&1
+  # G3: 700 s per suite (was 400): brain_graph runs 85 real-time traces + the no-trap tests (~470 s), graph_visual
+  # replays the same 85 traces on the compiled graph
+  timeout 700 .venv/bin/python -m tests.$t > /tmp/graph-tests-$t.log 2>&1
   r=$?
   [ $r -ne 0 ] && rc=1
   log_info "$t exit=$r $(( $(date +%s) - start ))s"

@@ -180,7 +180,8 @@ def test_sim_matches_real_brain_and_parity():
     chains = [e["chain"] for e in res["trace"] if e["moved"]]
     # CHANGED (lot G1): the visage greeting is veille/t1 (t0 = the deaf-face note chain)
     # CHANGED (lot G2): accueil greeting_done is accueil/t3 (t0..t2 = the greeting choice on conversation_started)
-    assert chains == ["veille/t1", "accueil/t3", "ecoute/t1", "cloture/t1"], chains
+    # CHANGED (lot G3): the au revoir chain is ecoute/t2 (t1 = the visitor-left timeout)
+    assert chains == ["veille/t1", "accueil/t3", "ecoute/t2", "cloture/t1"], chains
     # CHANGED (lot L1): `final` also carries the variable values (system ones included)
     fv = res["final"].pop("vars")
     assert fv["names"]["etat"] == "veille" and fv["names"]["tours"] == 0 and "salutations" in fv["lists"], fv
@@ -191,7 +192,9 @@ def test_sim_matches_real_brain_and_parity():
     # timers: silence -> relance -> cloture -> veille on the virtual clock only
     t0 = time.monotonic()
     res = run(default_raw(), [{"event": "start"}, {"wait_s": 60}], cfg={"silence_relance_s": 8, "silence_cloture_s": 15})
-    assert [m[2] for m in moves(res)] == ["ui", "greeting_done", "silence", "silence", "cloture_done"], moves(res)
+    # CHANGED (lot G3): the simulated room has no face at all, so 20 s after the start the relance window ends with the
+    # visitor-left rule (11 s of silence) instead of silence_cloture_s
+    assert [m[2] for m in moves(res)] == ["ui", "greeting_done", "silence", "visiteur_parti", "cloture_done"], moves(res)
     assert time.monotonic() - t0 < 5, "60 virtual seconds must not take real time"
 
 
