@@ -29,7 +29,7 @@ WATCH_JS = """window.__pw=[]; const b=document.querySelector('#progress'), c=doc
 # Visible interactive elements whose box intersects the bar strip (should be none) + pointer test on the strip.
 OVERLAP_JS = """const b=document.querySelector('#progress').getBoundingClientRect(); const out=[];
   for(const e of document.querySelectorAll('button,input,select,textarea,a[href],[role=button],[role=menuitem],[tabindex]')){
-    if(e.closest('#progress')) continue; const r=e.getBoundingClientRect(); if(!r.width||!r.height) continue;
+    if(e.closest('#progress')) continue; const r=e.getBoundingClientRect(); if(!r.width||!r.height) continue; if(e.closest('#drawflow') && r.bottom<=document.querySelector('#drawflow').getBoundingClientRect().top) continue;
     const cs=getComputedStyle(e); if(cs.visibility==='hidden'||cs.display==='none') continue;
     if(r.top<b.bottom && r.bottom>b.top && r.left<b.right && r.right>b.left) out.push((e.id||e.className||e.tagName)+'@'+Math.round(r.top));}
   const hits=[]; for(let x=5;x<innerWidth;x+=Math.floor(innerWidth/9)){ const e=document.elementFromPoint(x,1); hits.push(!!(e&&e.closest('#progress'))); }

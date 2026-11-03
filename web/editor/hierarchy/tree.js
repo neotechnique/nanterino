@@ -1,14 +1,14 @@
 /**
  * Hierarchy (lot L10): Unity-style tree of the left column.
  *
- * Purpose :  buildTree / renderTree (columns > nested groups > chains > post-its), fold state, rename, drag a row into a
- *            group (moveInto).
+ * Purpose :  buildTree / renderTree (S1: domains > columns > nested groups > chains > post-its), fold state, rename, drag a
+ *            row into a group (moveInto) or a column row onto a domain row (S1, moveColumnToDomain).
  * Boundary:  DOM of the editor page and the shared state S only, no network call. Moved unchanged out of the former
  *            single-file editor.js (lot M6).
  * Depends :  core/util.js, core/state.js, inspector/property-picker.js, core/api.js, canvas/nodes.js, core/history.js,
  *            diagnostics/check.js, canvas/view.js, canvas/wires.js, minimap/minimap.js, frames/groups.js,
  *            frames/nesting.js, frames/notes.js, canvas/navigation.js, clipboard/clipboard.js, menu/node-menu.js,
- *            inspector/fields.js, inspector/inspector.js, core/ui.js
+ *            inspector/fields.js, inspector/inspector.js, core/ui.js, domains/domains.js (S1)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h, ico } from '../core/util.js';
@@ -37,9 +37,12 @@ import { themeById } from '../menu/node-menu.js';
 import { checkCtl } from '../inspector/fields.js';
 import { renderInspector } from '../inspector/inspector.js';
 import { toast } from '../core/ui.js';
+import { domainAt, domainList, domainOfCol, focusDomain, moveColumnToDomain } from '../domains/domains.js';
 
 // ---------- hierarchy (lot L10): Unity-style tree of the left column (replaces the palette and the COLONNES / GROUPES lists) ----------
 // Rows: columns (auto frames, top level) > nested groups (frame.parent, any depth) > chains > post-its (note.parent).
+// Lot S1 (2026-11-03): above them, one row per DOMAIN (Domaine > Colonne > sous-groupe > chaîne > post-its); a column
+// row dragged onto a domain row moves the column there (moveColumnToDomain: meta.columns + geometry, one undo step).
 // A chain = one trigger + every node its outputs reach (a fan shared by several compiled chains is ONE row); nodes carry
 // no parent, so a chain sits in the deepest frame under its trigger's centre (dropTargetAt, the canvas drop rule). Nodes
 // reached by no trigger get a row of their own. Siblings: groups, then chains, then post-its, each by (y, then x).
@@ -50,6 +53,9 @@ import { toast } from '../core/ui.js';
 // highlighted (syncTreeSel, called by renderInspector), or its nearest visible ancestor when folded away.
 const TREE_KEY = 'nanterino.editor.tree';
 export const COL_TOP = 'Une colonne d’état reste au premier niveau : elle ne se range pas dans un groupe.';
+// Lot S1: refusals of a hierarchy drop on / of a domain row
+const DOM_ONLY_COL = 'Seule une colonne se range dans un domaine (glissez la ligne d’une colonne sur la ligne du domaine).';
+const DOM_TOP = 'Un domaine reste au premier niveau de la hiérarchie : il ne se range nulle part.';
 // shared state: S.treeFold, S.treeTimer, S.treeDrag, S.treeRename, S.treeJustDragged (core/state.js)
 // shared state: S.treeOwner, S.treeUp (core/state.js)   // last build: node id -> its row key ; row key -> parent row key
 export function treeFolded() {
@@ -106,8 +112,17 @@ export function buildTree() {
     rowOf.set(f.id, { key: (f.auto ? 'col:' : 'g:') + f.id, type: f.auto ? 'col' : 'group', id: f.id, label: f.title || '(sans nom)',
       icon: f.auto ? colIcon(st) : 'square', color: f.auto ? colColor(st) : f.color, x: f.x, y: f.y, ids: [], kids: [] });
   });
-  const into = (pid) => (pid && rowOf.get(pid)) || root;
-  frames().forEach((f) => (f.auto ? root : into(f.parent)).kids.push(rowOf.get(f.id)));
+  // lot S1: the top level is the domains (every domain, even empty, in `order`); a column goes under its domain, a
+  // top-level group / post-it / loose chain under the domain whose region holds it (else the root, as before S1)
+  const domRow = new Map();
+  domainList().forEach((d) => {
+    const r = { key: 'd:' + d.id, type: 'domain', id: d.id, label: d.label + (d.folded ? ' (replié)' : ''), icon: d.icon || 'square', color: d.color,
+      x: 0, y: d.order, ids: [], kids: [] };
+    domRow.set(d.id, r); root.kids.push(r);
+  });
+  const topAt = (x, y) => { const d = domRow.size ? domainAt(x, y) : null; return (d && domRow.get(d.id)) || root; };
+  const into = (pid, x, y) => (pid && rowOf.get(pid)) || (x == null ? root : topAt(x, y));
+  frames().forEach((f) => (f.auto ? (domRow.get(domainOfCol(colState(f))) || root) : into(f.parent, f.x + 12, f.y + 12)).kids.push(rowOf.get(f.id)));
   S.treeOwner = new Map();
   treeChains().forEach((c) => {
     const m = model(c.df), d = dfNode(c.df), host = chainHost(c.df), key = c.orphan ? 'n:' + c.nid : 'c:' + c.tid;
@@ -116,11 +131,11 @@ export function buildTree() {
       : { key, type: 'chain', id: c.tid, label: summary(m), icon: themeById(nodeTheme(m)).icon || iconOf(m), color: KINDS.trigger.color,
         x: d.pos_x, y: d.pos_y, ids: c.ids, off: (m.params || {}).enabled === false, kids: [] };
     c.ids.forEach((i) => { if (!S.treeOwner.has(i)) S.treeOwner.set(i, key); });
-    into(host && host.id).kids.push(row);
+    into(host && host.id, row.x + 20, row.y + 20).kids.push(row);
   });
-  notes().forEach((n) => into(n.parent).kids.push({ key: 'p:' + n.id, type: 'note', id: n.id, label: n.title || noteFirstLine(n) || '(vide)',
+  notes().forEach((n) => into(n.parent, n.x + 12, n.y + 12).kids.push({ key: 'p:' + n.id, type: 'note', id: n.id, label: n.title || noteFirstLine(n) || '(vide)',
     icon: 'message', color: n.color, x: n.x, y: n.y, ids: [], kids: [] }));
-  const rank = { col: 0, group: 1, chain: 2, node: 2, note: 3 };
+  const rank = { domain: -1, col: 0, group: 1, chain: 2, node: 2, note: 3 };   // S1: domain rows sort by `order` (y)
   const sortRec = (row, depth) => { if (depth > 200) return; row.kids.sort((a, b) => rank[a.type] - rank[b.type] || a.y - b.y || a.x - b.x); row.kids.forEach((k) => sortRec(k, depth + 1)); };
   sortRec(root, 0);
   return root;
@@ -216,7 +231,8 @@ export function selectChain(tid, centre) {
 }
 function treeActivate(r) {
   const type = r.dataset.type, id = r.dataset.id;
-  if (type === 'col' || type === 'group') focusFrame(id);
+  if (type === 'domain') focusDomain(id);          // lot S1
+  else if (type === 'col' || type === 'group') focusFrame(id);
   else if (type === 'note') focusNoteBox(id);
   else if (type === 'chain') selectChain(id, true);
   else if (type === 'node') focusNode(id);
@@ -268,8 +284,11 @@ const rowRef = (r) => {
   return { what: 'col', id };
 };
 // May the dragged row `d` be dropped on row `over`? (a column never moves; a group never into itself / its subtree)
+// Lot S1: a COLUMN row may be dropped on a DOMAIN row (it moves to that domain); nothing else enters a domain row, and a
+// domain row itself never moves.
 function treeDropOk(d, over) {
-  if (!over || over === d.row || !/^(col|group)$/.test(over.dataset.type) || d.type === 'col') return false;
+  if (over && over.dataset.type === 'domain') return d.type === 'col' && over !== d.row && domainOfCol(colState({ id: d.id })) !== over.dataset.id;
+  if (!over || over === d.row || !/^(col|group)$/.test(over.dataset.type) || d.type === 'col' || d.type === 'domain') return false;
   const t = frameById(over.dataset.id); if (!t) return false;
   if (d.type === 'group') { const f = frameById(d.id); if (!f || f.id === t.id || descendantFrames(f).some((g) => g.id === t.id)) return false; }
   return true;
@@ -311,7 +330,7 @@ export function installTree() {
     if (e.cancelable) e.preventDefault();
     d.ghost.style.left = (e.clientX + 14) + 'px'; d.ghost.style.top = (e.clientY + 10) + 'px';
     const el = document.elementFromPoint(e.clientX, e.clientY), over = el && el.closest ? el.closest('#tree .hrow') : null;
-    const target = over && over !== d.row && /^(col|group)$/.test(over.dataset.type) ? over : null;
+    const target = over && over !== d.row && /^(col|group|domain)$/.test(over.dataset.type) ? over : null;
     if (d.over && d.over !== target) d.over.classList.remove('hdrop', 'hdeny');
     d.over = target;
     if (target) { const ok = treeDropOk(d, target); target.classList.toggle('hdrop', ok); target.classList.toggle('hdeny', !ok); }
@@ -326,7 +345,10 @@ export function installTree() {
     if (d.ghost) d.ghost.remove();
     if (d.over) d.over.classList.remove('hdrop', 'hdeny');
     if (e.type === 'pointerup' && d.over) {
-      if (d.type === 'col') toast(COL_TOP, 'err');
+      if (d.over.dataset.type === 'domain' && d.type === 'col') moveColumnToDomain(colState({ id: d.id }), d.over.dataset.id);   // S1
+      else if (d.over.dataset.type === 'domain') toast(DOM_ONLY_COL, 'err');
+      else if (d.type === 'domain') toast(DOM_TOP, 'err');
+      else if (d.type === 'col') toast(COL_TOP, 'err');
       else if (!treeDropOk(d, d.over)) toast('Un groupe ne peut pas entrer dans lui-même ni dans un de ses sous-groupes.', 'err');
       else moveInto(rowRef(d.row), frameById(d.over.dataset.id));
     }
@@ -348,6 +370,7 @@ export function fileMenu(ref) {
   else if (ref.df != null) { const hst = chainHost(ref.df); cur = hst ? hst.id : null; }
   const rows = [];
   const walk = (row, depth) => row.kids.forEach((k) => {
+    if (k.type === 'domain') { walk(k, depth); return; }   // S1: domains are not filing targets, their columns are
     if (!/^(col|group)$/.test(k.type) || skip.has(k.id) || depth > 50) return;
     rows.push({ label: ' '.repeat(depth) + k.label + (k.id === cur ? ' ✓' : ''), icon: k.icon, color: k.color, disabled: k.id === cur,
       fn: () => moveInto(ref, frameById(k.id)) });

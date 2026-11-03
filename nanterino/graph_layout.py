@@ -26,6 +26,11 @@ Sub-groups (lot L13): `var_layout(..., note_h=...)` groups the chain trees of ea
     (rule table SUB_RULES / SUB_AFTER keyed by the trigger, see `sub_plan`), each a block with a short post-it;
     `var_frames()` returns the column frames grown around them plus the sub-group frames (parent = the column).
 
+Domains (lot S1): `domain_layout()` runs the variables drawing PER DOMAIN (Dialogue, Comportement, Mouvement,
+    Système) and packs one region per domain on a grid; `region_rect()` is the region formula the editor mirrors. The
+    cosmetic theme frames (THEMES / `default_frames`, ids `t-*`) are only drawn by the legacy go-to form: the domain
+    regions replace them as the level above the columns. Organisation only: nothing here reaches graph.yaml.
+
 Invariants
     - One band per state group, stacked top to bottom in the order the groups first appear in `nodes`.
     - Inside a band: columns left to right (trigger, conditions, actions, targets); all targets (goto/end)
@@ -46,7 +51,7 @@ GAP_Y = 26              # minimum free space between two stacked nodes
 GROUP_GAP = 110         # free space between two state bands (leaves room for theme frames)
 TOP = 190               # y of the first band (room for the frame titles; was below the start node)
 
-THEMES = [               # (frame id, title, colour, state groups) - cosmetic only
+THEMES = [               # (frame id, title, colour, state groups) - cosmetic only, legacy go-to drawing (S1: domains)
     ("t-accueil", "Accueil", "#4f8ef7", ("veille", "accueil")),
     ("t-conversation", "Conversation", "#2fb59a", ("ecoute", "reponse", "relance")),
     ("t-fin", "Fin de visite", "#a06cd5", ("cloture", "eteint")),
@@ -489,28 +494,121 @@ def _hub_column(g, nodes, links, chain_top, badge: int = BADGE_ROOM, pitch: int 
     return rel, width, height, []
 
 
-def _wrap_rows(cols) -> list:
+def _wrap_rows(cols, gap_x: int = COL_GAP, gap_y: int = ROW_GAP, max_rows: int = MAX_ROWS) -> list:
     """Split the column list (flow order kept) into rows so the whole drawing gets close to TARGET_ASPECT.
 
-    Every contiguous split into 1..4 rows is scored by the zoom that fits it in a TARGET_ASPECT x 1 canvas
-    (min(aspect / W, 1 / H)); the best score wins, fewer rows on a tie. Returns [{"y", "cols"}]."""
+    Every contiguous split into 1..max_rows rows is scored by the zoom that fits it in a TARGET_ASPECT x 1 canvas
+    (min(aspect / W, 1 / H)); the best score wins, fewer rows on a tie. Returns [{"y", "cols"}].
+    `cols` items are tuples whose [1] is the width and [2] the height (columns, or S1 domain regions with their own
+    gaps and row limit, see domain_layout)."""
     import itertools
     n = len(cols)
     best = None
-    for k in range(1, min(MAX_ROWS, n) + 1):
+    for k in range(1, min(max_rows, n) + 1):
         for cuts in itertools.combinations(range(1, n), k - 1):
             bounds = (0,) + cuts + (n,)
             rows = [cols[bounds[j]:bounds[j + 1]] for j in range(k)]
-            w = max(sum(c[1] for c in r) + COL_GAP * (len(r) - 1) for r in rows)
-            h = sum(max(c[2] for c in r) for r in rows) + ROW_GAP * (k - 1)
+            w = max(sum(c[1] for c in r) + gap_x * (len(r) - 1) for r in rows)
+            h = sum(max(c[2] for c in r) for r in rows) + gap_y * (k - 1)
             score = min(TARGET_ASPECT / w, 1.0 / h)
             if best is None or score > best[0] * 1.0001:
                 best = (score, rows)
     out, y = [], 0
     for r in best[1]:
         out.append({"y": y, "cols": r})
-        y += max(c[2] for c in r) + ROW_GAP
+        y += max(c[2] for c in r) + gap_y
     return out
+
+
+# ---- lot S1 (2026-11-03): domains, a navigable level ABOVE the state columns (one graph for the whole robot)
+# A domain (Dialogue, Comportement, Mouvement, Système) groups state columns; it is ORGANISATION ONLY: the compiler and
+# the engine never see it (graph.yaml is unchanged, the mapping lives in graph.layout.json `columns` / `domains`, see
+# graph_visual.domain_doc and Notes/graph-visual-format.md « Domaines »). Every state column defaults to « Dialogue »,
+# the global rules column to « Système ». Each domain is drawn as a REGION: the bounding box of its column frames
+# grown by DOM_PAD (DOM_HEAD on top for its title), or a fixed EMPTY_W x EMPTY_H box (with an explanatory post-it)
+# when it holds no column. The server lays the columns out PER DOMAIN (var_layout, so the MAX_ROWS wrap applies inside
+# one domain, not to the whole robot) and packs the regions on a grid with _wrap_rows (domain order kept, DOM_GAP).
+# The editor computes the same region rectangle from the same frames (web/editor/domains/domains.js REGION_PAD).
+DOMAINS = [   # id, label, colour, icon (one of the vendored Tabler icons), order, post-it text of the region
+    {"id": "dialogue", "label": "Dialogue", "color": "#4f8ef7", "icon": "message", "order": 1,
+     "note": "Dialogue : la conversation avec le visiteur (veille, accueil, écoute, réponse, relance, clôture)."},
+    {"id": "comportement", "label": "Comportement", "color": "#2fb59a", "icon": "mood-smile", "order": 2,
+     "note": "Comportement (vide pour l'instant) : l'attitude du robot hors dialogue (humeur, réactions, routines). "
+             "Glisser une colonne ici dans la hiérarchie pour l'y ranger."},
+    {"id": "mouvement", "label": "Mouvement", "color": "#e0a030", "icon": "hand-move", "order": 3,
+     "note": "Mouvement (vide pour l'instant) : tête et cou, bras, base mobile. Les futures règles de mouvement "
+             "viendront ici."},
+    {"id": "systeme", "label": "Système", "color": "#c0504d", "icon": "power", "order": 4,
+     "note": "Système / global : règles valables partout (boutons, tais-toi, bilan du journal) et réglages du robot."},
+]
+DEFAULT_DOMAIN = "dialogue"     # every state column without a saved domain
+GLOBAL_DOMAIN = "systeme"       # the global rules column
+DOM_PAD = 60                    # region border <-> its column frames (left, right, bottom)
+DOM_HEAD = 240                  # region top <-> its highest column frame: domain title + zoom-scaled column titles
+DOM_GAP = 260                   # free space between two regions
+EMPTY_W, EMPTY_H = 900, 480     # region of a domain without any column (room for its post-it)
+
+
+def default_domain(group) -> str:
+    return GLOBAL_DOMAIN if group == "global" else DEFAULT_DOMAIN
+
+
+def region_rect(boxes) -> dict | None:
+    """Region rectangle {x, y, w, h} around column frame boxes [(x0, y0, x1, y1)], or None without any box."""
+    if not boxes:
+        return None
+    x0 = min(b[0] for b in boxes) - DOM_PAD
+    y0 = min(b[1] for b in boxes) - DOM_HEAD
+    x1 = max(b[2] for b in boxes) + DOM_PAD
+    y1 = max(b[3] for b in boxes) + DOM_PAD
+    return {"x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0}
+
+
+def domain_layout(nodes, links, col_dom: dict, domains=None, y0: int = TOP, head: dict | None = None, note_h=None,
+                  subs_out: list | None = None, regions_out: list | None = None) -> dict:
+    """Lot S1: the variables-drawing layout run PER DOMAIN, regions packed on a grid.
+
+    `col_dom` {column group: domain id} (missing -> default_domain); `domains` the ordered domain list (default
+    DOMAINS); `head` / `note_h` / `subs_out` as var_layout (sub-group rectangles moved with their region). Each domain
+    is laid out alone at the origin with var_layout (so links, which never leave a column, keep the 0-crossing
+    guarantee), its region measured with region_rect on its column frames (var_frames, grown upward by `head` like
+    graph_visual.column_notes does), then the regions are wrapped into rows (_wrap_rows, DOM_GAP, any row count) and
+    every position shifted. `regions_out` receives [{id, x, y, w, h, empty}] in domain order. Returns {id: (x, y)}."""
+    doms = [d["id"] for d in (domains or DOMAINS)]
+    for n in nodes:   # a column mapped to a domain that is not in the table still gets a region (after the others)
+        d = col_dom.get(n.get("group")) or default_domain(n.get("group"))
+        if n.get("group") is not None and d not in doms:
+            doms.append(d)
+    head = head or {}
+    blocks = []
+    for d in doms:
+        mine = [n for n in nodes if n.get("group") is not None and (col_dom.get(n["group"]) or default_domain(n["group"])) == d]
+        if not mine:
+            blocks.append((d, EMPTY_W, EMPTY_H, {}, [], (0, 0)))
+            continue
+        subs = []
+        rel = var_layout(mine, links, 0, head=head, note_h=note_h, subs_out=subs)
+        boxes = []
+        for f in var_frames(mine, rel, subs):
+            if f.get("auto"):   # column frame; its default post-it grows it upward by head[g] (column_notes)
+                boxes.append((f["x"], f["y"] - head.get(f["id"][5:], 0), f["x"] + f["w"], f["y"] + f["h"]))
+        r = region_rect(boxes)
+        blocks.append((d, r["w"], r["h"], rel, subs, (r["x"], r["y"])))
+    pos = {}
+    for row in _wrap_rows(blocks, DOM_GAP, DOM_GAP, max(1, len(blocks))):
+        x = 0
+        for d, w, h, rel, subs, (ox, oy) in row["cols"]:
+            dx, dy = x - ox, y0 + row["y"] - oy      # region top-left lands at (x, y0 + row y)
+            for i, (rx, ry) in rel.items():
+                pos[i] = (rx + dx, ry + dy)
+            if subs_out is not None:
+                subs_out.extend(dict(s, x=s["x"] + dx, y=s["y"] + dy) for s in subs)
+            if regions_out is not None:
+                regions_out.append({"id": d, "x": x, "y": y0 + row["y"], "w": w, "h": h, "empty": not rel})
+            x += w + DOM_GAP
+    if regions_out is not None:
+        regions_out.sort(key=lambda r: doms.index(r["id"]))
+    return pos
 
 
 def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:

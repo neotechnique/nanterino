@@ -68,6 +68,14 @@ Lot L13 (2026-11-01, "sous-groupes par défaut"): a layout the server draws (sam
     columns) and one post-it inside it (`auto: "sub:<col>:<key>"`, see sub_notes). Never re-seeded once a vars layout is
     saved, so user edits / deletions stay. Layout only: the compiled YAML is unchanged.
 
+Lot S1 (2026-11-03, "domaines"): the variables drawing gets a level above the columns: `doc["domains"]` (ordered table,
+    graph_layout.DOMAINS by default: Dialogue, Comportement, Mouvement, Système; label / colour / icon / order / note /
+    folded / region rectangle) and `doc["columns"]` ({column group: {domain, folded?}}, states -> dialogue, global ->
+    systeme by default). The server draws each domain as a region (graph_layout.domain_layout: columns laid out per
+    domain, regions on a grid); an empty region gets an explanatory post-it (`auto: "domain:<id>"`). Both keys are
+    validated by from_visual and stored in graph.layout.json only (domain_doc / clean_domains / clean_columns): the
+    compiled YAML is unchanged, a layout without them loads with the defaults.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -450,9 +458,12 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     # lot L9: the variables drawing reserves room at the top of each column for its default post-it (see column_notes)
     seed_text = column_note_texts(states_raw) if vform else {}
     subs = []                     # lot L13: sub-group rectangles of the default variables drawing (see var_frames)
+    regions = []                  # lot S1: domain regions of the default variables drawing (see GL.domain_layout)
+    col_dom = {g: e["domain"] for g, e in _layout_columns(layout).items()}
     auto = GL.hub_layout(nodes, links) if new else (
-        GL.var_layout(nodes, links, head={g: column_note_height(t) for g, t in seed_text.items()},
-                      note_h=column_note_height, subs_out=subs) if vform else GL.auto_layout(nodes, links))
+        GL.domain_layout(nodes, links, col_dom, _domain_table(layout),
+                         head={g: column_note_height(t) for g, t in seed_text.items()},
+                         note_h=column_note_height, subs_out=subs, regions_out=regions) if vform else GL.auto_layout(nodes, links))
     pos = {nid: auto[nid] for nid in auto}
     if new and start_state in state_nid:   # Start sits just left of its state hub, on the same row
         sx, sy = auto[state_nid[start_state]]
@@ -524,6 +535,13 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
                         + doc["notes"])[:MAX_NOTES]
     # lot L8: nested groups / post-its in groups; a link to a frame that is not shown (or a cycle) is dropped
     doc["frames"], doc["notes"] = clean_parents(doc["frames"], doc["notes"])
+    if vform:   # lot S1: domains above the columns (organisation only, layout file); see domain_doc
+        groups = list(states_raw) + ["global"]
+        doc["columns"], doc["domains"] = domain_doc(groups, layout, doc["frames"], regions if not usable else [])
+        if seed_frames and not usable:
+            doc["notes"] = (domain_notes(doc["domains"], doc["notes"]) + doc["notes"])[:MAX_NOTES]
+        for d in doc["domains"]:
+            d.pop("_empty", None)
     return doc
 
 
@@ -548,7 +566,8 @@ GLOBAL_NOTE = ("Règles globales : chacune peut se déclencher quel que soit l'�
                "(ou seulement dans les états choisis sur son déclencheur).")
 COLUMN_NOTE_W = GL.NODE_W + 24     # fits inside every column frame (frame = nodes + 28 px each side)
 COLUMN_NOTE_COLOR = "#fff59d"      # web/editor/core/state.js NOTE_COLORS[0]
-AUTO_NOTE = re.compile(r"^(state:[A-Za-z0-9_.-]{1,60}|sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40})$")
+# S1: + "domain:<id>" (explanatory post-it of an empty domain region, see domain_notes)
+AUTO_NOTE = re.compile(r"^(state:[A-Za-z0-9_.-]{1,60}|sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40}|domain:[a-z][a-z0-9_-]{0,31})$")
 # lot L13: marker of a default sub-group frame (`gen`, not `auto`: the editor treats a truthy `auto` as a column)
 GEN_FRAME = re.compile(r"^sub:[A-Za-z0-9_.-]{1,60}:[A-Za-z0-9_.-]{1,40}$")
 SUB_NOTE_TITLE = "En bref"
@@ -617,6 +636,169 @@ def sub_notes(frames: list, existing: list) -> list:
             continue
         out.append({"id": nid, "title": SUB_NOTE_TITLE, "text": spec["text"][:MAX_NOTE_TEXT], "color": COLUMN_NOTE_COLOR,
                     "x": spec["x"], "y": spec["y"], "w": COLUMN_NOTE_W, "h": spec["h"], "parent": f["id"], "auto": f["gen"]})
+    return out
+
+
+# ---- lot S1 (2026-11-03): domains above the columns (organisation only, see graph_layout DOMAINS)
+# The document carries `domains` (ordered table: id, label, color, icon, order, note, folded?, region x/y/w/h) and
+# `columns` ({column group: {domain, folded?}}, every state column + "global"). Both live in graph.layout.json only:
+# from_visual validates them and copies them to the layout, never into the compiled raw graph (engine unchanged).
+# A layout without them (written before S1) loads with the defaults (states -> dialogue, global -> systeme).
+DOMAIN_ID = re.compile(r"^[a-z][a-z0-9_-]{0,31}$")
+MAX_DOMAINS, MAX_DOMAIN_LABEL = 20, 40
+DOMAIN_NOTE_W = 2 * COLUMN_NOTE_W  # post-it of an empty region (height estimated with column_note_height: generous)
+
+
+def _rect_ok(d: dict) -> bool:
+    return all(_num(d.get(k)) for k in ("x", "y", "w", "h")) and d["w"] > 0 and d["h"] > 0
+
+
+def _domain_problem(d) -> str | None:
+    """French message for the first problem of a domain dict, or None."""
+    if not isinstance(d, dict) or not isinstance(d.get("id"), str) or not DOMAIN_ID.match(d["id"]):
+        return "Identifiant de domaine invalide (minuscules, chiffres, - ou _)."
+    if not isinstance(d.get("label"), str) or not d["label"].strip() or len(d["label"]) > MAX_DOMAIN_LABEL:
+        return "Le nom du domaine doit être un texte de 1 à %d caractères." % MAX_DOMAIN_LABEL
+    if not isinstance(d.get("color"), str) or not FRAME_COLOR.match(d["color"]):
+        return "La couleur du domaine doit être au format #rrggbb."
+    if d.get("icon") is not None and (not isinstance(d["icon"], str) or not ICON_NAME.match(d["icon"])):
+        return "L'icône du domaine doit être un nom d'icône."
+    if not _num(d.get("order")):
+        return "L'ordre du domaine doit être un nombre."
+    if d.get("note") is not None and (not isinstance(d["note"], str) or len(d["note"]) > MAX_FRAME_NOTE):
+        return "La note du domaine doit faire %d caractères au plus." % MAX_FRAME_NOTE
+    if "folded" in d and not isinstance(d["folded"], bool):
+        return "« folded » d'un domaine est vrai ou faux."
+    if any(k in d for k in ("x", "y", "w", "h")) and not _rect_ok(d):
+        return "La région du domaine doit avoir x, y, w, h numériques (w et h > 0)."
+    return None
+
+
+def _domain_clean(d: dict) -> dict:
+    c = {"id": d["id"], "label": d["label"], "color": d["color"].lower(), "icon": d.get("icon") or "square",
+         "order": d["order"]}
+    if d.get("note"):
+        c["note"] = d["note"]
+    if d.get("folded") is True:
+        c["folded"] = True
+    if _rect_ok(d):
+        c.update({k: d[k] for k in ("x", "y", "w", "h")})
+    return c
+
+
+def clean_domains(domains):
+    """Validate the `domains` list of a document. Returns (clean list, errors); errors carry `domain` (id)."""
+    if domains is None:
+        return [], []
+    if not isinstance(domains, list) or len(domains) > MAX_DOMAINS:
+        return [], [{"node": None, "domain": None, "message": "`domains` doit être une liste de %d domaines au plus." % MAX_DOMAINS}]
+    out, errors, ids = [], [], set()
+    for d in domains:
+        msg = _domain_problem(d)
+        if msg is None and d["id"] in ids:
+            msg = "Identifiant de domaine en double : %s." % d["id"]
+        if msg:
+            errors.append({"node": None, "domain": d.get("id") if isinstance(d, dict) else None, "message": msg})
+            continue
+        ids.add(d["id"])
+        out.append(_domain_clean(d))
+    return out, errors
+
+
+def clean_columns(columns, domain_ids):
+    """Validate the `columns` map {group: {domain, folded?}} against `domain_ids`. Returns (clean dict, errors)."""
+    if columns is None:
+        return {}, []
+    if not isinstance(columns, dict):
+        return {}, [{"node": None, "domain": None, "message": "`columns` doit être un objet {colonne: {domain}}."}]
+    out, errors = {}, []
+    for g, e in columns.items():
+        if not isinstance(g, str) or not g or len(g) > 64 or not isinstance(e, dict):
+            errors.append({"node": None, "domain": None, "message": "Entrée de colonne invalide : %r." % (g,)})
+            continue
+        if e.get("domain") not in domain_ids:
+            errors.append({"node": None, "domain": e.get("domain") if isinstance(e.get("domain"), str) else None,
+                           "message": "La colonne « %s » est rangée dans un domaine inconnu : %r." % (g, e.get("domain"))})
+            continue
+        if "folded" in e and not isinstance(e["folded"], bool):
+            errors.append({"node": None, "domain": e["domain"], "message": "« folded » de la colonne « %s » est vrai ou faux." % g})
+            continue
+        out[g] = {"domain": e["domain"], **({"folded": True} if e.get("folded") else {})}
+    return out, errors
+
+
+def _domain_table(layout) -> list:
+    """Ordered domain table of a layout: the defaults (graph_layout.DOMAINS) overridden / extended by its valid
+    `domains` entries (a hand-edited bad entry is ignored, never an error on GET), sorted by `order` (stable)."""
+    table = {d["id"]: dict(d) for d in GL.DOMAINS}
+    for d in ((layout or {}).get("domains") or []):
+        if _domain_problem(d) is None:
+            table[d["id"]] = dict(table.get(d["id"], {}), **_domain_clean(d))
+    return sorted(table.values(), key=lambda d: d["order"])
+
+
+def _layout_columns(layout) -> dict:
+    """{group: {domain, folded?}} of a layout, valid entries only (silent, like frames on GET)."""
+    ids = {d["id"] for d in _domain_table(layout)}
+    out, _errs = clean_columns({g: e for g, e in ((layout or {}).get("columns") or {}).items()
+                                if isinstance(e, dict) and e.get("domain") in ids}
+                               if isinstance((layout or {}).get("columns"), dict) else None, ids)
+    return out
+
+
+def domain_doc(groups, layout, frames, regions) -> tuple:
+    """(columns, domains) of a variables document. Every column of `groups` gets a domain (its saved one, else
+    graph_layout.default_domain); a domain region is region_rect of its column frames (`auto-<group>`, the editor
+    computes the same), else the rectangle the server just drew (`regions`, empty domains), else its saved rectangle,
+    else a box placed below everything (layout written before S1)."""
+    table, saved = _domain_table(layout), _layout_columns(layout)
+    ids = {d["id"] for d in table}
+    cols = {}
+    for g in groups:
+        e = saved.get(g) or {}
+        cols[g] = {"domain": e["domain"] if e.get("domain") in ids else GL.default_domain(g)}
+        if e.get("folded"):
+            cols[g]["folded"] = True
+    col_frames = [f for f in frames if f.get("auto") and str(f["id"]).startswith("auto-")]
+    reg = {r["id"]: r for r in regions or []}
+    out = []
+    for d in table:
+        boxes = [(f["x"], f["y"], f["x"] + f["w"], f["y"] + f["h"]) for f in col_frames
+                 if (cols.get(f["id"][5:]) or {"domain": GL.default_domain(f["id"][5:])})["domain"] == d["id"]]
+        r = GL.region_rect(boxes) or reg.get(d["id"]) or (d if _rect_ok(d) else None)
+        e = {k: v for k, v in d.items() if k not in ("x", "y", "w", "h")}
+        if r:
+            e.update({k: int(round(r[k])) for k in ("x", "y", "w", "h")})
+        if not boxes:
+            e["_empty"] = True      # private: read by domain_notes, popped by to_visual (never in a document)
+        out.append(e)
+    placed = [e for e in out if "x" in e]
+    if len(placed) < len(out):      # no rectangle anywhere: a row of empty regions below the drawing
+        xs = [e["x"] for e in placed] + [f["x"] for f in col_frames]
+        ys = [e["y"] + e["h"] for e in placed] + [f["y"] + f["h"] for f in col_frames]
+        x, y = (min(xs) if xs else 0), (max(ys) + GL.DOM_GAP if ys else GL.TOP)
+        for e in out:
+            if "x" not in e:
+                e.update({"x": x, "y": y, "w": GL.EMPTY_W, "h": GL.EMPTY_H})
+                x += GL.EMPTY_W + GL.DOM_GAP
+    return cols, out
+
+
+def domain_notes(domains: list, existing: list) -> list:
+    """Lot S1: the explanatory post-it of each EMPTY domain region (no column frame in it), top level, marked
+    `auto: "domain:<id>"`, explicit `parent: None` (top level, like an editor choice), under the region title. Skipped when the marker or its id is already in `existing`."""
+    have = {n.get("auto") for n in existing if isinstance(n, dict)}
+    used = {n.get("id") for n in existing if isinstance(n, dict)}
+    out = []
+    for d in domains:
+        if not d.get("_empty"):
+            continue
+        nid = "note-dom-" + d["id"]
+        if "domain:" + d["id"] in have or nid in used or not d.get("note"):
+            continue
+        out.append({"id": nid, "title": d["label"][:MAX_NOTE_TITLE], "text": d["note"][:MAX_NOTE_TEXT],
+                    "color": COLUMN_NOTE_COLOR, "x": d["x"] + 30, "y": d["y"] + 110, "w": DOMAIN_NOTE_W,
+                    "h": column_note_height(d["note"]), "parent": None, "auto": "domain:" + d["id"]})
     return out
 
 
@@ -1245,6 +1427,15 @@ def from_visual(doc: dict, cfg: dict, report: dict | None = None):
         layout["frames"] = frames
     if notes:    # post-it notes: same story as frames (layout only, never compiled)
         layout["notes"] = notes
+    # lot S1: domains + column -> domain map, organisation only (layout file, never compiled; old documents have none)
+    doms, derrors = clean_domains(doc.get("domains"))
+    errors.extend(derrors)
+    cols, cerrors = clean_columns(doc.get("columns"), {d["id"] for d in (doms or GL.DOMAINS)})
+    errors.extend(cerrors)
+    if doms:
+        layout["domains"] = doms
+    if cols:
+        layout["columns"] = cols
     return (None if errors else raw), layout, errors
 
 

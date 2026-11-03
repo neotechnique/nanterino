@@ -160,7 +160,7 @@ def parse_args(argv):
 
 def selector_for(crop):
     if not crop:
-        return ".drawflow-node,.frame,.postit"
+        return ".drawflow-node,.frame,.postit,.dregion"   # S1: domain regions (empty ones too) are part of the graph
     cid = crop.split("=", 1)[1]
     fid = cid if cid.startswith("auto-") else "auto-" + cid
     return '.frame[data-fid="%s"]' % fid

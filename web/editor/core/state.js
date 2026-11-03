@@ -189,6 +189,8 @@ export const S = {
   // frames/nesting.js
   dropEl: null,   // frame element outlined as the drop target of the current drag
   dropCls: '',   // frame element outlined as the drop target of the current drag
+  // domains/domains.js (lot S1)
+  domainsEl: null,   // #domains layer (domain regions, below the column frames)
   // frames/notes.js
   selNote: null,
   notesEl: null,

@@ -619,3 +619,39 @@ input[type=color]{width:56px;height:28px;padding:0 2px;background:transparent;bo
   color:var(--mut);cursor:default}
 .progchip.cancel{cursor:pointer;color:var(--fg)}
 .progchip.cancel:hover{border-color:var(--err)}
+/* lot S1: domains above the columns. #domains sits in precanvas before #frames (below the columns, the post-its and
+   the nodes); only a region's title bar and the fold / unfold buttons take pointer events. */
+#domains{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none}
+.dregion{position:absolute;box-sizing:border-box;border:3px solid color-mix(in srgb,var(--c) 70%,transparent);border-radius:24px;
+  background:color-mix(in srgb,var(--c) 4%,transparent);pointer-events:none}
+.dregion.empty{border-style:dashed}
+.dregion .dtitle{position:absolute;left:18px;top:14px;display:flex;align-items:center;gap:10px;padding:5px 16px;border-radius:14px;
+  background:var(--c);color:#10141a;font-weight:800;font-size:26px;white-space:nowrap;pointer-events:auto;cursor:pointer;
+  transform-origin:left top;transform:scale(min(var(--fts,1),2.2));box-shadow:0 2px 8px #0008}
+.dregion .dtitle .dcount{font-weight:600;font-size:.6em;opacity:.85}
+.dregion.folded{border-style:solid;background:color-mix(in srgb,var(--c) 16%,#161b22)}
+.dregion .dcard{position:absolute;left:24px;right:24px;bottom:22px;display:flex;flex-direction:column;gap:10px;align-items:flex-start;
+  pointer-events:auto;color:#e6edf3;font-size:18px}
+.dfold,.ffold{pointer-events:auto;border:0;border-radius:7px;background:#0004;color:inherit;font:inherit;font-size:.8em;line-height:1;
+  padding:2px 8px;cursor:pointer}
+.ffold{margin-left:8px;font-size:.9em}
+.dfold:hover,.ffold:hover,.funfold:hover{background:#0008}
+.funfold{pointer-events:auto;border:1px solid #fff6;border-radius:8px;background:#0006;color:#e6edf3;font:inherit;font-size:15px;
+  padding:4px 12px;cursor:pointer}
+.fcstat .fcount{margin-right:8px}
+.fbadge{display:inline-block;margin-right:6px;padding:1px 8px;border-radius:9px;font-weight:700;color:#10141a}
+.fbadge.err{background:#ff3b30;color:#fff}
+.fbadge.warn{background:#ffb020}
+/* a folded column: its frame is drawn as a card (applyFold sets the card size), its content is hidden */
+.frame.folded{border-style:solid;background:color-mix(in srgb,var(--c) 18%,#161b22)}
+.frame.folded .fcard,.frame.folded .fresize{display:none!important}
+.frame .foldcard{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;gap:10px;
+  padding:16px 20px;box-sizing:border-box;color:#e6edf3;pointer-events:auto}
+.frame .foldcard .fcname{font-weight:800;font-size:22px}
+.fold-hide{display:none!important}
+#jumpbar .jdom{pointer-events:auto;display:flex;align-items:center;gap:5px;padding:3px 12px;border-radius:6px;font-size:13px;font-weight:800;
+  flex:0 0 auto;background:var(--c);border:1px solid var(--c);color:#10141a;cursor:pointer;box-shadow:0 2px 6px #0008;margin-left:6px}
+#jumpbar .jdom:first-child{margin-left:0}
+#jumpbar .jdom.folded{opacity:.75;font-style:italic}
+#jumpbar .jdom:hover{filter:brightness(1.15)}
+#tree .hrow.h-domain .hlab{font-weight:800}

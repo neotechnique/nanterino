@@ -1,11 +1,12 @@
 /**
  * Overview (L7): zoom-scaled frame titles, semantic zoom, jump bar.
  *
- * Purpose :  semantic cards at low zoom, the state jump bar and the minimap drawing.
+ * Purpose :  semantic cards at low zoom, the state jump bar (lot S1: two levels, domain chip ▸ its column chips) and the
+ *            minimap drawing.
  * Boundary:  DOM of the editor page and the shared state S only, no network call. Moved unchanged out of the former
  *            single-file editor.js (lot M6).
  * Depends :  core/util.js, core/state.js, core/api.js, canvas/nodes.js, canvas/view.js, minimap/minimap.js,
- *            frames/nesting.js, canvas/navigation.js
+ *            frames/nesting.js, canvas/navigation.js, domains/domains.js (S1)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h, ico } from '../core/util.js';
@@ -16,6 +17,7 @@ import { bandRects, nodeBox } from '../canvas/view.js';
 import { arithPoint, miniDown } from './minimap.js';
 import { bbox, canvasPoint, setView } from '../frames/nesting.js';
 import { zoomCentre } from '../canvas/navigation.js';
+import { domainList, domainOfCol, focusDomain, hasDomains } from '../domains/domains.js';
 
 // ---------- overview helpers (L7 fix round): zoom-scaled frame titles, semantic zoom, jump bar, minimap ----------
 // --fts on precanvas = scale of the automatic frame titles so they never get smaller than ~14 px on screen;
@@ -57,7 +59,8 @@ export function clearJumpbar() {
   const bottom = jumpbarBottom(); if (bottom == null) return 0;
   const c = S.editor.container.getBoundingClientRect(), jb = S.jumpEl.getBoundingClientRect();
   let top = Infinity;
-  S.editor.precanvas.querySelectorAll('.frame .ftitle').forEach((t) => {
+  // S1: a domain title (.dregion .dtitle) counts only when it is really under the bar (its region is not `auto`)
+  S.editor.precanvas.querySelectorAll('.frame .ftitle, .dregion .dtitle').forEach((t) => {
     const r = t.getBoundingClientRect();
     if (!r.width || r.right <= c.left || r.left >= c.right || r.top >= bottom + JUMP_GAP) return;   // sideways / already clear
     const fr = t.parentElement.getBoundingClientRect();
@@ -79,12 +82,23 @@ export function drawJumpbar() {
   if (!S.jumpEl || !S.jumpEl.isConnected) { S.jumpEl = h('div', { id: 'jumpbar', role: 'toolbar', 'aria-label': 'Aller à un état' }); stopPress(S.jumpEl); S.editor.container.append(S.jumpEl); }
   S.jumpEl.innerHTML = '';
   const groups = new Set(Object.values(dfData()).map((d) => d.data.model.group).filter(Boolean));
-  (S.meta.states || []).forEach((s) => {
-    if (!groups.has(s.id)) return;
-    S.jumpEl.append(h('button', { type: 'button', class: 'jchip', 'data-g': s.id, title: 'Aller à la colonne « ' + stateLabel(s.id) + ' »', style: '--c:' + stateColor(s.id),
-      onclick: () => focusColumn(s.id) }, ico(stateIcon(s.id), stateColor(s.id)), stateLabel(s.id)));
-  });
-  if (groups.has('global')) S.jumpEl.append(h('button', { type: 'button', class: 'jchip', 'data-g': 'global', title: 'Aller aux règles globales', style: '--c:#e0504d', onclick: () => focusColumn('global') }, ico('git-branch', '#e0504d'), 'Globales'));
+  const colChip = (g, lvl) => (g === 'global'
+    ? h('button', { type: 'button', class: 'jchip', 'data-g': 'global', 'aria-level': lvl, title: 'Aller aux règles globales', style: '--c:#e0504d', onclick: () => focusColumn('global') }, ico('git-branch', '#e0504d'), 'Globales')
+    : h('button', { type: 'button', class: 'jchip', 'data-g': g, 'aria-level': lvl, title: 'Aller à la colonne « ' + stateLabel(g) + ' »', style: '--c:' + stateColor(g),
+      onclick: () => focusColumn(g) }, ico(stateIcon(g), stateColor(g)), stateLabel(g)));
+  const order = (S.meta.states || []).map((s) => s.id).concat(['global']).filter((g) => groups.has(g));
+  if (hasDomains()) {
+    // lot S1: two levels, in reading order: a domain chip, then the chips of its columns (state order, globals last);
+    // an empty domain keeps its chip (it shows where future content goes)
+    domainList().forEach((d) => {
+      S.jumpEl.append(h('button', { type: 'button', class: 'jdom' + (d.folded ? ' folded' : ''), 'data-d': d.id, 'aria-level': '1',
+        title: 'Aller au domaine « ' + d.label + ' »' + (d.folded ? ' (replié)' : ''), style: '--c:' + d.color, onclick: () => focusDomain(d.id) },
+      ico(d.icon || 'square', '#10141a'), d.label + ' ▸'));   // dark icon on the coloured chip
+      order.filter((g) => domainOfCol(g) === d.id).forEach((g) => S.jumpEl.append(colChip(g, '2')));
+    });
+    return;
+  }
+  order.forEach((g) => S.jumpEl.append(colChip(g, '1')));
 }
 function miniOpen() { try { return localStorage.getItem(MINI_KEY) !== 'closed'; } catch (e) { return true; } }
 export function scheduleMinimap() { if (!S.miniRaf) S.miniRaf = requestAnimationFrame(() => { S.miniRaf = 0; drawMinimap(); }); }

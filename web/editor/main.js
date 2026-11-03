@@ -84,6 +84,10 @@
  *           before) and calls boot(). Reassignable state lives in core/state.js `S` (ES imports are read-only), every
  *           other top-level function / constant is an explicit export of its module. Served by GET /web/editor/<path>
  *           (server.py: lowercase path, .js / .css only, under web/editor/, no-cache like the other editor assets).
+ *           S1 (2026-11-03, plan "espace sans limite" A1): domains above the columns (meta.domains + meta.columns,
+ *           layout only): one region per domain behind the column frames, hierarchy top level = domains, jump bar on two
+ *           levels (domain chip ▸ its column chips), a domain or a column folds into a card (node count + badges, the
+ *           folded content and its wires hidden), a column row dropped on a domain row moves the column there.
  * Module map (web/editor/):
  *   core/util.js                  Editor core: tiny DOM helpers.
  *   tooltips/tooltips.js          Editor tooltips (lot L5): one lightweight component for the whole page.
@@ -109,6 +113,7 @@
  *   clipboard/clipboard.js        Selection and fragment clipboard (lot L10).
  *   menu/node-menu.js             Menus: adding nodes and the node menu tree (lot L5).
  *   hierarchy/tree.js             Hierarchy (lot L10): Unity-style tree of the left column.
+ *   domains/domains.js            Domains (lot S1): regions above the columns, fold cards, column -> domain moves.
  *   inspector/fields.js           Inspector: basic form controls and the wire inspector.
  *   inspector/arg-fields.js       Inspector: typed argument controls (Vars L2, L12, M5).
  *   inspector/inspector.js        Inspector: the right-hand Inspecteur tab.
@@ -177,6 +182,7 @@ import { loadJournal, loadVersions } from './panels/history-panels.js';
 import { boot } from './core/boot.js';
 import { exportOpts, startExport, toggleExport } from './export/export.js';
 import { progressInfo, startTask } from './core/progress.js';
+import { domainById, domainRect, focusDomain, foldColumn, foldDomain, foldSets, moveColumnToDomain } from './domains/domains.js';
 
 // ---------- test hooks (used by the verification scenarios; harmless in normal use) ----------
 window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () => Object.keys(dfData()).length,
@@ -212,6 +218,9 @@ window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () =
     refreshNode(df); if (String(S.selDf) === String(df)) renderInspector(); analyze(); commitSoon(); return true;   // M5: Drawflow ids are strings or numbers
   },
   rebuild: (d) => rebuild(d, true),
+  // lot S1 test hooks: domains above the columns (region rectangle by id, fold, move a column, what a fold hides)
+  domainRect: (id) => { const d = domainById(id); return d ? domainRect(d) : null; }, focusDomain, foldDomain, foldColumn, moveColumnToDomain,
+  foldHidden: () => { const f = foldSets(); return { nodes: f.nodes.size, frames: [...f.frames], notes: [...f.notes] }; },
   dfState: () => ({ drag: S.editor.drag, editorSel: S.editor.editor_selected, ele: S.editor.ele_selected ? (S.editor.ele_selected.id || S.editor.ele_selected.className) : null }) };   // L4 test hook: load a (legacy) document without touching the server
 
 boot().catch((e) => { errLog.push(String(e)); dbg('BOOT ' + e + '\n' + (e.stack || '')); toast('Erreur au démarrage : ' + e, 'err'); });

@@ -12,7 +12,9 @@ Layout  : wd.py (WebDriver session), driver.py (check(), shared helpers), one fi
 Invariant: M7 moved /opt/robot/scripts/editor6_wd.py here verbatim (26 scenarios, 441 checks); keep the per-scenario
           check counts when moving code between files. L22 adds scenario `progress` (area progress); L23 adds
           `postitsave` (area savegate: post-its, groups and hierarchy edits are save-gated); L29 adds `emptylist`
-          (area diagnostics: server empty_list amber badge, gone once a list_add fills the list; never saves).
+          (area diagnostics: server empty_list amber badge, gone once a list_add fills the list; never saves); S1 adds
+          `domains` (area domains: domains above the columns, two-level jump bar, column moved to another domain,
+          domain / column fold cards; saves once, rolled back).
 
 History of the former scripts/editor6_wd.py (scenario -> lot, kept for reference):
 Headless Firefox checks of lot L6 (state nodes, gradient wires, ports, post-its, mouse buttons, context menu).
@@ -56,11 +58,11 @@ from tests.web.driver import W, BASE, check, checks  # noqa: E402
 
 # Area files, in the order their scenarios appeared in the former single file (for `all`).
 AREAS = ["canvas", "tester", "menu", "frames", "variables", "tooltips", "diagnostics", "human", "hierarchy",
-         "export", "inspector", "progress", "savegate"]
+         "export", "inspector", "progress", "savegate", "domains"]
 # Order of the former single file, which `all` keeps (the scenarios share one browser session there).
 ALL_ORDER = ["nodes", "wires", "tester", "buttons", "menu", "postit", "ctxsub", "nav", "noinput", "vars", "testervars",
              "nostart", "wiredrag", "menu3", "tooltips", "postit2", "diag", "l6", "human", "l8", "postit3", "l10",
-             "vars2", "subgroups", "export", "props", "progress", "postitsave", "emptylist"]
+             "vars2", "subgroups", "export", "props", "progress", "postitsave", "emptylist", "domains"]
 
 
 def registry():

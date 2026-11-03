@@ -729,7 +729,7 @@ def sc_postit3(wd):
         lay = json.load(open(ROOT + "/graph.layout.json", encoding="utf-8")) if os.path.exists(ROOT + "/graph.layout.json") else {}
         ln = {n["id"]: n for n in lay.get("notes", [])}
         check("save: the deleted post-it is gone from graph.layout.json, the others keep marker + parent, the edit is stored",
-              saved and pid not in ln and len([n for n in ln.values() if (n.get("auto") or "").startswith("state:")]) == len(cols) - 1 and all(n.get("auto") and n.get("parent") for n in ln.values())
+              saved and pid not in ln and len([n for n in ln.values() if (n.get("auto") or "").startswith("state:")]) == len(cols) - 1 and all(n.get("auto") and (n.get("parent") or n["auto"].startswith("domain:")) for n in ln.values())   # S1 ADAPTED: domain post-its are top level
               and ln.get(other, {}).get("text") == "Texte du visiteur." and ln.get(other, {}).get("display") == "compact", "%s %s" % (saved, sorted(ln)))
         js(wd, "window.__editor.loadAll()")
         time.sleep(1.5)
@@ -779,10 +779,11 @@ def sc_subgroups(wd):
     bad, path = [], []
     for key_, lv, lab, _cls in rows:
         path = path[:lv - 1] + [key_]
+        pp = [k for k in path if not k.startswith("d:")]   # S1 ADAPTED: the domain level sits above the columns
         if key_.startswith("c:"):
-            if len(path) != 3 or not path[0].startswith("col:") or not path[1].startswith("g:sub-") \
-                    or subs.get(path[1][2:], {}).get("parent") != path[0][4:]:
-                bad.append(path)
+            if len(pp) != 3 or not pp[0].startswith("col:") or not pp[1].startswith("g:sub-") \
+                    or subs.get(pp[1][2:], {}).get("parent") != pp[0][4:]:
+                bad.append(pp)
     ntrig = len([n for n in d["nodes"] if n["kind"] == "trigger"])
     nchains = len([r for r in rows if r[0].startswith("c:")])
     check("hierarchy: Colonne > sous-groupe > chaînes for every chain", nchains == ntrig and not bad, "%d/%d %s" % (nchains, ntrig, bad[:3]))

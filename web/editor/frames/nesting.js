@@ -8,7 +8,7 @@
  * Depends :  core/util.js, core/state.js, core/api.js, canvas/nodes.js, core/serialize.js, core/history.js,
  *            core/chains.js, canvas/view.js, minimap/overview.js, minimap/minimap.js, frames/groups.js, frames/notes.js,
  *            canvas/navigation.js, clipboard/clipboard.js, menu/node-menu.js, hierarchy/tree.js, inspector/fields.js,
- *            inspector/inspector.js, core/ui.js
+ *            inspector/inspector.js, core/ui.js, domains/domains.js (S1)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h, ico } from '../core/util.js';
@@ -27,9 +27,10 @@ import { editBlocked } from '../canvas/navigation.js';
 import { clearChainSel } from '../clipboard/clipboard.js';
 import { selectDf } from '../menu/node-menu.js';
 import { colColor, colIcon, colState, scheduleTree, treeStats } from '../hierarchy/tree.js';
-import { areaCtl, field, textCtl } from '../inspector/fields.js';
+import { areaCtl, checkCtl, field, textCtl } from '../inspector/fields.js';
 import { renderInspector } from '../inspector/inspector.js';
 import { toast } from '../core/ui.js';
+import { domainById, domainList, domainOfCol, drawDomains, foldColumn, isColFolded, moveColumnToDomain, worldBox } from '../domains/domains.js';
 
 // ---------- nested groups (lot L8) ----------
 // f.parent / note.parent = id of the enclosing frame (absent = top level), saved in graph.layout.json (the server's
@@ -164,6 +165,7 @@ export function drawFrames() {
     root.append(el);
   });
   drawBands();             // live / simulated state glow on the auto column frames
+  drawDomains();           // lot S1: domain regions follow their columns; fold cards / hidden content re-applied
 }
 export function clearNodeSelection() {
   if (S.editor.node_selected) { S.editor.node_selected.classList.remove('selected'); S.editor.node_selected = null; }
@@ -327,6 +329,16 @@ export function renderFrameInspector(box, f) {
     if (desc) box.append(h('p', { class: 'hint' }, desc));
     const s = treeStats('col:' + f.id);
     box.append(h('p', { class: 'hint colstat' }, s.chains + ' chaîne(s) · ✖ ' + s.err + ' · ⚠ ' + s.warn + ' (nœuds en erreur / avertissement)'));
+    if (domainList().length) {     // lot S1: the domain of the column (organisation only) and its fold
+      const sel = h('select', { class: 'coldomain', 'aria-label': 'Domaine de la colonne' });
+      domainList().forEach((d) => sel.append(h('option', { value: d.id }, d.label)));
+      sel.value = domainOfCol(st);
+      sel.addEventListener('change', () => { if (!moveColumnToDomain(st, sel.value)) sel.value = domainOfCol(st); renderInspector(); });
+      box.append(field('Domaine', sel, 'Range la colonne (et tout son contenu) dans un autre domaine. Le comportement du robot ne change pas.'));
+      box.append(checkCtl('Repliée en carte', isColFolded(st), () => foldColumn(st, !isColFolded(st)), 'square'));
+      const dm = domainById(domainOfCol(st));
+      if (dm && dm.note) box.append(h('p', { class: 'hint coldomnote' }, dm.note));
+    }
   }
   const name = textCtl(f.title, (v) => editFrame(f, { title: v.slice(0, 60) }));
   name.maxLength = 60;
@@ -351,14 +363,14 @@ export function bbox() {
   return x0 > x1 ? null : { x0, y0, x1, y1 };
 }
 function fitZoom() {
-  const b = bbox(), c = $('#drawflow');
+  const b = worldBox(bbox()), c = $('#drawflow');   // S1: the domain regions (even empty ones) are part of the world
   if (!b) return 1;
   // L7: the column layout is wide (~14 000 px): allow a smaller zoom so "Ajuster" really shows everything
   return Math.max(0.02, Math.min(1, c.clientWidth / ((b.x1 - b.x0) * 1.1), c.clientHeight / ((b.y1 - b.y0) * 1.1)));
 }
 // "Ajuster": whole graph, centred, ~5 % padding each side.
 export function fit() {
-  const b = bbox(), c = $('#drawflow');
+  const b = worldBox(bbox()), c = $('#drawflow');
   if (!b) return;
   // L6: leave the measured jump bar row plus one column-title row (titles never draw smaller than ~14 px) free
   const jbb = jumpbarBottom(), jbH = jbb == null ? 38 : jbb - c.getBoundingClientRect().top;

@@ -258,7 +258,7 @@ def sc_l10(wd):
     check("l10 drag press lands on the group row (no overlay)", hit)
     check("l10 drop outline on the column row while held", held == ["col:auto-cloture"], str(held))
     check("l10 group row dropped on a column: filed in it, the column grew to enclose it", f1 and f1.get("parent") == "auto-cloture" and _encl(col, f1), "%s %s" % (f1, col))
-    sub = js(wd, "return (()=>{const r=window.__editor.buildTree(); const c=r.kids.find(k=>k.key==='col:auto-cloture'); const g=c&&c.kids.find(k=>k.key==='g:f901'); return g ? g.kids.map(k=>k.key) : null})()")
+    sub = js(wd, "return (()=>{const r=window.__editor.buildTree(); const c=r.kids.flatMap(d=>d.type==='domain'?d.kids:[d]).find(k=>k.key==='col:auto-cloture');   /* S1 ADAPTED: columns under domains */ const g=c&&c.kids.find(k=>k.key==='g:f901'); return g ? g.kids.map(k=>k.key) : null})()")
     check("l10 the moved group keeps its sub-group, chain and post-it", sub and "g:f902" in sub and "p:p901" in sub and _fr(wd, "f902")["parent"] == "f901", str(sub))
     held2, _hit2 = _l10_drag_row(wd, "col:auto-veille", "col:auto-cloture", lambda w: js(w, "return [...document.querySelectorAll('#tree .hrow.hdeny')].map(r=>r.dataset.key)"))
     v = _fr(wd, "auto-veille")

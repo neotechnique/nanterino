@@ -6,7 +6,7 @@
  *            single-file editor.js (lot M6).
  * Depends :  core/util.js, core/state.js, core/api.js, core/history.js, canvas/view.js, frames/groups.js,
  *            frames/nesting.js, canvas/navigation.js, hierarchy/tree.js, inspector/fields.js, inspector/inspector.js,
- *            core/ui.js
+ *            core/ui.js, domains/domains.js (S1: applyFold after a redraw)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h, ico } from '../core/util.js';
@@ -24,6 +24,7 @@ import { scheduleTree } from '../hierarchy/tree.js';
 import { areaCtl, field, selectCtl, textCtl } from '../inspector/fields.js';
 import { renderInspector } from '../inspector/inspector.js';
 import { toast } from '../core/ui.js';
+import { applyFold } from '../domains/domains.js';
 
 // ---------- post-it notes ----------
 // meta.notes = [{id, text, color, x, y, w, h, title?}] lives in the document (serialize() copies meta), so undo/redo, the
@@ -97,6 +98,7 @@ export function drawNotes() {
     root.append(el);
     growNote(el);
   });
+  applyFold();             // lot S1: a post-it inside a folded column / domain stays hidden after a redraw
 }
 export function selectNote(id, keepFocus) {
   if (S.selNote === id) return;
