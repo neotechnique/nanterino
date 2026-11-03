@@ -8,6 +8,9 @@
   @media (prefers-color-scheme:dark){:root{--bg:#0f1714;--card:#17221e;--ink:#e6f2ec;--mute:#93a69d;--line:#2a3833}}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif}
   header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .navlink{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-weight:600;text-decoration:none}
+  .navlink:hover{border-color:var(--ok)}
+  .navlink .ico{width:1.2em;height:1.2em;background:currentColor;-webkit-mask:url('/web/vendor/tabler/git-branch.svg') center/contain no-repeat;mask:url('/web/vendor/tabler/git-branch.svg') center/contain no-repeat}
   h1{font-size:18px;margin:0} .pill{padding:3px 10px;border-radius:99px;background:var(--line);font-weight:600}
   main{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;padding:16px 20px}
   section{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px}
@@ -20,7 +23,8 @@
   pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;margin:0;color:var(--mute)}
   .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 </style></head><body>
-<header><h1>Nanterino</h1><span class="pill" id="state">…</span><span id="sub" style="color:var(--mute)"></span></header>
+<header><h1>Nanterino</h1><span class="pill" id="state">…</span><span id="sub" style="color:var(--mute)"></span>
+  <a id="editorlink" class="navlink" href="/editor" title="Ouvrir l'éditeur visuel du graphe"><span class="ico"></span> Éditeur du graphe</a></header>
 <main>
   <section><h2>Dialogue</h2>
     <div class="btns"><button class="primary" onclick="ctl('start')">Démarrer</button>

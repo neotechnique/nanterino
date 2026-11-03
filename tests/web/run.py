@@ -62,7 +62,7 @@ AREAS = ["canvas", "tester", "menu", "frames", "variables", "tooltips", "diagnos
 # Order of the former single file, which `all` keeps (the scenarios share one browser session there).
 ALL_ORDER = ["nodes", "wires", "tester", "buttons", "menu", "postit", "ctxsub", "nav", "noinput", "vars", "testervars",
              "nostart", "wiredrag", "menu3", "tooltips", "postit2", "diag", "l6", "human", "l8", "postit3", "l10",
-             "vars2", "subgroups", "export", "props", "progress", "postitsave", "emptylist", "domains"]
+             "vars2", "switch", "subgroups", "export", "props", "progress", "postitsave", "emptylist", "domains"]
 
 
 def registry():

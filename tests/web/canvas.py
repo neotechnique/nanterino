@@ -506,7 +506,39 @@ def sc_wiredrag(wd):
 
 
 # Scenario registry read by tests/web/run.py (order = order of the former single file).
+
+def sc_switch(wd):
+    """L34: dashboard <-> graph editor switch buttons; a dirty editor document keeps its beforeunload guard."""
+    open_editor(wd)
+    check("editor toolbar has the dashboard button", js(wd, "return !!document.querySelector('#btnDash')"))
+    check("dashboard button carries a tooltip text", "Tableau" in (js(wd, "return document.querySelector('#btnDash').title") or "") or "tableau" in (js(wd, "return document.querySelector('#btnDash').title") or ""))
+    # clean document: beforeunload must not be armed
+    pre = js(wd, "const e=new Event('beforeunload',{cancelable:true}); window.dispatchEvent(e); return [window.__editor.isDirty(), e.defaultPrevented]")
+    check("clean editor: beforeunload not armed", pre == [False, False], repr(pre))
+    # dirty document (an added post-it, never saved): the guard is armed and the button does not bypass it
+    js(wd, "document.querySelector('#btnNote').click()")
+    time.sleep(1.0)
+    post = js(wd, "const e=new Event('beforeunload',{cancelable:true}); window.dispatchEvent(e); return [window.__editor.isDirty(), e.defaultPrevented]")
+    check("dirty editor: beforeunload armed via isDirty()", post == [True, True], repr(post))
+    # clean again -> the button navigates to /dash
+    open_editor(wd)
+    js(wd, "document.querySelector('#btnDash').click()")
+    time.sleep(1.5)
+    url = js(wd, "return location.pathname")
+    check("editor button opens /dash in the same tab", url == "/dash", repr(url))
+    check("dashboard loaded", js(wd, "return !!document.querySelector('#state')"))
+    check("dashboard has the editor link", js(wd, "const a=document.querySelector('#editorlink'); return !!a && a.getAttribute('href')==='/editor' && /Éditeur du graphe/.test(a.textContent)"))
+    vis = js(wd, "const r=document.querySelector('#editorlink').getBoundingClientRect(); return r.width>40 && r.height>16 && r.right<=innerWidth")
+    check("dashboard link visible in the header", vis)
+    js(wd, "document.querySelector('#editorlink').click()")
+    time.sleep(2.0)
+    url = js(wd, "return location.pathname")
+    check("dashboard link opens /editor in the same tab", url == "/editor", repr(url))
+    check("editor loaded", js(wd, "return !!document.querySelector('#btnDash')"))
+
+
 SCENARIOS = {
+    "switch": sc_switch,
     "nodes": sc_nodes,
     "wires": sc_wires,
     "buttons": sc_buttons,

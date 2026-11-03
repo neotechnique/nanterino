@@ -192,6 +192,8 @@ async function bootSteps(task) {
     const src = r.json.source ? 'Source : ' + r.json.source + '\n\n' : '';
     modal('Graphe actif (YAML, lecture seule)', h('pre', {}, src + toYaml(r.json)), [{ label: 'Fermer' }]);
   };
+  // Same-tab switch to the robot dashboard; unsaved edits are protected by the beforeunload handler below.
+  $('#btnDash').onclick = () => { location.href = '/dash'; };
   $('#btnReset').onclick = () => modal('Revenir au graphe par défaut ?',
     h('p', {}, 'Le graphe actuel est sauvegardé, puis remplacé par celui livré avec le robot. Vos positions de nœuds sont effacées.'
       + (isDirty() ? ' Les modifications non enregistrées de cette page (nœuds, groupes, post-it) seront perdues.' : '')),
