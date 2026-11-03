@@ -1,0 +1,65 @@
+# Nanterino body layout (lot C3, 2026-11-04) - PROVISIONAL.
+#
+# The robot hardware is not chosen yet (plan "Partie B" / C3). This file declares the joints the software exposes:
+# a 2-axis head (pan / tilt), two simple 2-joint arms and a differential base. When the real hardware is chosen,
+# edit ids / limits here (see Notes/HOWTO-body.md); the calibration measured on the robot lives in
+# state/body-calibration.json and wins over the `defaults` below for every joint it lists.
+#
+# Fields per joint
+#   label   French label shown on the dashboard (Mecanique screen)
+#   kind    servo | wheel | pan | tilt     (wheel = velocity-controlled, every other kind = position-controlled)
+#   unit    deg | rad | m/s                (position joints: deg or rad; wheels: m/s)
+#   group   head | arm_l | arm_r | base    (dashboard grouping, Mouvement nodes of lot B1)
+#   defaults: calibration used until the joint is calibrated (min, max, zero, direction, max_speed, max_accel,
+#             max_current, deadband, enabled); units: joint unit, unit/s, unit/s^2, amperes.
+schema: nanterino.body-layout
+version: 1
+joints:
+  head_pan:
+    label: "Tête — rotation (pan)"
+    kind: pan
+    unit: deg
+    group: head
+    defaults: {min: -90, max: 90, max_speed: 90, max_accel: 300, max_current: 1.0, deadband: 0.5}
+  head_tilt:
+    label: "Tête — inclinaison (tilt)"
+    kind: tilt
+    unit: deg
+    group: head
+    defaults: {min: -30, max: 40, max_speed: 60, max_accel: 200, max_current: 1.0, deadband: 0.5}
+  arm_l_shoulder:
+    label: "Bras gauche — épaule"
+    kind: servo
+    unit: deg
+    group: arm_l
+    defaults: {min: -45, max: 170, max_speed: 60, max_accel: 180, max_current: 1.5, deadband: 0.5}
+  arm_l_elbow:
+    label: "Bras gauche — coude"
+    kind: servo
+    unit: deg
+    group: arm_l
+    defaults: {min: 0, max: 135, max_speed: 80, max_accel: 240, max_current: 1.2, deadband: 0.5}
+  arm_r_shoulder:
+    label: "Bras droit — épaule"
+    kind: servo
+    unit: deg
+    group: arm_r
+    defaults: {min: -45, max: 170, max_speed: 60, max_accel: 180, max_current: 1.5, deadband: 0.5}
+  arm_r_elbow:
+    label: "Bras droit — coude"
+    kind: servo
+    unit: deg
+    group: arm_r
+    defaults: {min: 0, max: 135, max_speed: 80, max_accel: 240, max_current: 1.2, deadband: 0.5}
+  base_left_wheel:
+    label: "Base — roue gauche"
+    kind: wheel
+    unit: m/s
+    group: base
+    defaults: {min: -0.5, max: 0.5, max_speed: 0.5, max_accel: 1.0, max_current: 3.0, deadband: 0.01}
+  base_right_wheel:
+    label: "Base — roue droite"
+    kind: wheel
+    unit: m/s
+    group: base
+    defaults: {min: -0.5, max: 0.5, max_speed: 0.5, max_accel: 1.0, max_current: 3.0, deadband: 0.01}

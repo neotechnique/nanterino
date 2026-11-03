@@ -1,13 +1,15 @@
 <!doctype html>
 <!-- Nanterino technical dashboard (open from the PC through Tailscale: http://100.83.93.27:8080/dash).
-     Offline page: no CDN. Live state via /ws, metrics and engines via /api/status every 2 s. -->
+     Offline page: no CDN. Live state via /ws, metrics and engines via /api/status every 2 s.
+     Lot C3: « Mécanique » section (web/dash/mechanics.js, /api/body/*) and the always-visible ARRÊT D'URGENCE in the
+     sticky header. -->
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nanterino — tableau technique</title>
 <style>
   :root{--bg:#f6f8f7;--card:#fff;--ink:#14231d;--mute:#5b6b64;--ok:#1f9d63;--bad:#c63d3d;--line:#dfe6e2}
   @media (prefers-color-scheme:dark){:root{--bg:#0f1714;--card:#17221e;--ink:#e6f2ec;--mute:#93a69d;--line:#2a3833}}
   body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.4 system-ui,sans-serif}
-  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  header{padding:14px 20px;border-bottom:1px solid var(--line);display:flex;gap:16px;align-items:center;flex-wrap:wrap;position:sticky;top:0;z-index:50;background:var(--bg)}
   .navlink{margin-left:auto;display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);font-weight:600;text-decoration:none}
   .navlink:hover{border-color:var(--ok)}
   .navlink .ico{width:1.2em;height:1.2em;background:currentColor;-webkit-mask:url('/web/vendor/tabler/git-branch.svg') center/contain no-repeat;mask:url('/web/vendor/tabler/git-branch.svg') center/contain no-repeat}
@@ -22,9 +24,38 @@
   .bar{height:8px;background:var(--line);border-radius:4px;overflow:hidden}.bar>i{display:block;height:100%;background:var(--ok)}
   pre{white-space:pre-wrap;font-size:12px;max-height:260px;overflow:auto;margin:0;color:var(--mute)}
   .btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  /* lot C3: Mécanique screen + emergency stop */
+  .estop{background:var(--bad);color:#fff;border:2px solid #7a1414;font-weight:800;letter-spacing:.04em;padding:9px 16px;border-radius:8px}
+  .estop:hover{filter:brightness(1.1)} #estop-state{color:var(--bad);font-weight:800}
+  body.estop-on header{box-shadow:inset 0 -4px 0 var(--bad)}
+  #mech .mech-top{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+  #mech .mech-top .info{color:var(--mute);font-size:13px}
+  #mech-banner{color:var(--bad);font-weight:600}
+  .mech-msg{min-height:1.2em;font-size:13px} .mech-msg.bad{color:var(--bad)} .mech-msg.ok{color:var(--ok)}
+  .mech-layout{display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:14px}
+  @media (max-width:900px){.mech-layout{grid-template-columns:1fr}}
+  .mech-group h3{font-size:14px;margin:12px 0 6px;color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
+  .mech-row{border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px}
+  .mech-head{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap} .mech-head code{color:var(--mute);font-size:12px}
+  .mech-en{margin-left:auto;font-size:13px} .mech-en input{width:auto}
+  .mech-live{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--mute);margin:4px 0}
+  .mech-live b{color:var(--ink);font-variant-numeric:tabular-nums} .mech-flag{color:var(--ok);font-weight:600} .mech-flag.bad{color:var(--bad)}
+  .mech-ctl{display:flex;gap:8px;align-items:center} .mech-ctl input[type=range]{flex:1;padding:0}
+  .mech-lim{font-size:12px;color:var(--mute);min-width:3.5em;text-align:center;font-variant-numeric:tabular-nums}
+  .mech-tg{font-size:13px;min-width:8em;text-align:right}
+  .mech-btns button{padding:5px 10px;font-size:13px} .mech-btns button:disabled{opacity:.45;cursor:not-allowed}
+  .mech-sub{font-size:12px;color:var(--mute);margin-top:4px}
+  .mech-schema svg{width:100%;height:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px}
+  .mech-schema .body{fill:none;stroke:var(--ink);stroke-width:2} .mech-schema .arm{fill:none;stroke:var(--ok);stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+  .mech-schema .ray{stroke:var(--bad);stroke-width:2.5;stroke-linecap:round} .mech-schema .wheel{stroke:var(--ok);stroke-width:6;stroke-linecap:round}
+  .mech-schema text{fill:var(--mute);font-size:10px}
+  #mech-events{max-height:130px}
 </style></head><body>
 <header><h1>Nanterino</h1><span class="pill" id="state">…</span><span id="sub" style="color:var(--mute)"></span>
-  <a id="editorlink" class="navlink" href="/editor" title="Ouvrir l'éditeur visuel du graphe"><span class="ico"></span> Éditeur du graphe</a></header>
+  <a id="editorlink" class="navlink" href="/editor" title="Ouvrir l'éditeur visuel du graphe"><span class="ico"></span> Éditeur du graphe</a>
+  <span id="estop-state" aria-live="assertive"></span>
+  <button id="estop-reset" type="button" hidden title="Réarmer les moteurs après un arrêt d'urgence">Réarmer</button>
+  <button id="estop" class="estop" type="button" title="Arrête immédiatement tous les moteurs (verrouillé jusqu'au réarmement)">⏹ ARRÊT D'URGENCE</button></header>
 <main>
   <section><h2>Dialogue</h2>
     <div class="btns"><button class="primary" onclick="ctl('start')">Démarrer</button>
@@ -55,6 +86,41 @@
     <h2 style="margin-top:14px">Latence fin de phrase → voix (objectif &lt; 5 s)</h2><div id="lat">–</div></section>
   <section><h2>Matériel (tegrastats)</h2><div id="hw"></div></section>
   <section style="grid-column:1/-1"><h2>Erreurs et avertissements récents (/var/log/robot/errors.log)</h2><pre id="err"></pre></section>
+  <section id="mech" style="grid-column:1/-1"><h2>Mécanique — moteurs et calibration</h2>
+    <div class="mech-top">
+      <button id="mech-stop" type="button" title="Arrête les mouvements en cours (sans verrouillage)">Arrêter les mouvements</button>
+      <button id="mech-export" type="button">Exporter la calibration</button>
+      <label class="navlink" style="margin-left:0;cursor:pointer">Importer… <input id="mech-import" type="file" accept="application/json,.json" style="display:none"></label>
+      <span class="info" id="mech-backend"></span><span class="info" id="mech-store"></span>
+    </div>
+    <div id="mech-banner"></div><div id="mech-msg" class="mech-msg"></div>
+    <div class="mech-layout">
+      <div id="mech-joints"></div>
+      <div class="mech-schema">
+        <svg id="sch-side" viewBox="0 0 200 170" role="img" aria-label="Robot vu de côté">
+          <text x="6" y="14">Vue de côté (avant à droite)</text>
+          <line x1="40" y1="160" x2="160" y2="160" class="body"/>
+          <rect x="80" y="76" width="40" height="70" rx="8" class="body"/>
+          <circle cx="86" cy="152" r="7" class="body"/><circle cx="114" cy="152" r="7" class="body"/>
+          <g id="sch-head"><rect x="84" y="34" width="32" height="28" rx="7" class="body"/><circle cx="108" cy="46" r="3" fill="currentColor"/></g>
+          <line id="sch-gaze" x1="100" y1="48" x2="134" y2="48" class="ray" stroke-dasharray="3 3"/>
+          <polyline id="sch-arm-l" class="arm" points="96,82 96,112 96,138" opacity=".55"/>
+          <polyline id="sch-arm-r" class="arm" points="104,82 104,112 104,138"/>
+        </svg>
+        <svg id="sch-top" viewBox="0 0 200 170" role="img" aria-label="Robot vu de dessus" style="margin-top:8px">
+          <text x="6" y="14">Vue de dessus (avant en haut)</text>
+          <polygon points="100,40 94,50 106,50" fill="currentColor"/>
+          <circle cx="100" cy="100" r="34" class="body"/>
+          <line id="sch-pan" x1="100" y1="100" x2="100" y2="60" class="ray"/>
+          <line id="sch-base_left_wheel" x1="62" y1="100" x2="62" y2="100" class="wheel"/>
+          <line id="sch-base_right_wheel" x1="138" y1="100" x2="138" y2="100" class="wheel"/>
+          <rect x="58" y="88" width="8" height="24" rx="2" class="body"/><rect x="134" y="88" width="8" height="24" rx="2" class="body"/>
+        </svg>
+        <p id="sch-caption" style="font-size:12px;color:var(--mute);margin:6px 0"></p>
+        <h2 style="margin-top:12px">Derniers évènements moteurs</h2><pre id="mech-events"></pre>
+      </div>
+    </div>
+  </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -90,4 +156,5 @@ async function pcPoll(){ if(!pc) return; try{ const ids=await (await fetch('/api
     playing=playing.then(()=>new Promise(res=>{ const a=new Audio('/api/monitor/'+id+'.wav'); a.onended=res; a.onerror=res; a.play().catch(res); })); } }catch(e){} }
 setInterval(pcPoll,300);
 live(); poll(); devices(); setInterval(poll,2000);
-</script></body></html>
+</script>
+<script type="module" src="/web/dash/mechanics.js"></script></body></html>

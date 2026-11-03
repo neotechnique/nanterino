@@ -74,6 +74,11 @@ LOUD_LEVEL; `_on_speech_start` posts voice_detected; `_clock_tick` (sensor perio
 dict_key_set / dict_key_removed (watch triggers: listened names only). `last_said` is the robot's last phrase / answer,
 `_faces_zero_since` the start of the current face absence, `started_at` the brain's start (uptime).
 
+Body (lot C3, 2026-11-04): `self.body` is the robot body (nanterino/body: joints, calibration, limits, e-stop). server.py
+passes the live one (cfg["body_backend"], state/body-calibration.json); any other Brain (simulator, tests) builds an
+in-memory simulated body. The heartbeat ticks it AFTER the graph, in its own try block: a body fault never stops the
+graph tick, and the body posts no graph event yet (Mouvement nodes = lot B1), so traces are unchanged.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -100,6 +105,7 @@ from .nodes import NodeContext
 from .audio import AudioIn, find_device
 from . import hours as hours_mod
 from . import journal as journal_mod
+from . import body as body_mod
 from .log import log
 
 VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
@@ -196,7 +202,7 @@ def build_messages(cfg: dict, sheets: list[dict], history: list[dict], question:
 
 class Brain:
     def __init__(self, cfg, out, stt, llm, tts, corpus, *, clock=None, wall=None, mic=None, graph=None,
-                 threaded=True, start_state=None, var_store=None):
+                 threaded=True, start_state=None, var_store=None, body=None):
         """`clock`/`wall`/`mic`/`graph`/`threaded` exist for the graph simulator (nanterino/sim.py): a manual
         monotonic clock, a simulated wall clock, a fake microphone, an in-memory Graph (no file read) and no
         threads at all (events are processed by `pump()`). The live robot uses none of them.
@@ -284,6 +290,9 @@ class Brain:
         self._loud, self._clock_prev = False, None
         self._faces_zero_since = self.now()
         self.started_at = self.now()
+        # lot C3: the robot body (live one from server.py; otherwise in-memory simulated, never persisted)
+        self.body = body if body is not None else body_mod.create(cfg)
+        self._body_err_at = -1e9
         self.engine = self._build_engine()
         if self._threaded:
             journal_mod.attach(self)  # the live robot's WARNING / ERROR log records feed journal_notes
@@ -1277,6 +1286,12 @@ class Brain:
             if now - self._tick_err_at > 5:  # a systematic bug must not flood the log at 10 Hz
                 self._tick_err_at = now
                 log.exception("tick handling failed")
+        try:
+            self.body.tick(now)          # lot C3: motors / sim backend, after the graph (no graph event posted)
+        except Exception:
+            if now - self._body_err_at > 5:
+                self._body_err_at = now
+                log.exception("body tick failed")
 
     def _release_scheduled(self, now: float):
         with self._sched_lock:

@@ -60,6 +60,9 @@ DEFAULTS = {
     # trips when no tick was processed for watchdog_s seconds (stuck handler). See nanterino/graph.py.
     "heartbeat_hz": 10,
     "watchdog_s": 5,
+    # Robot body backend (lot C3): sim (kinematic simulator, default until the hardware is chosen) | mujoco (lot B3)
+    # | real (servos, plan B4). An unavailable backend falls back to sim with a dashboard banner (nanterino/body).
+    "body_backend": "sim",
     # Optional dialogue graph override (YAML, French); invalid -> logged, default graph.yaml used.
     "graph_file": f"{ROOT}/graph.yaml",
     "vad_silence_ms": 800,

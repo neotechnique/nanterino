@@ -17,6 +17,11 @@ used Brain.set_deaf) so the graph triggers mute_changed / volume_changed / deaf_
 `volume_hook` / `flag_hook` give the graph actions the same effect (speaker profile, persisted flags). Dashboard
 notifications (graph action notify_dashboard): GET /api/notifications lists the pending ones (also `notifications`
 in GET /api/status), POST /api/notifications/click {"id"} clicks one (posts notification_clicked). Additive only.
+Lot C3 (2026-11-04): the robot body (nanterino/body) is built here with the persistent calibration store
+(state/body-calibration.json) and handed to the Brain (heartbeat tick). /api/body/* routes are thin wrappers of
+nanterino/body/api.py (contract in its header): state, WebSocket stream, command, stop, estop / reset, sweep,
+calibration get / put / set_min|set_max|set_zero / export / import, trace. Limits are enforced by Body.clamp for every
+source. The dashboard's « Mécanique » screen script is served from web/dash/ (whitelist). Additive only.
 """
 import asyncio
 import atexit
@@ -44,6 +49,9 @@ from .log import log
 from .metrics import Metrics
 from .snapshot_jobs import SnapshotJobs, files_signature, snapshot_key
 from .var_store import DEFAULT_PATH as VARS_STATE_PATH, VarStore
+from . import body as body_mod
+from .body import api as body_api
+from .body.calibration import DEFAULT_PATH as BODY_CAL_PATH
 from . import web_assets
 from .vision import Vision
 
@@ -60,7 +68,9 @@ out.muted = bool(cfg.get("muted", False))  # mute state is persisted like power
 stt, llm, corpus, metrics = STT(cfg["stt_url"]), LLM(cfg["llm_url"], cfg.get("llm_options")), Corpus(cfg["fiches_dir"]), Metrics()
 var_store = VarStore(VARS_STATE_PATH)   # lot L11: `persist: true` graph variables (written <= 1x / 2 s)
 atexit.register(var_store.flush)        # a service stop keeps the last values
-brain = Brain(cfg, out, stt, llm, tts, corpus, var_store=var_store)
+# lot C3: the live body (backend from cfg["body_backend"], sim by default) with the persisted calibration
+body = body_mod.create(cfg, calibration_path=BODY_CAL_PATH)
+brain = Brain(cfg, out, stt, llm, tts, corpus, var_store=var_store, body=body)
 # lot N1: graph actions set_volume / set_mute / set_deaf act like the dashboard (speaker profile, persisted flags)
 brain.volume_hook = lambda v: speakers.update(volume=v)
 brain.flag_hook = lambda key, value: config.save_overrides({key: value})
@@ -469,6 +479,110 @@ def graph_snapshot_png(key: str = ""):
     name = "nanterino-graph-%s.png" % (meta.get("created") or "export")
     return FileResponse(snapshots.png_path(key), media_type="image/png", filename=name,
                         headers={"Cache-Control": "no-cache", "Content-Disposition": 'attachment; filename="%s"' % name})
+
+
+# ---- lot C3: robot body (handlers in nanterino/body/api.py; Body.clamp enforces the limits for every source)
+_DASH_ASSETS = {"mechanics.js": "text/javascript"}
+
+
+@app.get("/web/dash/{name}")
+def web_dash(name: str):
+    """Dashboard scripts (whitelist): web/dash/mechanics.js is the « Mécanique » screen."""
+    if name not in _DASH_ASSETS:
+        return PlainTextResponse("not found", status_code=404)
+    return FileResponse(os.path.join(WEB, "dash", name), media_type=_DASH_ASSETS[name], headers=_NO_CACHE)
+
+
+def _body_reply(result):
+    status, payload = result
+    return JSONResponse(payload, status_code=status)
+
+
+async def _json_or_none(request: Request):
+    try:
+        return await request.json()
+    except ValueError:
+        return None
+
+
+@app.get("/api/body/state")
+def body_state():
+    return _body_reply(body_api.state(body))
+
+
+@app.post("/api/body/command")
+async def body_command(request: Request):
+    return _body_reply(body_api.command(body, await _json_or_none(request)))
+
+
+@app.post("/api/body/stop")
+def body_stop():
+    return _body_reply(body_api.stop(body))
+
+
+@app.post("/api/body/estop")
+async def body_estop(request: Request):
+    return _body_reply(body_api.estop(body, await _json_or_none(request)))
+
+
+@app.post("/api/body/estop/reset")
+def body_estop_reset():
+    return _body_reply(body_api.estop_reset(body))
+
+
+@app.post("/api/body/sweep")
+async def body_sweep(request: Request):
+    return _body_reply(body_api.sweep(body, await _json_or_none(request)))
+
+
+@app.get("/api/body/calibration")
+def body_calibration():
+    return _body_reply(body_api.calibration_get(body))
+
+
+@app.put("/api/body/calibration")
+async def body_calibration_put(request: Request):
+    payload = await _json_or_none(request)
+    return _body_reply(await run_in_threadpool(body_api.calibration_put, body, payload))   # file write off the loop
+
+
+@app.get("/api/body/calibration/export")
+def body_calibration_export():
+    status, doc = body_api.calibration_export(body)
+    name = "nanterino-calibration-%s.json" % time.strftime("%Y%m%d-%H%M")
+    return JSONResponse(doc, status_code=status, headers={"Content-Disposition": 'attachment; filename="%s"' % name})
+
+
+@app.post("/api/body/calibration/import")
+async def body_calibration_import(request: Request):
+    payload = await _json_or_none(request)
+    return _body_reply(await run_in_threadpool(body_api.calibration_import, body, payload))
+
+
+@app.post("/api/body/calibration/{joint}/{action}")
+async def body_calibration_set(joint: str, action: str):
+    return _body_reply(await run_in_threadpool(body_api.calibration_set, body, joint, action))
+
+
+@app.get("/api/body/trace")
+def body_trace(seconds: str = "10"):
+    return _body_reply(body_api.trace(body, seconds))
+
+
+@app.websocket("/api/body/stream")
+async def body_stream(socket: WebSocket):
+    """Body.state() pushed at ?hz= (1..20, default 15) for the « Mécanique » screen."""
+    if not _allowed(socket.client.host if socket.client else None):
+        await socket.close(code=1008)
+        return
+    await socket.accept()
+    period = 1.0 / body_api.stream_hz(socket.query_params.get("hz"))
+    try:
+        while True:
+            await socket.send_json(body.state())
+            await asyncio.sleep(period)
+    except Exception:
+        pass
 
 
 @app.get("/api/live")
