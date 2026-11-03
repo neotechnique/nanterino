@@ -96,9 +96,16 @@ def sc_wires(wd):
     # CHANGED (lot G1): 5 if/else pairs (+ veille is_deaf) and ONE lone negated condition (relance `not mic_active`,
     # no positive twin on the same trigger)
     # CHANGED (lot G2): 8 Faux links (+ veille opening hours, accueil face count and choix_salutation)
-    check("if/else: 8 Faux links in the shipped graph, only the lone relance negated condition", nfalse == 8 and
-          [(n["group"], n["params"].get("guard")) for n in negs] == [("relance", "mic_active")], "%d %d" % (nfalse, len(negs)))
-    check("Faux wires: gradient starts with the condition colour #56d364", len(fw) == 8 and all(x.startswith("#56d364>") for x in fw), str(fw))
+    # CHANGED (lot G3): 11 Faux links (+ repair help in ecoute and relance, loud-noise bound in global) and 3 lone
+    # negated conditions (ecoute no_face_since: its twin, the visitor-left timeout, has another delay; relance
+    # mic_active (G1); global time_between: no hourly summary at midnight), same list as tests/test_graph_vars.py
+    check("if/else: 11 Faux links in the shipped graph, the 3 lone negated conditions", nfalse == 11 and
+          [(n["group"], n["params"].get("guard")) for n in negs] == [("ecoute", "no_face_since"), ("relance", "mic_active"),
+                                                                       ("global", "time_between")],
+          "%d %s" % (nfalse, [(n["group"], n["params"].get("guard")) for n in negs]))
+    # the drawn Faux wires follow the document: one per Faux link (no hard-coded count), each starting green
+    check("Faux wires: gradient starts with the condition colour #56d364", len(fw) == nfalse and nfalse > 0 and
+          all(x.startswith("#56d364>") for x in fw), str(fw))
     # the wire being dragged out of a Faux port starts green too (pointer held between two WebDriver action calls)
     cnd = next(n["id"] for n in d["nodes"] if n["kind"] == "condition" and n["params"].get("guard") == "turns_left" and n.get("group") == "ecoute")
     center_on(wd, cnd)
