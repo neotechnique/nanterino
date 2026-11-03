@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Nanterino - Éditeur visuel</title>
+<!-- Offline page: no CDN. Drawflow (MIT) is vendored in /web/vendor/drawflow/. See the web/editor/main.js header. -->
+<link rel="stylesheet" href="/web/vendor/drawflow/drawflow.min.css">
+<link rel="stylesheet" href="/web/editor.css">
+<!-- m6-modulepreload: GET /editor replaces this line with one modulepreload link per web/editor/ module -->
+</head>
+<body>
+<!-- L22: the one non-blocking progress bar (web/editor/core/progress.js): visible from the first paint for the boot,
+     3 px above the toolbar, pointer-events none; it never covers a control and never blocks the page -->
+<div id="progress" class="progress on indet" role="progressbar" aria-label="Chargement de l'éditeur" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Chargement de l'éditeur…"><div class="pfill"></div></div>
+<header id="bar">
+  <button id="btnLeft" class="icon only-narrow" title="Hiérarchie">☰</button>
+  <strong class="brand">Éditeur visuel</strong>
+  <span id="heart" class="heart" title="Battement du robot"></span>
+  <span id="liveState" class="livestate" title="État courant du robot">…</span>
+  <span id="dirty" class="dirty" hidden>modifié</span>
+  <span class="sp"></span>
+  <button id="btnUndo" title="Annuler la dernière modification (Ctrl+Z)">↶ Annuler</button>
+  <button id="btnRedo" title="Refaire la modification annulée (Ctrl+Y)">↷ Refaire</button>
+  <button id="btnGroup" title="Créer un groupe autour du nœud sélectionné (G)">▭ Groupe</button>
+  <button id="btnNote" title="Ajouter un post-it (N)">🗒 Post-it</button>
+  <button id="btnFit" title="Tout voir (0)">⤢ Ajuster</button>
+  <button id="btnHand" class="navbtn" title="Outil main : glisser déplace la vue, rien n'est modifiable (H)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/hand-stop.svg')"></span></button>
+  <button id="btnLock" class="navbtn" title="Verrouiller : lecture seule (L)" aria-pressed="false"><span class="ico" style="--ic:url('/web/vendor/tabler/lock-open.svg')"></span></button>
+  <button id="btnHelp" class="navbtn" title="Commandes de navigation (?)"><span class="ico" style="--ic:url('/web/vendor/tabler/question-mark.svg')"></span></button>
+  <button id="btnVars" title="Variables et listes du graphe (comme les Local / Global Variables de Game Creator 2)"><span class="ico" style="--ic:url('/web/vendor/tabler/text-caption.svg')"></span> Variables</button>
+  <button id="btnDiag" class="diag ok" type="button" aria-label="Erreurs et avertissements">✔ 0</button>
+  <button id="btnValidate" title="Vérifier le graphe sans l'enregistrer (le robot fait la validation finale à l'enregistrement)">✔ Valider</button>
+  <button id="btnSave" class="primary" title="Envoyer le graphe au robot : il est vérifié, sauvegardé (version précédente gardée) puis appliqué (tout de suite en veille, sinon à la prochaine veille)">Enregistrer et appliquer</button>
+  <button id="btnExport" title="Exporter tout le graphe en une image PNG pleine résolution (zoom 100 % ou 50 %, thème, graphe enregistré ou par défaut) pour le montrer">⤓ Exporter l'image</button>
+  <button id="btnYaml" title="Afficher le fichier graph.yaml actif (lecture seule)">Voir le YAML</button>
+  <button id="btnReset" class="danger" title="Remplacer le graphe par celui livré avec le robot (l'actuel est sauvegardé dans Versions)">Revenir au graphe par défaut</button>
+  <button id="btnRight" class="icon only-narrow" title="Inspecteur">⚙</button>
+  <!-- L22: progress label chip, right end of the toolbar's last line (empty slot when idle: no layout change) -->
+  <span id="progSlot" class="progslot"><button id="progChip" class="progchip" type="button" hidden></button></span>
+</header>
+<div id="banner" hidden></div>
+<main id="main" aria-busy="true">
+  <!-- L10: the left column is the hierarchy (columns > groups > chains > post-its); nodes are added by right click -->
+  <aside id="left">
+    <div class="lhead">Hiérarchie</div>
+    <input id="treeFilter" type="search" placeholder="Filtrer la hiérarchie" autocomplete="off" aria-label="Filtrer la hiérarchie">
+    <div id="tree" role="tree" aria-label="Hiérarchie du graphe : colonnes, groupes, chaînes et post-it"></div>
+  </aside>
+  <section id="stage">
+    <div id="drawflow"></div>
+    <button id="btnMsgs" class="msgtoggle" hidden></button>
+    <div id="msgs" class="msgs" hidden></div>
+    <div id="toasts"></div>
+    <div id="navBanner" class="navbanner" role="status" hidden></div>
+  </section>
+  <aside id="right">
+    <nav class="tabs" id="tabs">
+      <button data-tab="node" class="on">Inspecteur</button>
+      <button data-tab="intents">Intentions</button>
+      <button data-tab="vars">Variables</button>
+      <button data-tab="tester">Tester</button>
+      <button data-tab="versions">Versions</button>
+      <button data-tab="journal">Journal</button>
+    </nav>
+    <div id="inspector" class="panel" data-panel="node"></div>
+    <div id="intents" class="panel" data-panel="intents" hidden></div>
+    <div id="vars" class="panel" data-panel="vars" hidden></div>
+    <div id="tester" class="panel" data-panel="tester" hidden></div>
+    <div id="versions" class="panel" data-panel="versions" hidden></div>
+    <div id="journal" class="panel" data-panel="journal" hidden></div>
+  </aside>
+</main>
+
+<div id="modal" hidden><div class="box"><h3 id="mTitle"></h3><div id="mBody"></div><div id="mBtns" class="mbtns"></div></div></div>
+<script src="/web/vendor/drawflow/drawflow.min.js"></script>
+<script type="module" src="/web/editor/main.js"></script>
+</body>
+</html>

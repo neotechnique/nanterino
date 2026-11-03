@@ -1,0 +1,29 @@
+{
+ "pids": {
+  "whisper": 34229,
+  "hub": 168660,
+  "face": 204379,
+  "dash": 204449,
+  "llama": 3095947,
+  "server": 3114289
+ },
+ "cpu_pct_of_one_core": {
+  "whisper": 0.1,
+  "hub": 0.0,
+  "face": 97.0,
+  "dash": 3.8,
+  "llama": 0.1,
+  "server": 24.4
+ },
+ "rss_mb": {
+  "whisper": 1270,
+  "hub": 26,
+  "face": 37,
+  "dash": 40,
+  "llama": 2152,
+  "server": 953
+ },
+ "tegra_cpu_avg_pct": 29.2,
+ "tegra_gpu_avg_pct": 10.9,
+ "free_m": "               total        used        free      shared  buff/cache   available\nMem:            7485        5147         561          27        2010        2337\nSwap:              0           0           0\n"
+}

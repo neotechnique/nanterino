@@ -1,0 +1,2808 @@
+{
+ "events": [
+  {
+   "id": "stop",
+   "label": "Bouton Stop",
+   "help": "Le bouton Stop du tableau de bord est pressé : se taire et revenir en veille.",
+   "icon": "hand-stop",
+   "theme": "systeme"
+  },
+  {
+   "id": "off",
+   "label": "Bouton Éteindre",
+   "help": "Le bouton Éteindre est pressé : le robot s'éteint (micro coupé).",
+   "icon": "power",
+   "theme": "systeme"
+  },
+  {
+   "id": "on",
+   "label": "Bouton Allumer",
+   "help": "Le bouton Allumer est pressé : le robot sort de l'état éteint.",
+   "icon": "power",
+   "theme": "systeme"
+  },
+  {
+   "id": "start",
+   "label": "Bouton Démarrer",
+   "help": "Le bouton Démarrer du tableau de bord, ou un appui sur le visage de l'écran.",
+   "icon": "player-play",
+   "theme": "systeme"
+  },
+  {
+   "id": "visage",
+   "label": "Un visage apparaît",
+   "help": "La caméra voit un visage alors qu'il n'y en avait plus.",
+   "icon": "scan-eye",
+   "theme": "vision"
+  },
+  {
+   "id": "visage_perdu",
+   "label": "Le visage disparaît",
+   "help": "Plus aucun visage vu depuis lost_face_s (10 s). Le graphe par défaut n'en a qu'un exemple désactivé.",
+   "icon": "user-off",
+   "theme": "vision"
+  },
+  {
+   "id": "greeting_done",
+   "label": "Salutation terminée",
+   "help": "Le robot a fini de dire la phrase d'accueil.",
+   "icon": "hand-move",
+   "theme": "conversation"
+  },
+  {
+   "id": "relance_done",
+   "label": "Relance terminée",
+   "help": "Le robot a fini de dire la phrase de relance (ou de demande de répétition).",
+   "icon": "refresh",
+   "theme": "conversation"
+  },
+  {
+   "id": "goodbye_done",
+   "label": "Au revoir terminé",
+   "help": "Le robot a fini de dire au revoir.",
+   "icon": "door-exit",
+   "theme": "conversation"
+  },
+  {
+   "id": "cloture_done",
+   "label": "Pause de clôture terminée",
+   "help": "Le délai programmé après l'au revoir est écoulé (action « Programmer un événement »).",
+   "icon": "clock",
+   "theme": "evenements"
+  },
+  {
+   "id": "answer_done",
+   "label": "Réponse terminée",
+   "help": "Le robot a fini de répondre (ou de chanter).",
+   "icon": "message",
+   "theme": "conversation"
+  },
+  {
+   "id": "hush",
+   "label": "« Tais-toi »",
+   "help": "Le visiteur ou le bouton demande au robot de se taire.",
+   "icon": "volume-off",
+   "theme": "parole"
+  },
+  {
+   "id": "barge_in",
+   "label": "Le visiteur coupe la parole",
+   "help": "Le visiteur parle pendant que le robot répond (interruption activée dans la configuration).",
+   "icon": "microphone",
+   "theme": "micro"
+  },
+  {
+   "id": "sing",
+   "label": "Demande de chanson",
+   "help": "Le bouton Chanson ou le visiteur demande à Nanterino de chanter.",
+   "icon": "music",
+   "theme": "parole"
+  },
+  {
+   "id": "not_understood",
+   "label": "Parole non comprise",
+   "help": "Du bruit ou une parole inexploitable a été entendu.",
+   "icon": "question-mark",
+   "theme": "conversation"
+  },
+  {
+   "id": "ask",
+   "label": "Question tapée",
+   "help": "Une question est tapée sur le tableau de bord (test sans micro).",
+   "icon": "keyboard",
+   "theme": "systeme"
+  },
+  {
+   "id": "personnes_multiples",
+   "label": "Plusieurs personnes",
+   "help": "Au moins 2 visages restent visibles pendant 1 s (posté une fois, ré-armé quand il y en a moins de 2).",
+   "icon": "users",
+   "theme": "vision"
+  },
+  {
+   "id": "ouverture",
+   "label": "Ouverture",
+   "help": "L'heure d'ouverture de la configuration `opening_hours` vient de passer (jamais si les horaires sont vides).",
+   "icon": "lock-open",
+   "theme": "temps"
+  },
+  {
+   "id": "fermeture",
+   "label": "Fermeture",
+   "help": "L'heure de fermeture de la configuration `opening_hours` vient de passer (jamais si les horaires sont vides).",
+   "icon": "lock",
+   "theme": "temps"
+  },
+  {
+   "id": "inactivite_longue",
+   "label": "Longue inactivité",
+   "help": "Aucun visage ni parole depuis idle_long_s (300 s) ; posté une seule fois jusqu'à la prochaine activité.",
+   "icon": "hourglass",
+   "theme": "temps"
+  },
+  {
+   "id": "say_done",
+   "label": "Phrase libre terminée",
+   "help": "Le robot a fini de dire la phrase de l'action « Dire un texte » (ou « Dire une phrase au hasard »).",
+   "icon": "text-caption",
+   "theme": "parole"
+  },
+  {
+   "id": "var_changed",
+   "label": "Une variable change",
+   "help": "La valeur d'une variable vient de changer (valeur précise facultative). Une chaîne lancée par ce déclencheur qui change encore une variable ne relance pas de déclencheur (anti-boucle).",
+   "icon": "circle-dot",
+   "theme": "variables",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "bool",
+      "number",
+      "string",
+      "choice",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "timer",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "writable": false,
+     "label": "Variable",
+     "help": "Variable surveillée : la chaîne démarre quand sa valeur change."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "name",
+     "optional": true,
+     "label": "Valeur (facultative)",
+     "help": "Seulement quand la variable prend cette valeur ; vide = à chaque changement."
+    }
+   ]
+  },
+  {
+   "id": "timer_reached",
+   "label": "Un chrono atteint une durée",
+   "help": "Un chronomètre (variable de type chrono) atteint le nombre de secondes indiqué depuis son départ ; une seule fois par départ (« Démarrer un chrono » le réarme). Une chaîne lancée par ce déclencheur qui change une variable ne relance pas de déclencheur (anti-boucle).",
+   "icon": "hourglass",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "timer"
+     ],
+     "writable": false,
+     "label": "Chrono",
+     "help": "Chrono surveillé (variable de type chrono)."
+    },
+    {
+     "name": "value",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Secondes écoulées depuis le départ du chrono ; la chaîne démarre une fois par départ."
+    }
+   ]
+  }
+ ],
+ "actions": [
+  {
+   "id": "cancel_all",
+   "label": "Se taire",
+   "help": "Coupe immédiatement le son et annule toute réponse en cours.",
+   "icon": "x",
+   "theme": "parole",
+   "args": []
+  },
+  {
+   "id": "mic_on",
+   "label": "Ouvrir le micro",
+   "help": "Le robot se remet à écouter (sauf mode sourd).",
+   "icon": "microphone",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "mic_off",
+   "label": "Couper le micro",
+   "help": "Le robot n'écoute plus.",
+   "icon": "microphone-off",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "mic_off_no_barge_in",
+   "label": "Couper le micro (sauf interruption)",
+   "help": "Coupe le micro, sauf si l'interruption est activée dans la configuration.",
+   "icon": "microphone-off",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "clear_conversation",
+   "label": "Oublier la conversation",
+   "help": "Efface l'historique, le compteur de tours et le sous-titre.",
+   "icon": "eraser",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "clear_history",
+   "label": "Effacer l'historique",
+   "help": "Efface seulement l'historique des échanges.",
+   "icon": "eraser",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "reset_repairs",
+   "label": "Remettre à zéro les demandes de répétition",
+   "help": "Le compteur de « pardon ? » repart de zéro.",
+   "icon": "refresh",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "reset_silence",
+   "label": "Redémarrer le chrono de silence",
+   "help": "La dernière parole est considérée comme étant maintenant.",
+   "icon": "clock",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "subtitle_listening",
+   "label": "Afficher « Je vous écoute »",
+   "help": "Met le sous-titre de l'écran sur « Je vous écoute ».",
+   "icon": "ear",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "count_turn",
+   "label": "Compter un tour de parole",
+   "help": "Ajoute un échange au compteur de la conversation.",
+   "icon": "plus",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "count_repair",
+   "label": "Compter une demande de répétition",
+   "help": "Ajoute un « pardon ? » au compteur.",
+   "icon": "plus",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "set_relance_text",
+   "label": "Préparer la phrase « répétez »",
+   "help": "La prochaine relance dira la phrase de demande de répétition.",
+   "icon": "message",
+   "theme": "parole",
+   "args": []
+  },
+  {
+   "id": "speak_relance",
+   "label": "Dire la relance",
+   "help": "Dit la phrase de relance (ou de répétition si elle est préparée), puis relance_done.",
+   "icon": "volume",
+   "theme": "parole",
+   "args": []
+  },
+  {
+   "id": "start_answer",
+   "label": "Répondre à la question",
+   "help": "Lance la recherche et la réponse à la phrase du visiteur.",
+   "icon": "message",
+   "theme": "conversation",
+   "args": []
+  },
+  {
+   "id": "start_sing",
+   "label": "Chanter",
+   "help": "Lance la chanson de Nanterino.",
+   "icon": "music",
+   "theme": "parole",
+   "args": []
+  },
+  {
+   "id": "as_utterance",
+   "label": "Traiter la question tapée",
+   "help": "Traite le texte tapé comme s'il avait été dit.",
+   "icon": "keyboard",
+   "theme": "systeme",
+   "args": []
+  },
+  {
+   "id": "speak_phrase",
+   "label": "Dire une phrase fixe",
+   "help": "Dit une phrase de la configuration, puis déclenche l'événement indiqué.",
+   "icon": "volume",
+   "theme": "parole",
+   "args": [
+    {
+     "name": "text",
+     "type": "enum",
+     "options": [
+      "greeting",
+      "relance",
+      "goodbye",
+      "repair_text"
+     ],
+     "label": "Phrase à dire",
+     "help": "Une phrase de la configuration du robot : accueil, relance, au revoir ou demande de répétition."
+    },
+    {
+     "name": "done",
+     "type": "enum",
+     "options": [
+      "stop",
+      "off",
+      "on",
+      "start",
+      "visage",
+      "visage_perdu",
+      "greeting_done",
+      "relance_done",
+      "goodbye_done",
+      "cloture_done",
+      "answer_done",
+      "hush",
+      "barge_in",
+      "sing",
+      "not_understood",
+      "ask",
+      "personnes_multiples",
+      "ouverture",
+      "fermeture",
+      "inactivite_longue",
+      "say_done"
+     ],
+     "label": "Événement à la fin",
+     "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
+    }
+   ]
+  },
+  {
+   "id": "schedule",
+   "label": "Programmer un événement",
+   "help": "Déclenche un événement après un délai (annulé si le robot est arrêté entre-temps).",
+   "icon": "clock",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "event",
+     "type": "enum",
+     "options": [
+      "stop",
+      "off",
+      "on",
+      "start",
+      "visage",
+      "visage_perdu",
+      "greeting_done",
+      "relance_done",
+      "goodbye_done",
+      "cloture_done",
+      "answer_done",
+      "hush",
+      "barge_in",
+      "sing",
+      "not_understood",
+      "ask",
+      "personnes_multiples",
+      "ouverture",
+      "fermeture",
+      "inactivite_longue",
+      "say_done"
+     ],
+     "label": "Événement à déclencher",
+     "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
+    },
+    {
+     "name": "delay",
+     "type": "number",
+     "options": [
+      "silence_relance_s",
+      "silence_cloture_s",
+      "cloture_to_veille_s"
+     ],
+     "label": "Délai (secondes ou clé de configuration)",
+     "help": "Un nombre de secondes, ou le nom d'une clé de réglage (sa valeur actuelle est utilisée)."
+    }
+   ]
+  },
+  {
+   "id": "emit",
+   "label": "Déclencher un événement",
+   "help": "Envoie tout de suite un événement au graphe.",
+   "icon": "bolt",
+   "theme": "evenements",
+   "args": [
+    {
+     "name": "event",
+     "type": "enum",
+     "options": [
+      "stop",
+      "off",
+      "on",
+      "start",
+      "visage",
+      "visage_perdu",
+      "greeting_done",
+      "relance_done",
+      "goodbye_done",
+      "cloture_done",
+      "answer_done",
+      "hush",
+      "barge_in",
+      "sing",
+      "not_understood",
+      "ask",
+      "personnes_multiples",
+      "ouverture",
+      "fermeture",
+      "inactivite_longue",
+      "say_done"
+     ],
+     "label": "Événement à déclencher",
+     "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
+    }
+   ]
+  },
+  {
+   "id": "say_text",
+   "label": "Dire un texte",
+   "help": "Dit une phrase libre (voix calculée à l'avance au chargement du graphe ; muet = reste muet), puis déclenche say_done.",
+   "icon": "text-caption",
+   "theme": "parole",
+   "args": [
+    {
+     "name": "text",
+     "type": "text",
+     "max_len": 300,
+     "label": "Phrase à dire",
+     "help": "Phrase libre ; sa voix est calculée une fois, au chargement du graphe."
+    }
+   ]
+  },
+  {
+   "id": "set_expression",
+   "label": "Changer l'expression du visage",
+   "help": "Affiche une expression (content, surpris, réfléchit, triste, neutre) pendant un nombre de secondes, puis revient à l'expression de l'état.",
+   "icon": "mood-smile",
+   "theme": "vision",
+   "args": [
+    {
+     "name": "name",
+     "type": "enum",
+     "options": [
+      "content",
+      "surpris",
+      "reflechit",
+      "triste",
+      "neutre"
+     ],
+     "labels": {
+      "content": "Content",
+      "surpris": "Surpris",
+      "reflechit": "Réfléchit",
+      "triste": "Triste",
+      "neutre": "Neutre"
+     },
+     "label": "Expression",
+     "help": "Expression du visage affichée à l'écran."
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "label": "Durée (secondes)",
+     "help": "Durée en secondes (un nombre)."
+    }
+   ]
+  },
+  {
+   "id": "wait",
+   "label": "Attendre",
+   "help": "Pause sans bloquer le robot : la suite de la chaîne reprend après le délai, les autres événements continuent d'être traités.",
+   "icon": "hourglass",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [
+      "silence_relance_s",
+      "silence_cloture_s",
+      "cloture_to_veille_s"
+     ],
+     "label": "Durée (secondes ou clé de configuration)",
+     "help": "Un nombre de secondes, ou le nom d'une clé de réglage (sa valeur actuelle est utilisée)."
+    }
+   ]
+  },
+  {
+   "id": "gaze",
+   "label": "Régler le regard",
+   "help": "Le regard du visage suit le visiteur, regarde devant lui, ou erre ; reste jusqu'au prochain réglage (retour à « suivre » en veille).",
+   "icon": "eye",
+   "theme": "vision",
+   "args": [
+    {
+     "name": "mode",
+     "type": "enum",
+     "options": [
+      "suivre",
+      "devant",
+      "errer"
+     ],
+     "labels": {
+      "suivre": "Suivre le visiteur",
+      "devant": "Regarder devant",
+      "errer": "Errer"
+     },
+     "label": "Regard",
+     "help": "Où regarde le visage affiché."
+    }
+   ]
+  },
+  {
+   "id": "set_var",
+   "label": "Changer une variable",
+   "help": "Donne une nouvelle valeur à une variable (« etat » : change d'état).",
+   "icon": "arrow-right",
+   "theme": "variables",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "bool",
+      "number",
+      "string",
+      "choice",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "writable": true,
+     "label": "Variable",
+     "help": "Variable modifiée (à créer dans le panneau Variables) ; « etat » change l'état du robot."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "name",
+     "label": "Valeur",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  },
+  {
+   "id": "add_var",
+   "label": "Ajouter à une variable",
+   "help": "Ajoute un nombre (négatif pour retirer) à une variable nombre ou durée.",
+   "icon": "plus",
+   "theme": "variables",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "number",
+      "duration",
+      "integer",
+      "percent"
+     ],
+     "writable": true,
+     "label": "Variable",
+     "help": "Variable de type nombre ou durée qui sera modifiée."
+    },
+    {
+     "name": "delta",
+     "type": "number",
+     "options": [],
+     "label": "Quantité",
+     "help": "Un nombre (négatif pour retirer)."
+    }
+   ]
+  },
+  {
+   "id": "toggle_var",
+   "label": "Inverser une variable",
+   "help": "Une variable vrai/faux passe à l'autre valeur.",
+   "icon": "refresh",
+   "theme": "variables",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "bool"
+     ],
+     "writable": true,
+     "label": "Variable",
+     "help": "Variable vrai/faux qui sera inversée."
+    }
+   ]
+  },
+  {
+   "id": "list_add",
+   "label": "Ajouter à une liste",
+   "help": "Ajoute un élément à la fin d'une liste.",
+   "icon": "plus",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": true,
+     "label": "Liste",
+     "help": "Liste modifiée ; une liste liée à la configuration ou à une intention est en lecture seule."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "list",
+     "label": "Élément",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  },
+  {
+   "id": "list_remove",
+   "label": "Retirer d'une liste",
+   "help": "Retire un élément d'une liste (toutes ses occurrences).",
+   "icon": "x",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": true,
+     "label": "Liste",
+     "help": "Liste modifiée ; une liste liée à la configuration ou à une intention est en lecture seule."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "list",
+     "label": "Élément",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  },
+  {
+   "id": "list_clear",
+   "label": "Vider une liste",
+   "help": "Retire tous les éléments d'une liste.",
+   "icon": "eraser",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": true,
+     "label": "Liste",
+     "help": "Liste modifiée ; une liste liée à la configuration ou à une intention est en lecture seule."
+    }
+   ]
+  },
+  {
+   "id": "say_random",
+   "label": "Dire une phrase au hasard",
+   "help": "Dit une phrase tirée au hasard dans une liste de textes (voix calculée à l'avance comme « Dire un texte » ; muet = reste muet), puis say_done.",
+   "icon": "volume",
+   "theme": "parole",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "phrase"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": false,
+     "label": "Liste de phrases",
+     "help": "Liste de textes dans laquelle une phrase est tirée au hasard."
+    }
+   ]
+  },
+  {
+   "id": "set_now",
+   "label": "Noter la date et l'heure",
+   "help": "Met une variable date et heure à maintenant.",
+   "icon": "calendar-time",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "datetime"
+     ],
+     "writable": true,
+     "label": "Variable date",
+     "help": "Variable de type date et heure."
+    }
+   ]
+  },
+  {
+   "id": "timer_start",
+   "label": "Démarrer un chrono",
+   "help": "Démarre (ou redémarre à zéro) un chronomètre ; ses déclencheurs « Un chrono atteint une durée » sont réarmés.",
+   "icon": "player-play",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "timer"
+     ],
+     "writable": true,
+     "label": "Chrono",
+     "help": "Variable de type chrono."
+    }
+   ]
+  },
+  {
+   "id": "timer_reset",
+   "label": "Arrêter un chrono",
+   "help": "Arrête et remet à zéro un chronomètre : il ne déclenche plus rien jusqu'au prochain départ.",
+   "icon": "refresh",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "timer"
+     ],
+     "writable": true,
+     "label": "Chrono",
+     "help": "Variable de type chrono."
+    }
+   ]
+  },
+  {
+   "id": "say_var",
+   "label": "Dire une variable phrase",
+   "help": "Dit le texte d'une variable phrase ou texte (voix calculée à l'avance pour les phrases écrites dans le graphe ; muet = reste muet), puis say_done. Variable vide : rien n'est dit.",
+   "icon": "text-caption",
+   "theme": "parole",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "string",
+      "choice",
+      "phrase"
+     ],
+     "writable": false,
+     "label": "Variable",
+     "help": "Variable texte ou phrase dont le contenu est dit (les variables système permises)."
+    }
+   ]
+  },
+  {
+   "id": "remember_utterance",
+   "label": "Retenir la phrase du visiteur",
+   "help": "Ajoute la dernière phrase du visiteur à une liste de textes (en mode historique, seules les N dernières restent).",
+   "icon": "microphone",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "phrase"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": true,
+     "label": "Liste",
+     "help": "Liste de textes modifiable."
+    }
+   ]
+  },
+  {
+   "id": "dict_set",
+   "label": "Écrire dans un dictionnaire",
+   "help": "Associe une valeur à une clé d'un dictionnaire (remplace l'ancienne valeur).",
+   "icon": "plus",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "dict",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "dict"
+     ],
+     "writable": true,
+     "label": "Dictionnaire",
+     "help": "Dictionnaire modifiable (panneau Variables, onglet Listes, sorte « dictionnaire »)."
+    },
+    {
+     "name": "key",
+     "type": "text",
+     "max_len": 60,
+     "utterance": true,
+     "vars": true,
+     "label": "Clé",
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "dict",
+     "label": "Valeur",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  },
+  {
+   "id": "dict_remove",
+   "label": "Retirer une clé d'un dictionnaire",
+   "help": "Retire une clé (et sa valeur) d'un dictionnaire.",
+   "icon": "x",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "dict",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "dict"
+     ],
+     "writable": true,
+     "label": "Dictionnaire",
+     "help": "Dictionnaire modifiable (panneau Variables, onglet Listes, sorte « dictionnaire »)."
+    },
+    {
+     "name": "key",
+     "type": "text",
+     "max_len": 60,
+     "utterance": true,
+     "vars": true,
+     "label": "Clé",
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+    }
+   ]
+  },
+  {
+   "id": "say_dict",
+   "label": "Dire la valeur d'une clé",
+   "help": "Dit le texte associé à une clé d'un dictionnaire de textes ; avec « $utterance », la première clé contenue dans la phrase entendue. Clé absente : dit le texte de repli (rien s'il est vide), puis say_done.",
+   "icon": "volume",
+   "theme": "parole",
+   "args": [
+    {
+     "name": "dict",
+     "type": "list",
+     "list_types": [
+      "string",
+      "phrase"
+     ],
+     "list_kinds": [
+      "dict"
+     ],
+     "writable": false,
+     "label": "Dictionnaire de textes",
+     "help": "Dictionnaire dont les valeurs sont des textes à dire."
+    },
+    {
+     "name": "key",
+     "type": "text",
+     "max_len": 60,
+     "utterance": true,
+     "vars": true,
+     "label": "Clé (ou $utterance)",
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+    },
+    {
+     "name": "fallback",
+     "type": "text",
+     "max_len": 300,
+     "optional": true,
+     "label": "Texte de repli",
+     "help": "Texte dit quand la clé est absente ; vide = rien n'est dit."
+    }
+   ]
+  }
+ ],
+ "guards": [
+  {
+   "id": "auto_greet_on_face",
+   "label": "L'accueil automatique est activé",
+   "help": "Réglage « accueil automatique » de la configuration.",
+   "icon": "scan-eye",
+   "theme": "vision",
+   "args": []
+  },
+  {
+   "id": "barge_in",
+   "label": "L'interruption est activée",
+   "help": "Réglage « barge_in » : le visiteur peut couper la parole du robot.",
+   "icon": "hand-stop",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "not_busy",
+   "label": "Aucune transcription en cours",
+   "help": "Le robot n'est pas en train de transcrire une phrase.",
+   "icon": "circle-dot",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "mic_active",
+   "label": "Le micro est ouvert",
+   "help": "Le micro écoute en ce moment.",
+   "icon": "microphone",
+   "theme": "micro",
+   "args": []
+  },
+  {
+   "id": "not_speaking",
+   "label": "Le robot ne parle pas",
+   "help": "Aucun son n'est en cours de lecture.",
+   "icon": "volume-off",
+   "theme": "parole",
+   "args": []
+  },
+  {
+   "id": "repairs_left",
+   "label": "Il reste des demandes de répétition",
+   "help": "Le robot a demandé de répéter moins de 2 fois de suite.",
+   "icon": "refresh",
+   "theme": "conversation",
+   "args": [],
+   "as_vars": "reparations < max_reparations"
+  },
+  {
+   "id": "turns_left",
+   "label": "Il reste des tours de parole",
+   "help": "La conversation n'a pas atteint le nombre maximal d'échanges.",
+   "icon": "message",
+   "theme": "conversation",
+   "args": [],
+   "as_vars": "tours < max_tours"
+  },
+  {
+   "id": "dans_les_horaires",
+   "label": "Dans les horaires d'ouverture",
+   "help": "Les horaires `opening_hours` de la configuration sont en cours (toujours vrai s'ils sont vides).",
+   "icon": "calendar-time",
+   "theme": "temps",
+   "args": []
+  },
+  {
+   "id": "var_compare",
+   "label": "Comparer une variable",
+   "help": "Compare une variable à une valeur (=, ≠ ; <, ≤, >, ≥ pour les nombres et durées).",
+   "icon": "git-branch",
+   "theme": "variables",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "bool",
+      "number",
+      "string",
+      "choice",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "timer",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "writable": false,
+     "label": "Variable",
+     "help": "Variable lue ; les variables système (etat, tours…) sont permises."
+    },
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "name",
+     "label": "Valeur",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  },
+  {
+   "id": "var_true",
+   "label": "Une variable est vraie",
+   "help": "Une variable vrai/faux vaut vrai.",
+   "icon": "circle-dot",
+   "theme": "variables",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "bool"
+     ],
+     "writable": false,
+     "label": "Variable",
+     "help": "Variable vrai/faux lue ; les variables système sont permises."
+    }
+   ]
+  },
+  {
+   "id": "list_contains",
+   "label": "Une liste contient",
+   "help": "La liste contient la valeur ; avec « $utterance », un élément de la liste est contenu dans la phrase entendue.",
+   "icon": "eye",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": false,
+     "label": "Liste",
+     "help": "Liste lue (tous types)."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "list",
+     "label": "Valeur (ou $utterance)",
+     "utterance": true,
+     "help": "Élément cherché ; « $utterance » = la phrase que le visiteur vient de dire."
+    }
+   ]
+  },
+  {
+   "id": "list_empty",
+   "label": "Une liste est vide",
+   "help": "La liste n'a aucun élément.",
+   "icon": "square",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "list",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "list"
+     ],
+     "writable": false,
+     "label": "Liste",
+     "help": "Liste lue (tous types)."
+    }
+   ]
+  },
+  {
+   "id": "elapsed_since",
+   "label": "Temps écoulé depuis",
+   "help": "Secondes écoulées depuis une date ou depuis le départ d'un chrono, comparées à un nombre (faux si la date est vide ou le chrono arrêté).",
+   "icon": "hourglass",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "datetime",
+      "timer"
+     ],
+     "writable": false,
+     "label": "Date ou chrono",
+     "help": "Variable date et heure, ou chrono : le temps écoulé depuis la date ou depuis le départ du chrono."
+    },
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Nombre de secondes (0 ou plus)."
+    }
+   ]
+  },
+  {
+   "id": "time_between",
+   "label": "Entre deux heures",
+   "help": "L'heure actuelle est entre le début (inclus) et la fin (exclue) ; une fin avant le début passe minuit (22:00 → 06:00).",
+   "icon": "clock",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "start",
+     "type": "time",
+     "label": "Début (hh:mm)",
+     "help": "Heure au format hh:mm (00:00 à 23:59)."
+    },
+    {
+     "name": "end",
+     "type": "time",
+     "label": "Fin (hh:mm)",
+     "help": "Heure au format hh:mm (00:00 à 23:59)."
+    }
+   ]
+  },
+  {
+   "id": "weekday_in",
+   "label": "Jour de la semaine",
+   "help": "Aujourd'hui est l'un des jours choisis.",
+   "icon": "calendar-time",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "days",
+     "type": "multi",
+     "options": [
+      "lun",
+      "mar",
+      "mer",
+      "jeu",
+      "ven",
+      "sam",
+      "dim"
+     ],
+     "labels": {
+      "lun": "Lundi",
+      "mar": "Mardi",
+      "mer": "Mercredi",
+      "jeu": "Jeudi",
+      "ven": "Vendredi",
+      "sam": "Samedi",
+      "dim": "Dimanche"
+     },
+     "label": "Jours",
+     "help": "Un ou plusieurs jours de la semaine."
+    }
+   ]
+  },
+  {
+   "id": "date_compare",
+   "label": "Comparer une date",
+   "help": "Compare une variable date et heure à une date (ou à « $heure », maintenant) : avant, après, égale.",
+   "icon": "calendar-time",
+   "theme": "temps",
+   "args": [
+    {
+     "name": "name",
+     "type": "var",
+     "var_types": [
+      "datetime"
+     ],
+     "writable": false,
+     "label": "Date",
+     "help": "Variable date et heure lue ; « heure » (maintenant) est permise."
+    },
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "name",
+     "label": "Date (ou $heure)",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  },
+  {
+   "id": "dict_has",
+   "label": "Un dictionnaire a la clé",
+   "help": "Le dictionnaire contient la clé ; avec « $utterance », une de ses clés est contenue dans la phrase entendue.",
+   "icon": "eye",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "dict",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "dict"
+     ],
+     "writable": false,
+     "label": "Dictionnaire",
+     "help": "Dictionnaire lu (tous types de valeurs)."
+    },
+    {
+     "name": "key",
+     "type": "text",
+     "max_len": 60,
+     "utterance": true,
+     "vars": true,
+     "label": "Clé (ou $utterance)",
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+    }
+   ]
+  },
+  {
+   "id": "dict_value_compare",
+   "label": "Comparer une valeur de dictionnaire",
+   "help": "Compare la valeur d'une clé à une valeur (faux si la clé est absente).",
+   "icon": "git-branch",
+   "theme": "listes",
+   "args": [
+    {
+     "name": "dict",
+     "type": "list",
+     "list_types": [
+      "string",
+      "number",
+      "bool",
+      "duration",
+      "integer",
+      "percent",
+      "datetime",
+      "expression",
+      "gaze",
+      "phrase",
+      "media",
+      "intent_ref",
+      "list_ref",
+      "state_ref",
+      "color",
+      "vector2",
+      "vector3"
+     ],
+     "list_kinds": [
+      "dict"
+     ],
+     "writable": false,
+     "label": "Dictionnaire",
+     "help": "Dictionnaire lu (tous types de valeurs)."
+    },
+    {
+     "name": "key",
+     "type": "text",
+     "max_len": 60,
+     "utterance": true,
+     "vars": true,
+     "label": "Clé (ou $utterance)",
+     "help": "Clé du dictionnaire ; « $utterance » = une clé contenue dans la phrase du visiteur, « $variable » = la valeur d'une variable texte."
+    },
+    {
+     "name": "op",
+     "type": "enum",
+     "options": [
+      "=",
+      "!=",
+      "<",
+      "<=",
+      ">",
+      ">="
+     ],
+     "labels": {
+      "=": "égal à",
+      "!=": "différent de",
+      "<": "inférieur à",
+      "<=": "inférieur ou égal à",
+      ">": "supérieur à",
+      ">=": "supérieur ou égal à"
+     },
+     "label": "Opérateur",
+     "help": "Comparaison : = et ≠ pour tous les types ; <, ≤, >, ≥ seulement pour les nombres et les durées."
+    },
+    {
+     "name": "value",
+     "type": "value",
+     "of": "dict",
+     "label": "Valeur",
+     "help": "Valeur du même type que la variable ou la liste choisie juste au-dessus."
+    }
+   ]
+  }
+ ],
+ "delays": [
+  {
+   "key": "silence_relance_s",
+   "value": 8,
+   "label": "Silence avant relance",
+   "icon": "clock"
+  },
+  {
+   "key": "silence_cloture_s",
+   "value": 15,
+   "label": "Silence avant de conclure",
+   "icon": "clock"
+  },
+  {
+   "key": "cloture_to_veille_s",
+   "value": 2,
+   "label": "Pause avant le retour en veille",
+   "icon": "clock"
+  }
+ ],
+ "since": [
+  {
+   "id": "state",
+   "label": "depuis l'entrée dans l'état",
+   "icon": "clock"
+  },
+  {
+   "id": "last_speech",
+   "label": "depuis la dernière parole",
+   "icon": "microphone"
+  }
+ ],
+ "states": [
+  {
+   "id": "veille",
+   "label": "Veille",
+   "description": "Le robot attend un visiteur, micro ouvert pour entendre son nom.",
+   "icon": "moon"
+  },
+  {
+   "id": "accueil",
+   "label": "Accueil",
+   "description": "Le robot salue le visiteur ; le micro est coupé pendant qu'il parle.",
+   "icon": "hand-move"
+  },
+  {
+   "id": "ecoute",
+   "label": "Écoute",
+   "description": "Le robot écoute la question du visiteur.",
+   "icon": "ear"
+  },
+  {
+   "id": "reponse",
+   "label": "Réponse",
+   "description": "Le robot répond (ou chante) ; les phrases sont dites au fil de la génération.",
+   "icon": "message"
+  },
+  {
+   "id": "relance",
+   "label": "Relance",
+   "description": "Le robot relance un visiteur silencieux (ou lui demande de répéter), puis attend encore.",
+   "icon": "refresh"
+  },
+  {
+   "id": "cloture",
+   "label": "Clôture",
+   "description": "Le robot dit au revoir, oublie la conversation, puis retourne en veille.",
+   "icon": "door-exit"
+  },
+  {
+   "id": "eteint",
+   "label": "Éteint",
+   "description": "Robot éteint : micro coupé, il n'écoute ni ne parle jusqu'à « on » ou « start ».",
+   "icon": "power"
+  }
+ ],
+ "intents": [
+  {
+   "id": "appel",
+   "label": "Le nom du robot entendu en veille (en attendant un vrai mot d'appel).",
+   "event": "intent.appel",
+   "icon": "bell",
+   "description": "Le nom du robot entendu en veille (en attendant un vrai mot d'appel).",
+   "only_in": [
+    "veille"
+   ],
+   "words": [
+    "nanter"
+   ]
+  },
+  {
+   "id": "au_revoir",
+   "label": "Le visiteur veut partir ; les mots viennent de la clé refusal_words de config.json.",
+   "event": "intent.au_revoir",
+   "icon": "hand-move",
+   "description": "Le visiteur veut partir ; les mots viennent de la clé refusal_words de config.json.",
+   "only_in": [
+    "ecoute",
+    "relance"
+   ],
+   "words_from": "refusal_words",
+   "shared": true
+  },
+  {
+   "id": "chanson",
+   "label": "Demande de chanson, mots entiers seulement (« enchanté » ne compte pas).",
+   "event": "intent.chanson",
+   "icon": "music",
+   "description": "Demande de chanson, mots entiers seulement (« enchanté » ne compte pas).",
+   "only_in": [
+    "ecoute",
+    "relance"
+   ],
+   "regex": "\\b(chante[rsz]?|chantons|chanson)\\b"
+  },
+  {
+   "id": "question",
+   "label": "Une question (aucun autre motif reconnu)",
+   "event": "intent.question",
+   "icon": "question-mark",
+   "fixed": true,
+   "description": "Aucun autre motif reconnu.",
+   "only_in": []
+  }
+ ],
+ "kinds": [
+  {
+   "id": "start",
+   "label": "Départ",
+   "icon": "flag",
+   "inputs": 0,
+   "outputs": [
+    "out"
+   ],
+   "legacy": false
+  },
+  {
+   "id": "trigger",
+   "label": "Déclencheur",
+   "icon": "bolt",
+   "inputs": 0,
+   "outputs": [
+    "out"
+   ],
+   "legacy": false
+  },
+  {
+   "id": "condition",
+   "label": "Condition",
+   "icon": "git-branch",
+   "inputs": 1,
+   "outputs": [
+    "true",
+    "false"
+   ],
+   "legacy": false
+  },
+  {
+   "id": "action",
+   "label": "Action",
+   "icon": "player-play",
+   "inputs": 1,
+   "outputs": [
+    "out"
+   ],
+   "legacy": false
+  },
+  {
+   "id": "goto",
+   "label": "Aller à un état",
+   "icon": "arrow-right",
+   "inputs": 1,
+   "outputs": [],
+   "legacy": true
+  },
+  {
+   "id": "end",
+   "label": "Fin de chaîne",
+   "icon": "square",
+   "inputs": 1,
+   "outputs": [],
+   "legacy": false
+  }
+ ],
+ "var_types": [
+  {
+   "id": "bool",
+   "label": "Vrai / faux",
+   "control": "checkbox",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": false,
+   "persist": true
+  },
+  {
+   "id": "number",
+   "label": "Nombre",
+   "control": "number",
+   "options": [
+    "min",
+    "max",
+    "step"
+   ],
+   "ops": [
+    "=",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": 0,
+   "persist": true
+  },
+  {
+   "id": "string",
+   "label": "Texte",
+   "control": "text",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": "",
+   "persist": true
+  },
+  {
+   "id": "choice",
+   "label": "Choix",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": false,
+   "nullable": false,
+   "default": null,
+   "persist": true
+  },
+  {
+   "id": "duration",
+   "label": "Durée (s)",
+   "control": "number",
+   "options": [],
+   "ops": [
+    "=",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": 0,
+   "persist": true
+  },
+  {
+   "id": "integer",
+   "label": "Entier",
+   "control": "number",
+   "options": [
+    "min",
+    "max",
+    "step"
+   ],
+   "ops": [
+    "=",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": 0,
+   "persist": true
+  },
+  {
+   "id": "percent",
+   "label": "Pourcentage",
+   "control": "slider",
+   "options": [],
+   "ops": [
+    "=",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": 0,
+   "persist": true,
+   "range": [
+    0,
+    100
+   ]
+  },
+  {
+   "id": "datetime",
+   "label": "Date et heure",
+   "control": "datetime",
+   "options": [],
+   "ops": [
+    "=",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "item": true,
+   "nullable": true,
+   "default": null,
+   "persist": true
+  },
+  {
+   "id": "timer",
+   "label": "Chrono",
+   "control": "timer",
+   "options": [],
+   "ops": [
+    "=",
+    "!=",
+    "<",
+    "<=",
+    ">",
+    ">="
+   ],
+   "item": false,
+   "nullable": true,
+   "default": null,
+   "persist": true
+  },
+  {
+   "id": "expression",
+   "label": "Expression du visage",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": "neutre",
+   "persist": true,
+   "choices": [
+    {
+     "id": "content",
+     "label": "Content"
+    },
+    {
+     "id": "surpris",
+     "label": "Surpris"
+    },
+    {
+     "id": "reflechit",
+     "label": "Réfléchit"
+    },
+    {
+     "id": "triste",
+     "label": "Triste"
+    },
+    {
+     "id": "neutre",
+     "label": "Neutre"
+    }
+   ]
+  },
+  {
+   "id": "gaze",
+   "label": "Regard",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": "suivre",
+   "persist": true,
+   "choices": [
+    {
+     "id": "suivre",
+     "label": "Suivre le visiteur"
+    },
+    {
+     "id": "devant",
+     "label": "Regarder devant"
+    },
+    {
+     "id": "errer",
+     "label": "Errer"
+    }
+   ]
+  },
+  {
+   "id": "phrase",
+   "label": "Phrase dite",
+   "control": "textarea",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": "",
+   "persist": true
+  },
+  {
+   "id": "media",
+   "label": "Média",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": true,
+   "default": null,
+   "persist": true,
+   "choices": [
+    {
+     "id": "alpha.wav",
+     "label": "alpha.wav"
+    },
+    {
+     "id": "beta.json",
+     "label": "beta.json"
+    }
+   ]
+  },
+  {
+   "id": "intent_ref",
+   "label": "Intention",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": true,
+   "default": null,
+   "persist": true,
+   "choices": [
+    {
+     "id": "appel",
+     "label": "Le nom du robot entendu en veille (en attendant un vrai mot d'appel)."
+    },
+    {
+     "id": "au_revoir",
+     "label": "Le visiteur veut partir ; les mots viennent de la clé refusal_words de config.json."
+    },
+    {
+     "id": "chanson",
+     "label": "Demande de chanson, mots entiers seulement (« enchanté » ne compte pas)."
+    },
+    {
+     "id": "question",
+     "label": "Une question (aucun autre motif reconnu)"
+    }
+   ]
+  },
+  {
+   "id": "list_ref",
+   "label": "Liste",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": true,
+   "default": null,
+   "persist": true,
+   "choices": [
+    {
+     "id": "mots_refus",
+     "label": "Mots qui font partir le visiteur (clé refusal_words de config.json, intention au_revoir)."
+    },
+    {
+     "id": "mots_appel",
+     "label": "Mots qui réveillent le robot en veille (intention appel)."
+    },
+    {
+     "id": "salutations",
+     "label": "Salutations variées pour un visiteur, dites une fois sur deux à la place de la phrase d'accueil de la configuration (sac mélangé : pas de répétition avant d'avoir tout dit)."
+    },
+    {
+     "id": "salutations_groupe",
+     "label": "Salutations pour un groupe (2 visages ou plus au début de la conversation), sac mélangé."
+    }
+   ]
+  },
+  {
+   "id": "state_ref",
+   "label": "État",
+   "control": "select",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": true,
+   "default": null,
+   "persist": true,
+   "choices": [
+    {
+     "id": "veille",
+     "label": "Veille"
+    },
+    {
+     "id": "accueil",
+     "label": "Accueil"
+    },
+    {
+     "id": "ecoute",
+     "label": "Écoute"
+    },
+    {
+     "id": "reponse",
+     "label": "Réponse"
+    },
+    {
+     "id": "relance",
+     "label": "Relance"
+    },
+    {
+     "id": "cloture",
+     "label": "Clôture"
+    },
+    {
+     "id": "eteint",
+     "label": "Éteint"
+    }
+   ]
+  },
+  {
+   "id": "color",
+   "label": "Couleur",
+   "control": "color",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": "#ffffff",
+   "persist": true
+  },
+  {
+   "id": "vector2",
+   "label": "Vecteur 2D",
+   "control": "vector",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": [
+    0,
+    0
+   ],
+   "persist": true,
+   "size": 2
+  },
+  {
+   "id": "vector3",
+   "label": "Vecteur 3D",
+   "control": "vector",
+   "options": [],
+   "ops": [
+    "=",
+    "!="
+   ],
+   "item": true,
+   "nullable": false,
+   "default": [
+    0,
+    0,
+    0
+   ],
+   "persist": true,
+   "size": 3
+  }
+ ],
+ "list_types": [
+  {
+   "id": "string",
+   "label": "Textes",
+   "control": "text"
+  },
+  {
+   "id": "number",
+   "label": "Nombres",
+   "control": "number"
+  },
+  {
+   "id": "bool",
+   "label": "Vrai / faux",
+   "control": "checkbox"
+  },
+  {
+   "id": "duration",
+   "label": "Durée (s)",
+   "control": "number"
+  },
+  {
+   "id": "integer",
+   "label": "Entier",
+   "control": "number"
+  },
+  {
+   "id": "percent",
+   "label": "Pourcentage",
+   "control": "slider"
+  },
+  {
+   "id": "datetime",
+   "label": "Date et heure",
+   "control": "datetime"
+  },
+  {
+   "id": "expression",
+   "label": "Expression du visage",
+   "control": "select"
+  },
+  {
+   "id": "gaze",
+   "label": "Regard",
+   "control": "select"
+  },
+  {
+   "id": "phrase",
+   "label": "Phrase dite",
+   "control": "textarea"
+  },
+  {
+   "id": "media",
+   "label": "Média",
+   "control": "select"
+  },
+  {
+   "id": "intent_ref",
+   "label": "Intention",
+   "control": "select"
+  },
+  {
+   "id": "list_ref",
+   "label": "Liste",
+   "control": "select"
+  },
+  {
+   "id": "state_ref",
+   "label": "État",
+   "control": "select"
+  },
+  {
+   "id": "color",
+   "label": "Couleur",
+   "control": "color"
+  },
+  {
+   "id": "vector2",
+   "label": "Vecteur 2D",
+   "control": "vector"
+  },
+  {
+   "id": "vector3",
+   "label": "Vecteur 3D",
+   "control": "vector"
+  }
+ ],
+ "ops": [
+  {
+   "id": "=",
+   "label": "égal à"
+  },
+  {
+   "id": "!=",
+   "label": "différent de"
+  },
+  {
+   "id": "<",
+   "label": "inférieur à"
+  },
+  {
+   "id": "<=",
+   "label": "inférieur ou égal à"
+  },
+  {
+   "id": ">",
+   "label": "supérieur à"
+  },
+  {
+   "id": ">=",
+   "label": "supérieur ou égal à"
+  }
+ ],
+ "op_sets": {
+  "bool": [
+   "=",
+   "!="
+  ],
+  "number": [
+   "=",
+   "!=",
+   "<",
+   "<=",
+   ">",
+   ">="
+  ],
+  "string": [
+   "=",
+   "!="
+  ],
+  "choice": [
+   "=",
+   "!="
+  ],
+  "duration": [
+   "=",
+   "!=",
+   "<",
+   "<=",
+   ">",
+   ">="
+  ],
+  "integer": [
+   "=",
+   "!=",
+   "<",
+   "<=",
+   ">",
+   ">="
+  ],
+  "percent": [
+   "=",
+   "!=",
+   "<",
+   "<=",
+   ">",
+   ">="
+  ],
+  "datetime": [
+   "=",
+   "!=",
+   "<",
+   "<=",
+   ">",
+   ">="
+  ],
+  "timer": [
+   "=",
+   "!=",
+   "<",
+   "<=",
+   ">",
+   ">="
+  ],
+  "expression": [
+   "=",
+   "!="
+  ],
+  "gaze": [
+   "=",
+   "!="
+  ],
+  "phrase": [
+   "=",
+   "!="
+  ],
+  "media": [
+   "=",
+   "!="
+  ],
+  "intent_ref": [
+   "=",
+   "!="
+  ],
+  "list_ref": [
+   "=",
+   "!="
+  ],
+  "state_ref": [
+   "=",
+   "!="
+  ],
+  "color": [
+   "=",
+   "!="
+  ],
+  "vector2": [
+   "=",
+   "!="
+  ],
+  "vector3": [
+   "=",
+   "!="
+  ]
+ },
+ "scopes": [
+  {
+   "id": "global",
+   "label": "Globale",
+   "help": "Garde sa valeur jusqu'au rechargement du graphe (ou plus longtemps si elle est persistante)."
+  },
+  {
+   "id": "conversation",
+   "label": "Conversation",
+   "help": "Revient à sa valeur initiale à chaque « Oublier la conversation », donc à chaque nouveau visiteur."
+  }
+ ],
+ "list_kinds": [
+  {
+   "id": "list",
+   "label": "Liste",
+   "help": "Des éléments dans l'ordre."
+  },
+  {
+   "id": "dict",
+   "label": "Dictionnaire",
+   "help": "Des paires clé → valeur (valeurs du type choisi)."
+  }
+ ],
+ "list_modes": [
+  {
+   "id": "plain",
+   "label": "Simple",
+   "help": "Comportement habituel."
+  },
+  {
+   "id": "shuffle",
+   "label": "Sac mélangé",
+   "help": "« Dire une phrase au hasard » ne répète rien tant que toutes les phrases n'ont pas été dites."
+  },
+  {
+   "id": "history",
+   "label": "Historique",
+   "help": "Garde les N derniers éléments (`max`) : un ajout de trop retire le plus ancien."
+  }
+ ],
+ "weekdays": [
+  {
+   "id": "lun",
+   "label": "Lundi"
+  },
+  {
+   "id": "mar",
+   "label": "Mardi"
+  },
+  {
+   "id": "mer",
+   "label": "Mercredi"
+  },
+  {
+   "id": "jeu",
+   "label": "Jeudi"
+  },
+  {
+   "id": "ven",
+   "label": "Vendredi"
+  },
+  {
+   "id": "sam",
+   "label": "Samedi"
+  },
+  {
+   "id": "dim",
+   "label": "Dimanche"
+  }
+ ],
+ "media": [
+  "alpha.wav",
+  "beta.json"
+ ],
+ "themes": [
+  {
+   "id": "conversation",
+   "label": "Conversation",
+   "icon": "message",
+   "help": "Le déroulé d'un échange : accueil, réponse, tours de parole, demandes de répétition.",
+   "order": 0
+  },
+  {
+   "id": "parole",
+   "label": "Parole & voix",
+   "icon": "volume",
+   "help": "Ce que le robot dit, et quand il a fini de parler.",
+   "order": 1
+  },
+  {
+   "id": "micro",
+   "label": "Micro & écoute",
+   "icon": "microphone",
+   "help": "Le micro, l'écoute du visiteur et les interruptions.",
+   "order": 2
+  },
+  {
+   "id": "vision",
+   "label": "Visage & vision",
+   "icon": "scan-eye",
+   "help": "La caméra (visages vus) et le visage affiché à l'écran (expression, regard).",
+   "order": 3
+  },
+  {
+   "id": "intentions",
+   "label": "Intentions",
+   "icon": "bell",
+   "help": "Ce que le visiteur veut dire, reconnu dans sa phrase (panneau Intentions).",
+   "order": 4
+  },
+  {
+   "id": "variables",
+   "label": "Variables",
+   "icon": "text-caption",
+   "help": "Les variables du graphe (panneau Variables).",
+   "order": 5
+  },
+  {
+   "id": "listes",
+   "label": "Listes",
+   "icon": "square",
+   "help": "Les listes du graphe (panneau Variables, onglet Listes).",
+   "order": 6
+  },
+  {
+   "id": "etat",
+   "label": "État",
+   "icon": "arrow-right",
+   "help": "L'état du robot (variable système etat) : y entrer, le tester, le changer.",
+   "order": 7
+  },
+  {
+   "id": "temps",
+   "label": "Temps & délais",
+   "icon": "clock",
+   "help": "Délais, attentes, horaires d'ouverture et inactivité.",
+   "order": 8
+  },
+  {
+   "id": "systeme",
+   "label": "Tableau de bord & système",
+   "icon": "power",
+   "help": "Les boutons du tableau de bord et les commandes tapées.",
+   "order": 9
+  },
+  {
+   "id": "evenements",
+   "label": "Événements",
+   "icon": "bolt",
+   "help": "Événements programmés ou envoyés par le graphe lui-même.",
+   "order": 10
+  }
+ ],
+ "theme_slots": {
+  "intent": "intentions",
+  "after": "temps",
+  "state_enter": "etat",
+  "state_test": "etat",
+  "state_move": "etat"
+ },
+ "variables": {
+  "names": [
+   {
+    "id": "etat",
+    "type": "choice",
+    "label": "État",
+    "description": "L'état courant du robot (changer d'état : action « Changer une variable » sur etat).",
+    "system": true,
+    "readonly": true,
+    "choices": [
+     "veille",
+     "accueil",
+     "ecoute",
+     "reponse",
+     "relance",
+     "cloture",
+     "eteint"
+    ]
+   },
+   {
+    "id": "tours",
+    "type": "number",
+    "label": "Tours de parole",
+    "description": "Échanges de la conversation en cours.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "max_tours",
+    "type": "number",
+    "label": "Tours maximum",
+    "description": "Nombre maximal d'échanges d'une conversation (garde-fou).",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "reparations",
+    "type": "number",
+    "label": "Demandes de répétition",
+    "description": "« Pardon ? » de suite.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "max_reparations",
+    "type": "number",
+    "label": "Répétitions maximum",
+    "description": "« Pardon ? » permis de suite.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "heure",
+    "type": "datetime",
+    "label": "Maintenant",
+    "description": "Date et heure actuelles (horloge du robot).",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "jour",
+    "type": "choice",
+    "label": "Jour",
+    "description": "Jour de la semaine : lun, mar, mer, jeu, ven, sam, dim.",
+    "system": true,
+    "readonly": true,
+    "choices": [
+     "lun",
+     "mar",
+     "mer",
+     "jeu",
+     "ven",
+     "sam",
+     "dim"
+    ]
+   },
+   {
+    "id": "derniere_phrase",
+    "type": "phrase",
+    "label": "Dernière phrase",
+    "description": "La dernière phrase entendue du visiteur.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "visage_vu",
+    "type": "bool",
+    "label": "Visage vu",
+    "description": "Vrai quand la caméra voit au moins un visage.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "volume",
+    "type": "percent",
+    "label": "Volume",
+    "description": "Volume du haut-parleur, de 0 à 100.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "expression",
+    "type": "expression",
+    "label": "Expression",
+    "description": "Expression affichée par le visage (neutre hors action « Changer l'expression »).",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "regard",
+    "type": "gaze",
+    "label": "Regard",
+    "description": "Mode de regard du visage (action « Régler le regard »).",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "nb_visiteurs_jour",
+    "type": "integer",
+    "label": "Visiteurs du jour",
+    "description": "Conversations commencées aujourd'hui (sorties de la veille) ; gardé au redémarrage, remis à zéro à minuit.",
+    "system": true,
+    "readonly": true
+   },
+   {
+    "id": "chrono_visite",
+    "type": "timer",
+    "value": null,
+    "description": "Exemple : chrono d'une visite (action « Démarrer un chrono », déclencheur « Un chrono atteint une durée »).",
+    "system": false,
+    "readonly": false,
+    "scope": "conversation",
+    "persist": false
+   },
+   {
+    "id": "humeur_visage",
+    "type": "expression",
+    "value": "neutre",
+    "description": "Exemple : une expression du visage gardée en variable.",
+    "system": false,
+    "readonly": false,
+    "scope": "global",
+    "persist": false
+   },
+   {
+    "id": "choix_salutation",
+    "type": "integer",
+    "value": 1,
+    "description": "Prochaine salutation d'un visiteur seul (G2) : 1 = phrase d'accueil de la configuration, 2 = phrase variée. Tirée à la fin de chaque conversation ; 1 au démarrage.",
+    "system": false,
+    "readonly": false,
+    "scope": "global",
+    "persist": false,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "id": "bruits_forts",
+    "type": "integer",
+    "value": 0,
+    "description": "Bruits forts qui ont déjà prolongé le délai de silence dans cette conversation (G3) ; à 2 (sa limite), un bruit ne prolonge plus rien. Remise à 0 à chaque conversation.",
+    "system": false,
+    "readonly": false,
+    "scope": "conversation",
+    "persist": false,
+    "max": 2
+   }
+  ],
+  "lists": [
+   {
+    "id": "mots_refus",
+    "type": "string",
+    "items": [
+     "non merci",
+     "stop",
+     "au revoir",
+     "arrête",
+     "arrete"
+    ],
+    "description": "Mots qui font partir le visiteur (clé refusal_words de config.json, intention au_revoir).",
+    "readonly": true,
+    "kind": "list",
+    "mode": "plain",
+    "max": null,
+    "scope": "global",
+    "persist": false,
+    "source": {
+     "cfg": "refusal_words"
+    }
+   },
+   {
+    "id": "mots_appel",
+    "type": "string",
+    "items": [
+     "nanter"
+    ],
+    "description": "Mots qui réveillent le robot en veille (intention appel).",
+    "readonly": true,
+    "kind": "list",
+    "mode": "plain",
+    "max": null,
+    "scope": "global",
+    "persist": false,
+    "source": {
+     "intent": "appel"
+    }
+   },
+   {
+    "id": "salutations",
+    "type": "string",
+    "items": [
+     "Bonjour et bienvenue ! Moi, c'est Nanterino. Je peux vous guider dans Nanterre ou vous donner des idées pour la planète. Que voulez-vous savoir ?",
+     "Bonjour ! Je suis Nanterino, le robot de Nanterre. Un lieu à trouver, un geste pour l'environnement ? Je vous écoute.",
+     "Bonjour ! Ravi de vous voir. Posez-moi une question sur Nanterre ou sur l'écologie, je vous réponds."
+    ],
+    "description": "Salutations variées pour un visiteur, dites une fois sur deux à la place de la phrase d'accueil de la configuration (sac mélangé : pas de répétition avant d'avoir tout dit).",
+    "readonly": false,
+    "kind": "list",
+    "mode": "shuffle",
+    "max": null,
+    "scope": "global",
+    "persist": false
+   },
+   {
+    "id": "salutations_groupe",
+    "type": "string",
+    "items": [
+     "Bonjour à tous ! Je suis Nanterino. Je connais les lieux de Nanterre et les bons gestes pour la planète. Posez-moi vos questions, une personne à la fois.",
+     "Bonjour à vous tous, bienvenue ! Moi, c'est Nanterino. Qui veut me poser la première question ?"
+    ],
+    "description": "Salutations pour un groupe (2 visages ou plus au début de la conversation), sac mélangé.",
+    "readonly": false,
+    "kind": "list",
+    "mode": "shuffle",
+    "max": null,
+    "scope": "global",
+    "persist": false
+   }
+  ]
+ }
+}

@@ -24,6 +24,14 @@ def words(s):
     return re.findall(r"[a-z]+", s)
 
 
+def letter_err(ref, hyp):
+    """1 - letter similarity (accents/spaces/punctuation ignored): robust to unknown words such
+    as "Nanterino" and to word splits ("Nanté Rino"), unlike the word error rate."""
+    import difflib
+    a = "".join(words(ref.replace("œ", "oe"))); b = "".join(words(hyp.replace("œ", "oe")))
+    return 1 - difflib.SequenceMatcher(None, a, b).ratio()
+
+
 def wer(ref, hyp):
     """Word error rate (Levenshtein on words)."""
     r, h = words(ref), words(hyp)

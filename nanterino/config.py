@@ -11,6 +11,16 @@ DEFAULTS = {
     # Engine endpoints (local services, never Internet).
     "stt_url": "http://127.0.0.1:8178/inference",
     "llm_url": "http://127.0.0.1:8179/v1/chat/completions",
+    # Extra fields of every LLM request. LFM3-1.7B (Liquid AI, 2026-10-29): vendor sampling
+    # temp 0.1 / top_k 50 / repeat 1.1, reasoning off. Qwen2.5 used {"temperature": 0.3}.
+    # Prompt shape, measured 2026-10-29 on the 20-question bench (scripts/llm-bench.py, LFM3):
+    # sheets after the cached system prompt + examples, and sheets scoring < 50 % of the best match
+    # dropped (2.55 -> 2.05 sheets): first sentence 1.77 s -> 1.39 s, answers unchanged or better.
+    "prompt_layout": "sheets_last",
+    "corpus_k": 3,
+    "corpus_rel_min": 0.5,
+    "llm_options": {"temperature": 0.1, "top_k": 50, "repeat_penalty": 1.1,
+                    "chat_template_kwargs": {"enable_thinking": False}},
     "tts_voice": f"{ROOT}/models/piper/fr_FR-siwis-medium.onnx",
     "fiches_dir": f"{ROOT}/fiches",
     # Audio devices, matched as substrings of PortAudio names. "pipewire" routes through PipeWire,
@@ -40,8 +50,22 @@ DEFAULTS = {
     "silence_relance_s": 8,
     "silence_cloture_s": 15,
     "cloture_to_veille_s": 2,
-    "lost_face_s": 10,
+    "lost_face_s": 10,  # no face for this long -> vision posts `visage_perdu` (only a disabled example chain uses it)
+    # Opening hours for the guard `dans_les_horaires` and the events ouverture/fermeture, e.g.
+    # {"lun-ven": "09:00-18:00", "sam": ["10:00-12:00", "14:00-17:00"]}. Empty = always open, no events.
+    "opening_hours": {},
+    # No face and no speech for this long -> the event `inactivite_longue` is posted once (until activity).
+    "idle_long_s": 300,
+    # Heartbeat: the brain loop ticks at this rate (delays are accurate to one tick); the watchdog
+    # trips when no tick was processed for watchdog_s seconds (stuck handler). See nanterino/graph.py.
+    "heartbeat_hz": 10,
+    "watchdog_s": 5,
+    # Optional dialogue graph override (YAML, French); invalid -> logged, default graph.yaml used.
+    "graph_file": f"{ROOT}/graph.yaml",
     "vad_silence_ms": 800,
+    # Early transcription after this much silence (0 = off); the utterance still ends at
+    # vad_silence_ms, the text is just ready sooner (AudioIn.early_ms).
+    "stt_early_ms": 390,
     "max_utterance_s": 10,
     # Microphone pinned by PipeWire description (2026-10-16: the default source had silently
     # become the Jetson's built-in input, where nothing is plugged -> the robot heard nothing).
@@ -86,7 +110,7 @@ DEFAULTS = {
         "simplement puis propose ton aide sur les parcs, les lieux remarquables de Nanterre ou "
         "les bons gestes écologiques (tri, compost, économies d'eau et d'énergie). Pour les faits, utilise uniquement les fiches fournies ; si la réponse "
         "n'y est pas, dis-le simplement et pose une question pour rester sur le sujet du visiteur. "
-        "N'invente jamais de lieu, d'adresse ni d'horaire."
+        "N'invente jamais de lieu, d'adresse, d'horaire ni de ligne de bus."
     ),
 }
 

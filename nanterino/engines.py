@@ -48,12 +48,54 @@ class STT:
 
 
 class LLM:
-    def __init__(self, url: str):
+    def __init__(self, url: str, options: dict | None = None):
         self.url = url
+        # Sampling and template options merged into every request (config "llm_options").
+        # LFM3 reasons in a <think> block by default: enable_thinking=false asks the template to skip
+        # it, and stream() still drops any <think>...</think> text in case the model ignores that.
+        self.options = dict(options or {"temperature": 0.3})
 
     def stream(self, messages: list[dict], max_tokens: int = 160):
-        """Yield text deltas as they arrive (server-sent events)."""
-        body = {"messages": messages, "stream": True, "temperature": 0.3, "max_tokens": max_tokens}
+        """Yield answer text deltas as they arrive (server-sent events), reasoning removed."""
+        body = {**self.options, "messages": messages, "stream": True, "max_tokens": max_tokens}
+        thinking, pending = False, ""
+        for delta in self._raw_stream(body):
+            pending += delta
+            out = ""
+            while pending:
+                if thinking:
+                    end = pending.find("</think>")
+                    if end < 0:
+                        pending = pending[-len("</think>"):]  # keep a possible split closing tag
+                        break
+                    pending, thinking = pending[end + len("</think>"):], False
+                else:
+                    start = pending.find("<think>")
+                    if start >= 0:
+                        out += pending[:start]
+                        pending, thinking = pending[start + len("<think>"):], True
+                        continue
+                    cut = pending.rfind("<")  # a tag may be split across two deltas
+                    if cut >= 0 and "<think>".startswith(pending[cut:]):
+                        out, pending = out + pending[:cut], pending[cut:]
+                    else:
+                        out, pending = out + pending, ""
+                    break
+            if out:
+                yield out
+        if pending and not thinking:
+            yield pending
+
+    def warm(self, messages: list[dict]) -> int:
+        """Process a prompt and generate 1 token so llama-server keeps its prefix in the KV cache.
+        Returns the elapsed ms. Used at startup: the first visitor then skips the system prompt cost."""
+        t0 = time.monotonic()
+        body = {**self.options, "messages": messages, "stream": False, "max_tokens": 1}
+        requests.post(self.url, json=body, timeout=60).raise_for_status()
+        return int((time.monotonic() - t0) * 1000)
+
+    def _raw_stream(self, body: dict):
+        """Yield raw content deltas from llama-server."""
         with requests.post(self.url, json=body, stream=True, timeout=60) as r:
             r.raise_for_status()
             r.encoding = "utf-8"  # SSE has no charset header; requests would guess Latin-1
@@ -90,8 +132,10 @@ class LLM:
 class TTS:
     def __init__(self, voice_path: str):
         from piper import PiperVoice  # heavy import kept local
+        import threading
+        self._lock = threading.Lock()
         t0 = time.monotonic()
-        self.voice = PiperVoice.load(voice_path)
+        self.voice = self._load_voice(PiperVoice, voice_path)
         self.rate = self.voice.config.sample_rate
         # GPU path (CPU front + TensorRT vocoder, ~5x faster, parity corr >= 0.999); CPU fallback.
         self.gpu = None
@@ -104,7 +148,49 @@ class TTS:
         log.info("tts voice loaded rate=%s backend=%s took_ms=%d", self.rate, self.backend, (time.monotonic() - t0) * 1000)
         self.synth("Bonjour.")  # warm-up: the first ONNX run is ~2x slower than the next ones
 
+    @staticmethod
+    def _load_voice(PiperVoice, voice_path: str):
+        """PiperVoice whose full VITS onnxruntime session is built lazily (first CPU fallback).
+
+        With the TensorRT backend the voice is only used for phonemisation + config; PiperVoice.load
+        would still build a full CPU session (~100+ MB RSS) that is never run. The lazy proxy is
+        only touched via `session.run` (CPU fallback path). Any piper API drift falls back to the
+        stock loader, so behaviour never depends on this optimisation.
+        """
+        try:
+            import json
+            from pathlib import Path
+
+            import onnxruntime
+            from piper.config import PiperConfig
+            from piper.phonemize_espeak import ESPEAK_DATA_DIR
+
+            class _LazySession:
+                def __init__(self, path):
+                    self._path, self._real = path, None
+
+                def __getattr__(self, name):  # run / get_inputs / ... -> build once, then delegate
+                    if self._real is None:
+                        log.info("tts cpu fallback: building the onnx session now")
+                        self._real = onnxruntime.InferenceSession(
+                            self._path, sess_options=onnxruntime.SessionOptions(), providers=["CPUExecutionProvider"])
+                    return getattr(self._real, name)
+
+            with open(f"{voice_path}.json", "r", encoding="utf-8") as f:
+                cfg = PiperConfig.from_dict(json.load(f))
+            return PiperVoice(config=cfg, session=_LazySession(str(voice_path)),
+                              espeak_data_dir=Path(ESPEAK_DATA_DIR), download_dir=Path.cwd())
+        except Exception as e:
+            log.warning("lazy piper session unavailable (%s): stock PiperVoice.load", e)
+            return PiperVoice.load(voice_path)
+
     def synth(self, text: str) -> np.ndarray:
+        # One sentence at a time: the TensorRT context and its buffers are shared (phrase cache,
+        # answers and the dashboard "say" may call this from different threads).
+        with self._lock:
+            return self._synth(text)
+
+    def _synth(self, text: str) -> np.ndarray:
         t0 = time.monotonic()
         if self.gpu is not None:
             try:

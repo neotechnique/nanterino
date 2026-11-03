@@ -1,0 +1,170 @@
+{
+ "_doc": "Nanterino song spec (2026-10-16). Each sung line spans 2 bars (8 beats) over 2 chords; 'notes' has ONE note per spoken syllable of 'text' (hyphens only mark syllables for reading). build_song.py turns this into a soundgen song (music) and a sung vocal (Piper + WORLD).",
+ "title": "Nanterino, le petit robot",
+ "bpm": 100,
+ "vocal_transpose": "auto",
+ "voice": {
+  "model": "fr_FR-siwis-medium.onnx"
+ },
+ "sections": [
+  {
+   "name": "intro",
+   "chords": [
+    "C",
+    "Am",
+    "F",
+    "G"
+   ],
+   "drums": false
+  },
+  {
+   "name": "couplet 1",
+   "chords": [
+    "C",
+    "Am",
+    "F",
+    "G",
+    "C",
+    "Am",
+    "F",
+    "C"
+   ],
+   "lines": [
+    {
+     "text": "Je suis un pe-tit ro-bot",
+     "notes": "E4 E4 G4 G4 A4 G4 E4:2"
+    },
+    {
+     "text": "Je vis là, à Nan-terre",
+     "notes": "F4 F4 A4 A4 G4 F4 D4:2"
+    },
+    {
+     "text": "J'ai deux grands yeux qui brillent",
+     "notes": "E4 G4 C5 B4 A4:2 G4:2"
+    },
+    {
+     "text": "Et le cœur tout vert",
+     "notes": "A4 G4 F4 F4 E4:4"
+    }
+   ]
+  },
+  {
+   "name": "refrain",
+   "chords": [
+    "C",
+    "G",
+    "Am",
+    "F",
+    "C",
+    "G",
+    "F",
+    "G",
+    "C"
+   ],
+   "lines": [
+    {
+     "text": "Nan-te-ri-no, Nan-te-ri-no",
+     "say": "Nan-té-ri-no, Nan-té-ri-no",
+     "notes": "C5:1/2 B4:1/2 A4:1/2 G4:3/2 D5:1/2 C5:1/2 B4:1/2 G4:7/2"
+    },
+    {
+     "text": "Le pe-tit ro-bot ri-go-lo",
+     "notes": "A4:1/2 A4:1/2 C5:1/2 C5:1/2 E5 D5:1/2 C5:1/2 A4:4",
+     "say": "Le petit robot, rigolo !"
+    },
+    {
+     "text": "Triez bien vos dé-chets, pre-nez le vé-lo",
+     "notes": "E5:1/2 E5:1/2 E5:1/2 D5:1/2 C5:2 D5:1/2 D5:1/2 C5 B4:1/2 G4:3/2"
+    },
+    {
+     "text": "Pre-nez soin de la pla-nète, oh oh",
+     "notes": "A4:1/2 A4:1/2 A4 A4 A4 C5 A4 B4 C5"
+    }
+   ]
+  },
+  {
+   "name": "couplet 2",
+   "chords": [
+    "C",
+    "Am",
+    "F",
+    "G",
+    "C",
+    "Am",
+    "F",
+    "C"
+   ],
+   "lines": [
+    {
+     "text": "Les parcs, la Seine et les jar-dins",
+     "notes": "E4 E4 G4 G4 A4 A4 G4 E4"
+    },
+    {
+     "text": "Je con-nais tous les che-mins",
+     "notes": "F4 F4 A4 A4 G4 F4 D4:2"
+    },
+    {
+     "text": "Le verre va dans sa borne",
+     "notes": "E4 G4 C5 B4 A4:2 G4:2"
+    },
+    {
+     "text": "Le jaune pour les em-bal-lages",
+     "notes": "A4 A4 G4 F4 E4 D4 C4:2"
+    }
+   ]
+  },
+  {
+   "name": "refrain",
+   "chords": [
+    "C",
+    "G",
+    "Am",
+    "F",
+    "C",
+    "G",
+    "F",
+    "G",
+    "C"
+   ],
+   "lines": [
+    {
+     "text": "Nan-te-ri-no, Nan-te-ri-no",
+     "say": "Nan-té-ri-no, Nan-té-ri-no",
+     "notes": "C5:1/2 B4:1/2 A4:1/2 G4:3/2 D5:1/2 C5:1/2 B4:1/2 G4:7/2"
+    },
+    {
+     "text": "Le pe-tit ro-bot ri-go-lo",
+     "notes": "A4:1/2 A4:1/2 C5:1/2 C5:1/2 E5 D5:1/2 C5:1/2 A4:4",
+     "say": "Le petit robot, rigolo !"
+    },
+    {
+     "text": "Triez bien vos dé-chets, pre-nez le vé-lo",
+     "notes": "E5:1/2 E5:1/2 E5:1/2 D5:1/2 C5:2 D5:1/2 D5:1/2 C5 B4:1/2 G4:3/2"
+    },
+    {
+     "text": "Pre-nez soin de la pla-nète, oh oh",
+     "notes": "A4:1/2 A4:1/2 A4 A4 A4 C5 A4 B4 C5"
+    }
+   ]
+  },
+  {
+   "name": "fin",
+   "chords": [
+    "C",
+    "G",
+    "C",
+    "C"
+   ],
+   "drums": false,
+   "lines": [
+    {
+     "text": "À bien-tôt les a-mis",
+     "notes": "G4 G4 E4:2 D4 D4 C4:2"
+    }
+   ]
+  }
+ ],
+ "_doc_v3": "2026-10-27: refrains re-phrased with natural speech rhythm (fast short syllables, long line end) - Whisper: rigolo line 100% -> 25% word errors.",
+ "_doc_v3b": "2026-10-27: 'Je vis ici' -> 'Je vis là' (i-i-i ambiguous when sung); comma in 'robot, rigolo' (Whisper 100% -> 33%).",
+ "_doc_v3c": "2026-10-27: Nanterino say back to Nan-té-ri-no (best isolated); 'Triez bien vos déchets' (+1 syllable, Whisper isolated 56% -> 43%)."
+}

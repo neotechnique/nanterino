@@ -20,6 +20,7 @@ MODEL = "/opt/robot/nanterino/models/vision/face_detection_yunet_2023mar.onnx"
 TRT_ENGINE = "/opt/robot/nanterino/models/vision/yunet_640_fp16.engine"  # GPU path (build-yunet-trt)
 W, H, FPS = 640, 480, 15  # 15 fps is plenty for gaze following; 30 fps cost ~1.75 CPU cores
 DETECT_W = 320          # detection runs on a half-size image: ~4x cheaper, enough at 3 m
+IDLE_SKIP = 3           # no face for LOST_AFTER_S: process 1 frame in 3 (15 -> 5 fps)
 LOST_AFTER_S = 0.6      # keep the last position briefly so the eyes do not jump on a missed frame
 
 
@@ -31,12 +32,16 @@ def _iou(a, b) -> float:
 
 
 class Vision:
-    def __init__(self, max_dist_m: float = 3.0):
+    def __init__(self, max_dist_m: float = 3.0, lost_face_s: float = 10.0):
         self.max_dist_m = max_dist_m
+        self.lost_face_s = lost_face_s  # absence needed before on_face_lost fires
         self.state = {"present": False, "x": 0.0, "y": 0.0, "dist_m": None, "track_id": None, "fps": 0.0,
-                      "camera": False}
+                      "camera": False, "faces": 0}
         self._box, self._last_seen, self._next_id = None, 0.0, 1
         self.on_face = None  # optional callback(dist_m) when a face appears within max_dist_m
+        self.on_face_lost = None  # optional callback() once, after lost_face_s without any face
+        self.on_faces = None  # optional callback(count) for every processed frame: faces seen within max_dist_m
+        self._lost_fired = False
         threading.Thread(target=self._run, daemon=True, name="vision").start()
 
     def _run(self):
@@ -44,7 +49,9 @@ class Vision:
             try:
                 self._loop()
             except Exception as e:
-                self.state = {**self.state, "present": False, "camera": False}
+                self.state = {**self.state, "present": False, "camera": False, "faces": 0}
+                if self.on_faces:
+                    self.on_faces(0)
                 log.warning("vision stopped: %s (retry in 5 s)", e)
                 time.sleep(5)
 
@@ -71,15 +78,29 @@ class Vision:
             k, backend = W / DETECT_W, "opencv-cpu"
         self.state["backend"] = backend
         log.info("vision started camera=RealSense %dx%d@%d backend=%s", W, H, FPS, backend)
-        frames, t_fps = 0, time.monotonic()
+        frames, t_fps, skip = 0, time.monotonic(), 0
         try:
             while True:
-                fs = align.process(pipe.wait_for_frames(5000))
-                color = np.asanyarray(fs.get_color_frame().get_data())
-                depth = np.asanyarray(fs.get_depth_frame().get_data())
+                raw = pipe.wait_for_frames(5000)
+                # Idle throttle: with nobody in view, look at 1 frame in IDLE_SKIP (~5 fps) and drop
+                # the rest unprocessed; the first detection brings full rate back at once.
+                now = time.monotonic()
+                idle = not self.state["present"] and now - self._last_seen > LOST_AFTER_S
+                if idle:
+                    skip = (skip + 1) % IDLE_SKIP
+                    if skip:
+                        continue
+                else:
+                    skip = 0
+                # align_to(color) leaves the colour frame untouched, so detect on the raw colour
+                # frame and pay for depth alignment only when a face was found (same distances).
+                color = np.asanyarray(raw.get_color_frame().get_data())
                 faces = detect(color)
+                depth = None
+                if faces is not None and len(faces):
+                    depth = np.asanyarray(align.process(raw).get_depth_frame().get_data())
                 self._update(faces, depth, scale, k)
-                del color, depth  # nothing kept beyond this frame
+                del color, depth, raw  # nothing kept beyond this frame
                 frames += 1
                 now = time.monotonic()
                 if now - t_fps >= 2:
@@ -101,11 +122,22 @@ class Vision:
             if dist is not None and dist > self.max_dist_m:
                 continue  # people further than 3 m are ignored (F01)
             cands.append(((x, y, w, h), dist))
+        # Every detection within range counts (the tracker below keeps following ONE face); an anonymous
+        # count only, used for the `personnes_multiples` event and the idle timer.
+        self.state["faces"] = len(cands)
+        if self.on_faces:
+            self.on_faces(len(cands))
         if not cands:
             if self.state["present"] and now - self._last_seen > LOST_AFTER_S:
                 self.state.update(present=False, track_id=None)
                 self._box = None
+            # Fire once per absence, only after a face was really seen (_last_seen > 0).
+            if (self.on_face_lost and not self._lost_fired and self._last_seen
+                    and now - self._last_seen > self.lost_face_s):
+                self._lost_fired = True
+                self.on_face_lost()
             return
+        self._lost_fired = False
         # F02: keep following the same person (best overlap with the previous box); otherwise the
         # largest (closest) face. A second person passing behind does not steal the gaze.
         if self._box is not None:

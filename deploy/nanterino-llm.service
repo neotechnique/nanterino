@@ -1,0 +1,20 @@
+# llama.cpp server (CUDA, all layers on GPU) - Liquid AI LFM3-1.7B (QAD Q4_0), localhost only.
+# Switched from Qwen2.5 1.5B on 2026-10-29 after the same 20-question bench
+# (tests/results/llm-bench-*.json): LFM3 19-20/20 vs Qwen 16/20 on manual review, first sentence 1.74 s vs 1.49 s.
+# Reasoning is off (--reasoning off) and any thinking is extracted out of `content` (--reasoning-format deepseek).
+# License: LFM Open License v1.0, models/llm/LFM3-LICENSE.txt (free public info robot = non-commercial use).
+# Revert to Qwen: swap the two ExecStart lines, then `systemctl --user daemon-reload && systemctl --user restart nanterino-llm`
+# and set config "llm_options" to {"temperature": 0.3}.
+[Unit]
+Description=Nanterino LLM (llama.cpp CUDA)
+
+[Service]
+ExecStart=/opt/robot/engines/llama.cpp-lfm3/build/bin/llama-server -m /opt/robot/nanterino/models/llm/LFM3-1.7B-QAD-Q4_0.gguf --host 127.0.0.1 --port 8179 -ngl 99 -c 4096 -fa on -b 2048 -ub 2048 --reasoning off --reasoning-format deepseek --log-disable
+#ExecStart=/opt/robot/engines/llama.cpp/build/bin/llama-server -m /opt/robot/nanterino/models/llm/qwen2.5-1.5b-instruct-q4_k_m.gguf --host 127.0.0.1 --port 8179 -ngl 99 -c 4096 --log-disable
+Restart=on-failure
+RestartSec=3
+StandardOutput=append:/var/log/robot/nanterino-llm.log
+StandardError=append:/var/log/robot/nanterino-llm.log
+
+[Install]
+WantedBy=default.target

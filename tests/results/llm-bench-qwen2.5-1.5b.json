@@ -1,0 +1,284 @@
+{
+ "summary": {
+  "label": "qwen2.5-1.5b",
+  "ok": 18,
+  "n": 20,
+  "invented": 0,
+  "denials": 0,
+  "first_ms_mean": 1491,
+  "first_ms_max": 2088,
+  "first_ms_median": 1589
+ },
+ "rows": [
+  {
+   "q": "C'est quoi le parc André Malraux ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Le parc André Malraux est un grand parc de 25 hectares situé à côté de La Défense. Il a un lac avec des roseaux et des oiseaux, des collines pour admirer la vue, et l'entrée est gratuite. Vous pouvez y promener-vous, courir sur le parcours de course, regarder le lac et les oiseaux. Il y a aussi des tables pour pique-niquer, des jeux pour les enfants, une grande pelouse de jeux, une zone de brumisation pour se rafraîchir, et une boîte à livres. Il est ouvert en permanence, mais il peut ouvrir ou fermer selon la météo.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1803,
+   "total_ms": 5554
+  },
+  {
+   "q": "Où je peux jeter mes bouteilles en verre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour jeter vos bouteilles en verre, il vous faut aller à la borne à verre. C'est une petite borne que vous trouvez dans les endroits communs. Il est important de bien vider les bouteilles et de les déposer dans la borne.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1591,
+   "total_ms": 2697
+  },
+  {
+   "q": "Qu'est-ce que je fais de mes piles usagées ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Les piles usagées doivent être déposées dans une borne à piles dans un bâtiment public ou à la déchèterie. Il y a des bornes à piles dans certains bâtiments municipaux et chez certains commerçants, et à la déchèterie de Nanterre.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1689,
+   "total_ms": 2701
+  },
+  {
+   "q": "Comment trier mes emballages ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour trier vos emballages, il faut bien les vider et les ramasser dans le bac jaune. Si vous avez des doutes, le bac gris est conseillé. Il est important de bien séparer les emballages pour faciliter le tri et le recyclage.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1648,
+   "total_ms": 2691
+  },
+  {
+   "q": "Où est la déchetterie ?",
+   "sheets": [
+    ""
+   ],
+   "answer": "La déchèterie se trouve à 59 avenue des Guilleraies, à Nanterre. Il est recommandé de vérifier les horaires spécifiques, car elles peuvent changer.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1087,
+   "total_ms": 1650
+  },
+  {
+   "q": "Que faire de mes vieux vêtements ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour vos vieux vêtements, vous pouvez les donner à des associations ou les donner à la déchèterie. Il existe des bornes textiles dans la ville où vous pouvez les déposer.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1589,
+   "total_ms": 2061
+  },
+  {
+   "q": "Je peux mettre mes médicaments à la poubelle ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Oui, vous pouvez mettre vos médicaments périmés ou inutilisés à la poubelle. Cependant, il est préférable de les rapporter à la pharmacie pour éviter toute pollution.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1595,
+   "total_ms": 2313
+  },
+  {
+   "q": "C'est quoi les tours Nuages ?",
+   "sheets": [
+    "",
+    ""
+   ],
+   "answer": "Les tours Nuages sont dix-huit tours aux formes arrondies, dessinées par l'architecte Émile Aillaud. Elles sont couvertes de mosaïques colorées et entourées de chemins piétons avec des sculptures.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1540,
+   "total_ms": 2343
+  },
+  {
+   "q": "Il y a un théâtre à Nanterre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Oui, il y a un théâtre à Nanterre. Le Théâtre Nanterre-Amandiers est un centre dramatique national avec trois salles de spectacle. On peut aussi y manger ou boire un verre.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1223,
+   "total_ms": 2351
+  },
+  {
+   "q": "Parle-moi du Mont-Valérien.",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Le Mont-Valérien est un lieu de mémoire situé à Suresnes, à la limite de Nanterre et de Suresnes. C'est un site où des résistants et des otages ont été fusillés pendant la Seconde Guerre mondiale. Le général de Gaulle l'a choisi pour honorer les morts pour la France. Le Mont-Valérien est un lieu de visite guidée, d'environ 1h30, où vous pouvez découvrir les lieux et les événements qui ont eu lieu. Il est accessible à partir de Suresnes et Nanterre.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1717,
+   "total_ms": 4671
+  },
+  {
+   "q": "Comment économiser l'eau à la maison ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour économiser l'eau à la maison, il est important de suivre quelques bonnes pratiques simples. Prenez des douches courtes et coupez l'eau pendant le savonnage. Des petits équipements économes réduisent aussi la consommation. Par exemple, les mousseurs sur les robinets et une douchette économe peuvent économiser environ 40 euros par an en moyenne. Ne jette pas ni médicaments, ni peintures, ni huiles dans l'évier ou les toilettes.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1370,
+   "total_ms": 4177
+  },
+  {
+   "q": "Comment je fais du compost ?",
+   "sheets": [
+    ""
+   ],
+   "answer": "Pour faire du compost, il faut commencer par déposer vos déchets alimentaires dans une borne de quartier ouverte 24/7. Vous pouvez aussi demander un composteur gratuit. Il est conseillé d'utiliser des épluchures, fruits et légumes, restes de repas, coquilles d'œufs, pain, fromage, sachets de thé, marc de café. N'oubliez pas d'éviter les emballages. Pour plus d'informations, vous pouvez contacter le Service des déchets urbains au 01 47 29 50 50 ou Paris Ouest La Défense au 01 55 69 31",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1332,
+   "total_ms": 5065
+  },
+  {
+   "q": "Où me promener au bord de la Seine ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour vous promener au bord de la Seine, vous pouvez visiter les bords de Seine, qui est un parc de 9 km entre Colombes et Rueil-Malmaison. Il y a des aires de jeux pour les enfants, une passerelle qui domine le port de Nanterre, et des aires de piste cyclable et de marche. Il est ouvert tous les jours, mais les horaires peuvent varier selon la saison.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 2088,
+   "total_ms": 3815
+  },
+  {
+   "q": "Je veux me débarrasser d'un vieux frigo.",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Je n'ai pas encore cette information. Dites-moi ce que vous cherchez exactement, je vais essayer de vous orienter.",
+   "ok": false,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1274,
+   "total_ms": 1274
+  },
+  {
+   "q": "C'est quoi La Contemporaine ?",
+   "sheets": [
+    "",
+    ""
+   ],
+   "answer": "La Contemporaine est une bibliothèque, des archives et un musée sur l'histoire du monde aux vingtième et vingt-et-unième siècles. Elle est installée près de l'université. Vous pouvez y voir la collection permanente \"L'atelier de l'histoire\" et des expositions temporaires. Vous pouvez lire ou consulter des documents en salle de lecture. Il y a des visites guidées environ toutes les deux semaines le samedi à 15h, sur inscription.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1753,
+   "total_ms": 3977
+  },
+  {
+   "q": "Comment aller au travail à vélo ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Pour vous rendre à votre travail à vélo, vous pouvez suivre les pistes cyclables qui existent dans la ville. Ces pistes sont généralement sécurisées et offrent un bon espace pour faire du vélo. Il est important de respecter les règles de sécurité, notamment de garder votre vélo à une vitesse modérée sur les allées carrossables. Il existe des stations Vélib' dans la ville où vous pouvez louer un vélo. Pour plus d'informations, vous pouvez visiter le site web de la Ville de Nanterre ou contacter l'agence de la mobilité.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1663,
+   "total_ms": 4974
+  },
+  {
+   "q": "Où est la piscine olympique ?",
+   "sheets": [],
+   "answer": "Je suis désolé, mais je n'ai pas encore cette information. Pourriez-vous reformuler votre question ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 633,
+   "total_ms": 898
+  },
+  {
+   "q": "Quel est le meilleur restaurant de Nanterre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Je suis désolé, mais je n'ai pas d'informations sur les restaurants de Nanterre. Cependant, vous pouvez essayer de trouver un restaurant dans la liste des restaurants de votre ville ou de faire une recherche sur internet pour trouver un restaurant de Nanterre.",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1501,
+   "total_ms": 2581
+  },
+  {
+   "q": "À quelle heure passe le bus 304 ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Le bus 304 s'arrête à la station Nanterre-Préfecture. Il est généralement disponible tous les jours de 6h à 23h, mais les horaires peuvent varier selon les jours et les périodes de la journée. Il est possible de vérifier les horaires en ligne ou en appelant le service de transport public de votre région.",
+   "ok": false,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1406,
+   "total_ms": 3225
+  },
+  {
+   "q": "Où est le zoo de Nanterre ?",
+   "sheets": [
+    "",
+    "",
+    ""
+   ],
+   "answer": "Désolé, je n'ai pas d'informations sur un zoo de Nanterre. Pourriez-vous me donner plus de détails ?",
+   "ok": true,
+   "invented": [],
+   "denial": false,
+   "first_ms": 1316,
+   "total_ms": 1645
+  }
+ ]
+}

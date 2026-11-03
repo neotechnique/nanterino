@@ -57,7 +57,9 @@ class Corpus:
                                 "tokens": set(_tokens(text))})
         log.info("corpus loaded sheets=%d", len(self.sheets))
 
-    def search(self, question: str, k: int = 3) -> list[dict]:
+    def search(self, question: str, k: int = 3, rel_min: float = 0.0) -> list[dict]:
+        """Top-k sheets; rel_min drops sheets scoring below rel_min x the best score. Every sheet costs
+        ~350 prompt tokens (~0.25 s on the Orin with LFM3), so weak matches are worth dropping."""
         q = set(_tokens(question))
         scored = []
         for s in self.sheets:
@@ -65,4 +67,5 @@ class Corpus:
             if score:
                 scored.append((score, s))
         scored.sort(key=lambda x: -x[0])
-        return [s for _, s in scored[:k]]
+        best = scored[0][0] if scored else 0
+        return [s for score, s in scored[:k] if score >= rel_min * best]
