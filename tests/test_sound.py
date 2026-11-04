@@ -3,7 +3,8 @@
 logging: robotlog via tests.test_brain_graph (imported through tests.test_nodes_n1 for the shared helpers).
 
 Purpose
-    angles (wrap-around sectors), sources (sim, honest mono, vendor placeholder, fallbacks), DOA (GCC-PHAT pairs and
+    angles (wrap-around sectors), sources (sim, honest mono, vendor placeholder, fallbacks, the reSpeaker XVF3800
+    backend of lot L44 on a FAKE usb device: protocol decode, units, front offset, permission denied, unplug), DOA (GCC-PHAT pairs and
     SRP-PHAT on SYNTHETIC multi-channel plane waves from known angles, with noise: error <= 10 degrees on a 4-mic
     circle of radius 32 mm, CPU time per frame printed), the array source path without a device, the tracker (front
     offset applied once and persisted atomically, history ring, freshness / confidence / level gates), the Brain hook
@@ -526,6 +527,148 @@ def test_api_handlers():
     json.dumps(tr.state())
 
 
+# ---------------------------------------------------------------- reSpeaker XVF3800 (lot L44, fake USB device)
+class FakeXvf:
+    """Answers vendor control transfers like the XVF3800 (status byte + little-endian payload)."""
+
+    def __init__(self, doa=90, speech=1, beams=(1.0, 2.0, 3.0, 1.5708), energies=(0, 0, 0, 0), retry_first=0, exc=None):
+        self.doa, self.speech, self.beams, self.energies = doa, speech, beams, energies
+        self.retry, self.exc, self.calls = retry_first, exc, []
+
+    def ctrl_transfer(self, rt, req, value, index, length, timeout=None):
+        import struct
+        self.calls.append((rt, req, value, index, length))
+        if self.exc is not None:
+            raise self.exc
+        if self.retry > 0:
+            self.retry -= 1
+            return bytes([64]) + bytes(length - 1)
+        if (index, value) == (20, 0x92):
+            return bytes([0]) + struct.pack("<HH", self.doa, self.speech)
+        if (index, value) == (33, 0xCB):
+            return bytes([0]) + struct.pack("<ffff", *self.beams)
+        if (index, value) == (33, 0xD0):
+            return bytes([0]) + struct.pack("<ffff", *self.energies)
+        return bytes([1]) + bytes(length - 1)
+
+
+class FakeUsbError(OSError):
+    """Stands for usb.core.USBError (errno 13 = access denied)."""
+
+
+def test_xvf3800_protocol_decode():
+    from nanterino.sound import xvf3800 as X
+    dev = FakeXvf(doa=218, speech=1, retry_first=2)
+    assert X.read_param(dev, "DOA_VALUE") == (218, 1)
+    assert dev.calls[-1] == (0xC0, 0, 0x92, 20, 5)                       # vendor IN, 0x80|18, resid 20, 1+4 bytes
+    assert len(dev.calls) == 3                                           # two « retry » statuses re-asked
+    b = X.read_param(FakeXvf(beams=(3.804, 5.017, 3.155, 3.155)), "AEC_AZIMUTH_VALUES")
+    assert abs(b[0] - 3.804) < 1e-5 and len(b) == 4
+    assert X.read_param(dev, "AEC_SPENERGY_VALUES") == (0.0, 0.0, 0.0, 0.0) and dev.calls[-1][:4] == (0xC0, 0, 0xD0, 33)
+    for raw in (b"", bytes([1, 0, 0, 0, 0]), bytes([0, 1, 2])):
+        try:
+            X.decode_response(raw, "<HH")
+        except X.ControlError:
+            pass
+        else:
+            raise AssertionError("bad answer accepted: %r" % (raw,))
+    try:
+        X.read_param(FakeXvf(retry_first=10 ** 6), "DOA_VALUE")
+    except X.ControlError as e:
+        assert "réessayer" in str(e)
+    else:
+        raise AssertionError("endless retry accepted")
+
+
+def test_xvf3800_units_and_front_offset():
+    from nanterino.sound import xvf3800 as X
+    assert X.to_azimuth(90) == 90 and X.to_azimuth(270) == -90 and X.to_azimuth(359) == -1 and X.to_azimuth(180) == 180
+    assert X.to_azimuth(90, -1) == -90
+    az, conf, voice, lvl, e = X.interpret(100, 1, (0.0,) * 4)
+    assert (az, conf, voice) == (100, 1.0, 1.0) and lvl == X.LEVEL_SPEECH_DB
+    az, conf, _v, lvl, e = X.interpret(100, 0, (0.0, 0.5, 0.0, 0.0), beam_auto_rad=math.pi / 2)
+    assert abs(az - 90) < 1e-6 and conf == 0.6 and lvl == X.LEVEL_ENERGY_DB and e == 0.5   # clap: auto beam, radians
+    assert X.interpret(100, 0, (0.0,) * 4) == (None, 0.0, 0.0, X.LEVEL_NONE_DB, 0.0)        # never a made-up angle
+    # through the tracker: raw 100 deg, front offset 100 -> straight ahead
+    src = X.Xvf3800Source(device_factory=lambda: FakeXvf(doa=100))
+    src._dev = src._factory()
+    r = src.read_once(now=5.0)
+    assert r.azimuth_deg == 100 and r.confidence == 1.0 and src.raw["doa_deg"] == 100
+    clock = Clock(5.0)
+    tr = SoundTracker(src, clock=clock)
+    src.poll = lambda now: r
+    tr.poll()
+    assert tr.set_front_current()[0] and tr.front_offset == 100
+    tr.poll()
+    assert tr.direction()["azimuth_deg"] == 0
+
+
+def test_xvf3800_reasons_and_fallback():
+    from nanterino.sound import xvf3800 as X
+    denied = FakeUsbError(13, "Access denied (insufficient permissions)")
+    try:
+        X.Xvf3800Source(device_factory=lambda: FakeXvf(exc=denied)).start()
+    except NotConfiguredError as e:
+        assert "Accès USB refusé" in str(e) and "install-respeaker-udev.sh" in str(e), e
+    else:
+        raise AssertionError("permission denied accepted")
+    assert X.find_device(lambda **kw: None) is None and not X.detect(lambda **kw: None)
+    assert X.detect(lambda **kw: object())
+    orig = S.make_source
+    try:
+        S.make_source = lambda name, cfg=None, mic=None: X.Xvf3800Source(device_factory=lambda: FakeXvf(exc=denied))
+        tr = S.create({"sound_backend": "xvf3800"}, start=True)           # real create(): falls back to mono + reason
+        st = tr.state()
+        assert tr.source.name == "mono" and "Accès USB refusé" in tr.backend_error
+        assert st["available"] is False and "Accès USB refusé" in st["reason"] and "indisponible" in st["message"]
+        try:
+            S.create({"sound_backend": "xvf3800"}, strict=True, start=True)
+        except NotConfiguredError:
+            pass
+        else:
+            raise AssertionError("strict create swallowed the error")
+    finally:
+        S.make_source = orig
+    # auto: device absent -> plain mono without any error; present -> the reSpeaker backend (not started here)
+    orig_detect = X.detect
+    try:
+        X.detect = lambda find=None: False
+        tr = S.create({"sound_backend": "auto"})
+        assert tr.source.name == "mono" and tr.backend_error is None and tr.state()["available"] is True
+        X.detect = lambda find=None: True
+        tr = S.create({"sound_backend": "auto"})
+        assert tr.source.name == "xvf3800" and tr.configured == "auto"
+        assert S.create({"sound_backend": "mono"}).source.name == "mono"      # an explicit name always wins
+        assert S.make_source("vendor", {"sound_vendor_model": "xvf3800"}).name == "xvf3800"
+    finally:
+        X.detect = orig_detect
+
+
+def test_xvf3800_thread_and_unplug():
+    from nanterino.sound import xvf3800 as X
+    dev = FakeXvf(doa=200, speech=1)
+    src = X.Xvf3800Source(hz=30, device_factory=lambda: dev)
+    src.start()
+    try:
+        t0 = time.time()
+        r = None
+        while time.time() - t0 < 3 and r is None:
+            r = src.poll(0)
+            time.sleep(0.02)
+        assert r is not None and r.azimuth_deg == -160 and r.confidence == 1.0, r
+        assert src.info()["available"] is True and src.info()["gives_direction"] is True
+        dev.exc = FakeUsbError(19, "No such device (it may have been disconnected)")      # unplugged
+        t0 = time.time()
+        while time.time() - t0 < 3 and src.info()["available"]:
+            time.sleep(0.02)
+        info = src.info()
+        assert info["available"] is False and "Lecture USB en échec" in info["reason"], info
+        assert src.poll(0).azimuth_deg is None and src.poll(0).confidence == 0
+    finally:
+        src.stop()
+    assert src.info()["available"] is False
+
+
 # ---------------------------------------------------------------- goldens, server, dashboard
 def test_goldens_c2_only_gained_entries():
     from tests.test_nodes_registry import golden_diff, vocab_dumps
@@ -553,7 +696,7 @@ def test_server_routes_and_dashboard():
     import ast
     ast.parse(src)
     from nanterino import config
-    assert config.DEFAULTS["sound_backend"] == "mono"
+    assert config.DEFAULTS["sound_backend"] == "auto"   # L44: reSpeaker when plugged in, else mono
     dash = open(os.path.join(ROOT, "web", "dash.html"), encoding="utf-8").read()
     for needle in ('id="snd"', '/web/dash/sound360.js', '>AVANT<', 'id="snd-front"', 'id="snd-beam"', 'id="snd-msg"',
                    'id="snd-sim"', 'id="snd-head"', 'id="snd-array"'):
@@ -574,6 +717,8 @@ TESTS = [test_wrap_and_sectors, test_in_sector_wrap_around, test_sim_source, tes
          test_front_offset_persistence, test_tracker_history_and_gates, test_trigger_posted_and_throttled,
          test_trigger_never_from_mono_unlistened_or_deaf, test_trigger_parser_and_visual,
          test_condition_sound_direction_between, test_action_turn_toward_sound, test_api_handlers,
+         test_xvf3800_protocol_decode, test_xvf3800_units_and_front_offset, test_xvf3800_reasons_and_fallback,
+         test_xvf3800_thread_and_unplug,
          test_goldens_c2_only_gained_entries, test_shipped_graph_unchanged, test_server_routes_and_dashboard]
 
 

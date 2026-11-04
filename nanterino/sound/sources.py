@@ -9,8 +9,8 @@ Purpose
       SimSoundSource   scripted / random virtual sources (tests, simulator, dashboard demo); never opens a device;
       MonoLevelSource  today's single USB mic (Trust GXT through PipeWire): it reads the level the existing AudioIn
                        already measures and reports NO direction (azimuth None, confidence 0) - honest by design;
-      VendorDoaSource  placeholder for arrays that compute the direction themselves (e.g. a ReSpeaker USB v2 through
-                       its USB control interface): raises NotConfiguredError until the real model is known;
+      VendorDoaSource  placeholder for other arrays that compute the direction themselves: raises NotConfiguredError
+                       until a driver exists (the reSpeaker XVF3800 driver lives in xvf3800.py, lot L44);
       ArraySoundSource generic N-channel array (array_source.py, GCC-PHAT / SRP-PHAT in doa.py).
 Boundary
     poll(now) is called by the Brain heartbeat (10 Hz) and must never block: hardware backends do their work on their

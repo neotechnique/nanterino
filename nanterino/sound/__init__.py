@@ -9,7 +9,10 @@ Purpose
       sim    SimSoundSource (tests, demo, dashboard scenario);
       array  ArraySoundSource with the geometry file cfg["sound_array_geometry"] (default nanterino/sound/array.yaml,
              a PLACEHOLDER 4-mic circle until the real spatial microphone is known);
-      vendor VendorDoaSource(cfg["sound_vendor_model"]): not configured yet -> falls back to mono.
+      vendor VendorDoaSource(cfg["sound_vendor_model"]): model "xvf3800" -> the reSpeaker driver, other models -> mono;
+      xvf3800 Xvf3800Source (xvf3800.py): reSpeaker XVF3800 on-chip DOA over USB (lot L44);
+      auto   (config default since L44) xvf3800 when the USB device is present, else mono; an explicit backend
+             name always wins. A present-but-unusable device (no permission) falls back to mono WITH the reason.
     Modules: angles.py (frame convention, sectors), sources.py (interface + sim / mono / vendor), doa.py (GCC-PHAT,
     SRP-PHAT, geometry), array_source.py (capture thread), tracker.py (front offset, history), turn.py (head turn-to),
     api.py (HTTP handler functions, no FastAPI import).
@@ -29,10 +32,11 @@ import os
 from ..log import log
 from .sources import MonoLevelSource, NotConfiguredError, SimSoundSource, VendorDoaSource, log_backend_fallback
 from .tracker import CalibrationStore, SoundTracker
+from . import xvf3800
 
 __all__ = ["SoundTracker", "CalibrationStore", "create", "make_source", "BACKENDS", "RUNTIME_BACKENDS"]
 
-BACKENDS = ("mono", "sim", "array", "vendor")
+BACKENDS = ("mono", "sim", "array", "vendor", "xvf3800", "auto")
 RUNTIME_BACKENDS = ("mono", "sim")
 DEFAULT_GEOMETRY = os.path.join(os.path.dirname(os.path.abspath(__file__)), "array.yaml")
 DEFAULT_CAL_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
@@ -57,9 +61,13 @@ def make_source(name, cfg=None, mic=None):
         except ValueError as e:
             raise NotConfiguredError("Backend « array » : géométrie invalide (%s)." % e)
         return ArraySoundSource(geom)
+    if name == "xvf3800" or (name == "vendor" and cfg.get("sound_vendor_model") == "xvf3800"):
+        return xvf3800.Xvf3800Source(sign=cfg.get("sound_xvf_sign", 1), hz=cfg.get("sound_xvf_hz", 15))
+    if name == "auto":
+        return make_source("xvf3800", cfg, mic) if xvf3800.detect() else MonoLevelSource(mic)
     if name == "vendor":
         return VendorDoaSource(cfg.get("sound_vendor_model"))
-    raise ValueError("sound_backend inconnu : %r (mono, sim, array, vendor)" % (name,))
+    raise ValueError("sound_backend inconnu : %r (mono, sim, array, vendor, xvf3800, auto)" % (name,))
 
 
 def create(cfg=None, mic=None, calibration_path=None, *, strict=False, start=False, clock=None, wall=None) -> SoundTracker:

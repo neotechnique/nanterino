@@ -89,9 +89,11 @@ const render = guard(() => {
   const dir = state.direction;
   const now = Date.now() / 1000;
   $('snd-backend').textContent = 'Backend : ' + state.backend + (state.configured && state.configured !== state.backend
-    ? ' (configuré : ' + state.configured + ')' : '');
-  $('snd-msg').textContent = state.message || '';
-  $('snd-msg').hidden = !state.message;
+    ? ' (configuré : ' + state.configured + ')' : '') + (state.available === false ? ' – indisponible' : '');
+  // L44: a backend that stopped working after start (USB unplugged) has no backend_error: show its reason too
+  const msg = state.message || (state.available === false && state.reason ? state.reason : '');
+  $('snd-msg').textContent = msg;
+  $('snd-msg').hidden = !msg;
   $('snd-sim').hidden = state.backend !== 'sim';
   $('snd-front').disabled = !state.gives_direction;
   $('snd-offset').textContent = fmt(state.front_offset_deg) + '°';

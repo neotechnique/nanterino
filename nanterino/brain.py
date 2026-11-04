@@ -316,7 +316,10 @@ class Brain:
         self.body = body if body is not None else body_mod.create(cfg)
         self._body_err_at = -1e9
         # lot C2: 360-degree sound (live tracker from server.py; otherwise in memory on this Brain's mic and clock)
-        self.sound = sound if sound is not None else sound_mod.create(cfg, mic=self.mic, clock=self.now, wall=self.wall)
+        # L44: a Brain built without the live tracker never gets a USB-backed source (auto / xvf3800 would be idle,
+        # never started): it stays on its own mic, exactly as before the reSpeaker backend existed.
+        snd_cfg = dict(cfg, sound_backend="mono") if cfg.get("sound_backend") in ("auto", "xvf3800") else cfg
+        self.sound = sound if sound is not None else sound_mod.create(snd_cfg, mic=self.mic, clock=self.now, wall=self.wall)
         self._sound_err_at, self._snd_seen, self._snd_sector, self._snd_posted_at = -1e9, -1e9, None, -1e9
         self.engine = self._build_engine()
         # lot B1: Mouvement nodes runtime (after the engine: its hook reads self._watch at post time)

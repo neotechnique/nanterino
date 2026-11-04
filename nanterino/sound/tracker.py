@@ -227,9 +227,13 @@ class SoundTracker:
         with self._lock:
             d = self._latest
             last = None if d is None else {k: v for k, v in d.items() if k != "mono_t"}
+            si = self.source.info()
+            avail = self.backend_error is None and bool(si.get("available", True))
+            reason = self.backend_error or ("" if avail else si.get("reason", ""))
             return {"backend": self.source.name, "configured": self.configured, "error": self.backend_error,
+                    "available": avail, "reason": reason,
                     "gives_direction": self.source.gives_direction, "message": self.message(),
-                    "source": self.source.info(), "last": last, "direction": self.direction(),
+                    "source": si, "last": last, "direction": self.direction(),
                     "front_offset_deg": round(self.front_offset, 1), "min_level_db": self.min_level_db,
                     "min_confidence": MIN_CONF, "calibration_store": self.store.info() if self.store else None,
                     "t": round(self.wall(), 3)}

@@ -51,7 +51,7 @@ DRAG = ("const svg=document.getElementById('snd-svg'); const r=svg.getBoundingCl
 def sc_sound360(wd):
     st0 = _state()
     saved_offset, saved_backend = st0["front_offset_deg"], st0["backend"]
-    check("sound state endpoint answers (backend %s)" % saved_backend, saved_backend in ("mono", "sim", "array", "vendor"))
+    check("sound state endpoint answers (backend %s)" % saved_backend, saved_backend in ("mono", "sim", "array", "vendor", "xvf3800"))
     try:
         if saved_backend != "mono":
             _api("POST", "/api/sound/backend", {"backend": "mono"})
@@ -95,8 +95,9 @@ def sc_sound360(wd):
         time.sleep(1.8)                                   # the dominant direction is taken over the last 1.5 s
         js(wd, "document.getElementById('snd-front').click()")
         new_off = (saved_offset + 60 + 180) % 360 - 180
-        turned = _wait(lambda: _adiff(_state()["front_offset_deg"], new_off) < 0.6, 6)
-        check("« Définir comme avant » stores the offset (+60)", turned, repr(_state()["front_offset_deg"]))
+        seen = []
+        turned = _wait(lambda: seen.append(_state()["front_offset_deg"]) or _adiff(seen[-1], new_off) < 0.6, 6)
+        check("« Définir comme avant » stores the offset (+60)", turned, repr((_state()["front_offset_deg"], new_off, saved_offset)))
         up = _wait(lambda: abs(js(wd, "return window.__snd.screenAngle()")) < 1.5
                    and js(wd, "return document.getElementById('snd-az').textContent").startswith("0.0°"), 6)
         check("after it the same source points straight ahead (beam up, 0.0°)", up,
