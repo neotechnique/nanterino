@@ -277,6 +277,10 @@ def sc_minimap2(wd):
         js(wd, "window.__editor.resetMiniZoom()")
         # ---- node boxes: cached, invalidated on edit
         nid = js(wd, "return window.__editor.serialize().nodes.find(n=>n.kind==='action' && n.group==='veille' && n.params && n.params.action==='log_note').id")
+        # S3 adaptation: off-screen culling hides (display:none) nodes far from the view, and a hidden node has no size
+        # to follow: bring the edited node into view (centred + selected, never culled) before measuring it
+        js(wd, "window.__editor.focusNode(arguments[0]); window.__editor.applyCull(true)", [nid])
+        time.sleep(0.4)
         b0 = js(wd, "return window.__editor.nodeBoxOf(arguments[0])", [nid])
         js(wd, "window.__editor.patchNode(arguments[0], {args: {level: 'info', text: 'S2 ' + 'un texte bien plus long pour agrandir la carte du nœud. '.repeat(6)}})", [nid])
         time.sleep(0.6)

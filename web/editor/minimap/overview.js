@@ -22,6 +22,7 @@ import { S, nidToDf, stateColor, stateIcon, stateLabel } from '../core/state.js'
 import { dfData, model } from '../core/api.js';
 import { bandRects, nodeBox } from '../canvas/view.js';
 import { geoVer, viewRect } from '../canvas/geometry.js';
+import { applyCull } from '../canvas/culling.js';
 import { arithPoint, miniDown, miniResizeDown } from './minimap.js';
 import { setView } from '../frames/nesting.js';
 import {
@@ -53,6 +54,7 @@ export function zoomVars() {
   S.editor.precanvas.style.setProperty('--zinv', String(1 / z));
   S.editor.container.classList.toggle('semzoom', z < SEM_ZOOM);
   S.editor.container.classList.toggle('domzoom', z < DOM_ZOOM && hasDomains());
+  applyCull();          // S3: every view change (setView / setRawView / zoom) ends here, the transform is stored
   scheduleMinimap();
 }
 const stopPress = (el) => ['mousedown', 'touchstart', 'pointerdown', 'wheel', 'dblclick'].forEach((t) => el.addEventListener(t, (e) => e.stopPropagation(), { passive: true }));

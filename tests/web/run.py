@@ -68,12 +68,12 @@ from tests.web.driver import W, BASE, check, checks  # noqa: E402
 # Area files, in the order their scenarios appeared in the former single file (for `all`).
 AREAS = ["canvas", "tester", "menu", "frames", "variables", "tooltips", "diagnostics", "human", "hierarchy",
          "export", "inspector", "progress", "savegate", "domains", "mechanics", "sound360", "motion",
-         "space"]
+         "space", "bigworld"]
 # Order of the former single file, which `all` keeps (the scenarios share one browser session there).
 ALL_ORDER = ["nodes", "wires", "tester", "buttons", "menu", "postit", "ctxsub", "nav", "noinput", "vars", "testervars",
              "nostart", "wiredrag", "menu3", "tooltips", "postit2", "diag", "l6", "human", "l8", "postit3", "l10",
              "vars2", "switch", "subgroups", "export", "props", "progress", "postitsave", "emptylist", "domains", "mechanics",
-             "sound360", "motion", "zoom3", "minimap2", "foldpack"]
+             "sound360", "motion", "zoom3", "minimap2", "foldpack", "bigworld"]
 
 
 def registry():

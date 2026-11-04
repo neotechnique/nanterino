@@ -464,9 +464,9 @@ def test_frames_cosmetic_groups():
     ok, errs = V.save(dup, CFG, gp, lp)
     assert not ok and errs[0]["frame"] == "f1"
     many = copy.deepcopy(base)
-    many["frames"] = [dict(f2, id="g%d" % i) for i in range(101)]
+    many["frames"] = [dict(f2, id="g%d" % i) for i in range(V.MAX_FRAMES + 1)]
     assert not V.save(many, CFG, gp, lp)[0]
-    many["frames"] = many["frames"][:100]
+    many["frames"] = many["frames"][:V.MAX_FRAMES]
     assert V.from_visual(many, CFG)[2] == []
     assert open(lp, encoding="utf-8").read() == before
     # versions: a later save without frames, then restoring the previous version brings them back
@@ -803,9 +803,9 @@ def test_notes_cosmetic_postits():
     assert not ok and errs[0]["note"] == "p1"
     assert V.from_visual(dict(base, notes="nope"), CFG)[2][0]["note"] is None
     many = copy.deepcopy(base)
-    many["notes"] = [_note(i) for i in range(201)]
+    many["notes"] = [_note(i) for i in range(V.MAX_NOTES + 1)]
     assert not V.save(many, CFG, gp, lp)[0]
-    many["notes"] = many["notes"][:200]
+    many["notes"] = many["notes"][:V.MAX_NOTES]
     assert V.from_visual(many, CFG)[2] == []
     ok_text = copy.deepcopy(base)
     ok_text["notes"] = [_note(1, text="é" * 2000)]

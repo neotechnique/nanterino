@@ -108,6 +108,7 @@
  *   diagnostics/check.js          Diagnostics: branch order, server dry run and badges.
  *   canvas/view.js                Canvas: view helpers.
  *   canvas/geometry.js            Canvas: geometry cache (lot S2): node sizes, viewport, no layout read per frame.
+ *   canvas/culling.js             Canvas: off-screen culling (lot S3): display:none for nodes / wires outside the view.
  *   canvas/wires.js               Canvas: wires.
  *   minimap/overview.js           Overview (L7): zoom-scaled frame titles, semantic zoom, jump bar.
  *   minimap/minimap.js            Minimap navigation (lot L8).
@@ -160,8 +161,9 @@ import { computeChains } from './core/chains.js';
 import { analyze } from './diagnostics/analysis.js';
 import { diagCycle, diagNodes, freshCheck, runCheck } from './diagnostics/check.js';
 import { paintWires } from './canvas/wires.js';
-import { DOM_ZOOM, READABLE, SEM_ZOOM, clearJumpbar, miniZoomAt, resetMiniZoom, setMiniSize } from './minimap/overview.js';
+import { DOM_ZOOM, READABLE, SEM_ZOOM, clearJumpbar, drawMinimap, miniZoomAt, resetMiniZoom, setMiniSize } from './minimap/overview.js';
 import { geoStats } from './canvas/geometry.js';
+import { applyCull, cullStats, setCullEnabled } from './canvas/culling.js';
 import { focusChainIds } from './minimap/minimap.js';
 import { nodeBox } from './canvas/view.js';
 import { frameById, frames } from './frames/groups.js';
@@ -240,6 +242,8 @@ window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () =
   geoStats, nodeBoxOf: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodeBox(df); }, worldBounds, updateZoomMin,
   setMiniSize, miniZoomAt, resetMiniZoom, packRegions, packPositions, domainStats: (id) => { const d = domainById(id); return d ? domainStats(d) : null; },
   redraw: () => drawFrames(), focusChainIds,
+  drawMinimap,    // lot S3 test hook: one synchronous minimap frame (timed by scenario `bigworld`)
+  perf: () => S.perf, cullStats, setCullEnabled, applyCull,    // lot S3 test hooks: culling counters, switch, forced pass
   dfState: () => ({ drag: S.editor.drag, editorSel: S.editor.editor_selected, ele: S.editor.ele_selected ? (S.editor.ele_selected.id || S.editor.ele_selected.className) : null }) };   // L4 test hook: load a (legacy) document without touching the server
 
 boot().catch((e) => { errLog.push(String(e)); dbg('BOOT ' + e + '\n' + (e.stack || '')); toast('Erreur au démarrage : ' + e, 'err'); });

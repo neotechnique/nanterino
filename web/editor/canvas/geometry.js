@@ -6,6 +6,8 @@
  *            text, font load, unfold); the container / precanvas sizes and the untransformed precanvas offset are
  *            measured once and invalidated by the same observer (window resize, side panels toggled). viewRect() and
  *            fastCanvasPoint() turn the Drawflow transform into canvas coordinates arithmetically.
+ * S3:       portRel(): offset of a port inside its node (measured once, then arithmetic; canvas/wiredraw.js draws the wires
+ *            from it); viewRect() accepts a translation / zoom override.
  * Boundary:  DOM of the editor page and the shared state S only, no network call. Never writes the document.
  * Invariant: a node hidden by a fold (display:none, 0 x 0) keeps its last known size (or the default card size when it
  *            was never shown), so a fold never invalidates the boxes of the content it hides; `ver` increases on every
@@ -21,7 +23,7 @@ export const NODE_DEFAULT = { w: 214, h: 80 };   // size of a node never measure
 export const FOLD_COL = { w: 340, h: 190 };     // a folded column: its frame shrinks to this card (graph_layout.FOLD_COL_*)
 export const FOLD_DOM = { w: 520, h: 250 };     // a folded domain: its region shrinks to this card (graph_layout.FOLD_DOM_*)
 
-const G = { ver: 1, sizes: new Map(), ro: null, reads: 0, misses: 0, view: null, viewEls: [], listener: null };
+const G = { ver: 1, sizes: new Map(), ports: new Map(), ro: null, reads: 0, misses: 0, view: null, viewEls: [], listener: null };
 export const geoVer = () => G.ver;
 export function bumpGeo() { G.ver++; }
 export const geoStats = () => ({ ver: G.ver, reads: G.reads, misses: G.misses, cached: G.sizes.size, view: !!G.view });
@@ -41,7 +43,7 @@ function onResize(entries) {
     const bs = e.borderBoxSize && (e.borderBoxSize[0] || e.borderBoxSize);
     const w = bs ? bs.inlineSize : e.contentRect.width, hh = bs ? bs.blockSize : e.contentRect.height;
     if (!w || !hh) continue;                 // hidden by a fold: keep the last known size
-    if (Math.abs(c.w - w) > 0.5 || Math.abs(c.h - hh) > 0.5) { c.w = w; c.h = hh; c.hidden = false; changed = true; }
+    if (Math.abs(c.w - w) > 0.5 || Math.abs(c.h - hh) > 0.5) { c.w = w; c.h = hh; c.hidden = false; changed = true; G.ports.delete(t._geoDf); }   // S3: ports move with the box
   }
   if (changed) { G.ver++; if (G.listener) G.listener(); }
 }
@@ -61,7 +63,23 @@ export function nodeSize(dfid, el) {
 export function forgetNode(dfid) {
   const c = G.sizes.get(String(dfid)); if (!c) return;
   if (G.ro) G.ro.unobserve(c.el);
-  G.sizes.delete(String(dfid)); G.ver++;
+  G.sizes.delete(String(dfid)); G.ports.delete(String(dfid)); G.ver++;
+}
+// S3: offset of a port (`cls` = "output_1" / "input_1") from the node's top-left corner, to the port's centre, in canvas
+// units. Measured once per node and port (two rectangle reads), then arithmetic: port centre = node position + this.
+// Returns null when the node is not displayed (nothing is cached then). Dropped when the node's size changes.
+export function portRel(dfid, el, cls) {
+  const key = String(dfid);
+  let m = G.ports.get(key);
+  if (!m || m.el !== el) { m = { el, p: {} }; G.ports.set(key, m); }
+  if (m.p[cls]) return m.p[cls];
+  const port = el.querySelector('.' + cls);
+  if (!port) return null;
+  nodeSize(dfid, el);                    // observed from now on: a size change drops the cached ports (onResize)
+  G.reads++;
+  const nr = el.getBoundingClientRect(), pr = port.getBoundingClientRect(), z = S.editor.zoom || 1;
+  if (!nr.width) return null;
+  return (m.p[cls] = { x: (pr.x - nr.x) / z + port.offsetWidth / 2, y: (pr.y - nr.y) / z + port.offsetHeight / 2 });
 }
 // Container / precanvas geometry, measured once (two rect reads) and kept until the observer or a window resize.
 function viewGeo() {
@@ -82,9 +100,10 @@ function viewGeo() {
 }
 export function invalidateView() { G.view = null; }
 // Visible part of the canvas in canvas coordinates (no layout read once measured).
-export function viewRect() {
-  const v = viewGeo(), z = S.editor.zoom;
-  const sx = v.offX + S.editor.canvas_x + v.ox * (1 - z), sy = v.offY + S.editor.canvas_y + v.oy * (1 - z);
+// S3: optional translation / zoom override (cx, cy, z): Drawflow dispatches `translate` before it stores canvas_x / y.
+export function viewRect(cx = S.editor.canvas_x, cy = S.editor.canvas_y, z = S.editor.zoom) {
+  const v = viewGeo();
+  const sx = v.offX + cx + v.ox * (1 - z), sy = v.offY + cy + v.oy * (1 - z);
   return { x0: -sx / z, y0: -sy / z, x1: (v.w - sx) / z, y1: (v.h - sy) / z, w: v.w, h: v.h };
 }
 // Canvas point under a client point (same result as frames/nesting.js canvasPoint, without its rect read).

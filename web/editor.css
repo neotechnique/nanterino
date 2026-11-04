@@ -681,3 +681,7 @@ input[type=color]{width:56px;height:28px;padding:0 2px;background:transparent;bo
   border:2px solid #0d1117;cursor:nwse-resize;touch-action:none;display:none}
 #minimap.open .mresize{display:block}
 @media (pointer:coarse){#minimap .mresize{width:24px;height:24px;left:-10px;top:-10px}}
+
+/* lot S3: off-screen culling (canvas/culling.js): a node wrapper / wire outside the view (and every node under the
+   semantic card levels) is not styled, laid out or painted at all. Layout-dependent code shows them first (withShown). */
+.parent-node.cull,svg.connection.cull,#frames .frame.cull,#notes .postit.cull{display:none!important}

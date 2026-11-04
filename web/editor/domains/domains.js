@@ -31,6 +31,7 @@
  */
 import { h, ico } from '../core/util.js';
 import { S } from '../core/state.js';
+import { updateWires } from '../canvas/culling.js';
 import { dfData, dfNode, model } from '../core/api.js';
 import { nodeEl } from '../canvas/nodes.js';
 import { nodeBox } from '../canvas/view.js';
@@ -197,7 +198,7 @@ function shiftContent(c, dx, dy) {
     nd.pos_x += dx; nd.pos_y += dy;
     if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
   });
-  c.dfids.forEach((df) => S.editor.updateConnectionNodes('node-' + df));
+  updateWires(c.dfids);          // S3: one pass (and the culled ends shown meanwhile)
 }
 const overlap = (a, b) => a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
 // Regions never overlap after an edit of the editor: every region that overlaps the pusher (domain `id`, grown by a

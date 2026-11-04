@@ -13,6 +13,7 @@
  */
 import { $, h, ico } from '../core/util.js';
 import { S, KINDS, iconOf, nidToDf, stateColor, stateIcon } from '../core/state.js';
+import { updateWires } from '../canvas/culling.js';
 import { isEnterTrig } from '../inspector/property-picker.js';
 import { dfData, dfNode, model, nidOf } from '../core/api.js';
 import { nodeEl, nodeTheme, summary } from '../canvas/nodes.js';
@@ -422,7 +423,7 @@ export function moveInto(ref, target) {
     nd.pos_x += dx; nd.pos_y += dy;
     if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
   });
-  mv.dfids.forEach((d) => S.editor.updateConnectionNodes('node-' + d));
+  updateWires(mv.dfids);                // S3: one pass
   const moved = { x0: box.x0 + dx, y0: box.y0 + dy, x1: box.x1 + dx, y1: box.y1 + dy };
   let nb = moved, f = target, guard = 0;
   while (f && guard++ < 200) {          // the target (then each parent) encloses the moved box, columns included

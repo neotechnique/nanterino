@@ -23,7 +23,15 @@ export const FRAME_PAD = { l: 32, r: 32, t: 72, b: 32 };      // around a node b
 // shared state: S.frameDrag (core/state.js)
 export const frameEls = new Map();
 export const frames = () => (S.meta.frames = Array.isArray(S.meta.frames) ? S.meta.frames : []);
-export const frameById = (id) => frames().find((f) => f.id === id);
+// S3: frameById is called per node by the domain code (nodeCol): a linear find made allContent / foldSets quadratic on a 10x
+// graph. A hit of the id -> index memo is validated against the live array (same object, same id), a miss falls back to find.
+let memo = new Map();
+export function frameById(id) {
+  const list = frames(), i = memo.get(id);
+  if (i != null && list[i] && list[i].id === id) return list[i];
+  if (memo.size !== list.length || i != null) { memo = new Map(list.map((f, k) => [f.id, k])); const j = memo.get(id); return j == null ? undefined : list[j]; }
+  return list.find((f) => f.id === id);
+}
 export function ensureFrames() {
   if (!S.framesEl || !S.framesEl.isConnected) { S.framesEl = h('div', { id: 'frames' }); S.editor.precanvas.insertBefore(S.framesEl, S.editor.precanvas.firstChild); }
   return S.framesEl;

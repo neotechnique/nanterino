@@ -17,6 +17,7 @@
  */
 import { $, h, ico } from '../core/util.js';
 import { S, nidToDf } from '../core/state.js';
+import { applyCull, updateWires } from '../canvas/culling.js';
 import { dfData, dfNode, model, nidOf } from '../core/api.js';
 import { nodeEl, stateDesc } from '../canvas/nodes.js';
 import { serialize } from '../core/serialize.js';
@@ -174,6 +175,7 @@ export function drawFrames() {
   drawBands();             // live / simulated state glow on the auto column frames
   drawDomains();           // lot S1: domain regions follow their columns; fold cards / hidden content re-applied
   updateZoomMin();         // S2: the zoom range follows the size of the world
+  applyCull(true);         // S3: the new frame elements are culled by the same rule as the nodes
 }
 // S2: lowest zoom = half the zoom that fits the whole world (no fixed floor: a 10x graph zooms out 10x further).
 export function updateZoomMin() {
@@ -227,8 +229,8 @@ export function moveFrameDrag(e) {
       const nd = dfNode(n.dfid), el = nodeEl(n.dfid);
       nd.pos_x = n.x + dx; nd.pos_y = n.y + dy;
       if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
-      S.editor.updateConnectionNodes('node-' + n.dfid);
     });
+    updateWires(d.nodes.map((n) => n.dfid));          // S3: positions first, then ONE redraw pass of their wires
     d.frames.forEach((o) => { o.g.x = Math.round(o.x + dx); o.g.y = Math.round(o.y + dy); const el = frameEls.get(o.g.id); if (el) placeFrame(o.g, el); });
     d.notes.forEach((o) => { o.n.x = Math.round(o.x + dx); o.n.y = Math.round(o.y + dy); const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
     d.pt = canvasPoint(p.clientX, p.clientY);
@@ -260,8 +262,8 @@ function undoFrameMove(d) {
     const nd = dfNode(n.dfid), el = nodeEl(n.dfid);
     nd.pos_x = n.x; nd.pos_y = n.y;
     if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
-    S.editor.updateConnectionNodes('node-' + n.dfid);
   });
+  updateWires(d.nodes.map((n) => n.dfid));
   d.frames.forEach((o) => { o.g.x = o.x; o.g.y = o.y; });
   d.notes.forEach((o) => { o.n.x = o.x; o.n.y = o.y; const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
 }

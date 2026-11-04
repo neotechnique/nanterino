@@ -556,9 +556,12 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
 
 
 # ---------------------------------------------------------------- cosmetic frames
-MAX_FRAMES, MAX_FRAME_TITLE, MAX_FRAME_NOTE = 100, 60, 2000
+# S3 (2026-11-04): 100 -> 1000 frames, 200 -> 1000 post-its. A graph ten times the shipped one (about 460 groups and 470
+# post-its: 7 column frames + 28 sub-groups + their post-its per Dialogue copy) used to be truncated silently on GET
+# (`[:MAX_FRAMES]`) and refused on POST. The caps only bound the size of graph.layout.json; no layout depends on them.
+MAX_FRAMES, MAX_FRAME_TITLE, MAX_FRAME_NOTE = 1000, 60, 2000
 # post-it notes (2026-10-31): sticky notes drawn on the canvas, stored like frames in graph.layout.json
-MAX_NOTES, MAX_NOTE_TEXT, MAX_NOTE_TITLE = 200, 2000, 60
+MAX_NOTES, MAX_NOTE_TEXT, MAX_NOTE_TITLE = 1000, 2000, 60
 FRAME_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 
 

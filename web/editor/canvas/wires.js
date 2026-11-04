@@ -5,7 +5,8 @@
  *            proxy badges (L7).
  * Boundary:  DOM of the editor page and the shared state S only, no network call. Moved unchanged out of the former
  *            single-file editor.js (lot M6).
- * Depends :  core/util.js, core/state.js, core/api.js, canvas/nodes.js, core/serialize.js, core/chains.js, canvas/view.js
+ * Depends :  core/util.js, core/state.js, core/api.js, canvas/nodes.js, core/serialize.js, core/chains.js, canvas/view.js,
+ *            canvas/wiredraw.js (S3: wire index)
  * Invariant: Drawflow 0.0.60 writes the wire path into svg.children[0]: the gradient <defs> is appended AFTER the path.
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
@@ -16,6 +17,7 @@ import { nodeEl } from './nodes.js';
 import { serialize } from '../core/serialize.js';
 import { computeChains, panTo } from '../core/chains.js';
 import { nodeBox } from './view.js';
+import { wiresOf } from './wiredraw.js';
 
 // ---------- wires: colour gradient from the source kind colour to the target kind colour ----------
 // Drawflow draws every connection as <svg class="connection node_in_node-X node_out_node-Y output_k input_k"><path
@@ -30,9 +32,14 @@ export const KIND_HEX = { start: '#2ea043', end: '#e5534b', trigger: '#e3b341', 
 // shared state: S.gradSeq (core/state.js)
 export function paintWires(only) {
   if (!S.editor || !S.editor.container) return;
+  // S3: one node's wires come from the wire index (canvas/wiredraw.js), not from a search of the whole container
+  paintSvgs(only ? wiresOf(String(only).replace(/^node-/, '')).map((w) => w.svg) : S.editor.container.querySelectorAll('svg.connection'));
+}
+// Gradient + metadata of the given wire elements (the ones with a path; a wire not drawn yet is skipped).
+export function paintSvgs(svgs) {
+  if (!S.editor || !S.editor.container) return;
   const data = dfData();
-  const sel = only ? `svg.connection.node_in_${only}, svg.connection.node_out_${only}` : 'svg.connection';
-  S.editor.container.querySelectorAll(sel).forEach((svg) => {
+  svgs.forEach((svg) => {
     const cl = svg.classList;
     if (cl.length < 5) return;
     const inId = cl[1].slice(13), outId = cl[2].slice(14), path = svg.querySelector('.main-path');
@@ -162,11 +169,15 @@ function retFocusPred() {
   const R = chainIdsOf(seed);
   return (a, b) => (f.wire && a === f.wire[0] && b === f.wire[1]) || (R.has(a) && kindOf(a) !== 'state') || (R.has(b) && kindOf(b) !== 'state');
 }
+let relActive = false;       // S3: some wire may carry the `rel` class (without it and without a focus there is nothing to clear)
 function applyRetFocus() {
   if (!S.editor || !S.editor.container) return;
   const pred = retFocusPred();
   S.editor.container.classList.toggle('retfocus', !!pred);
-  S.editor.container.querySelectorAll('svg.connection').forEach((svg) => svg.classList.toggle('rel', !!pred && svg.classList.contains('ret') && pred(svg.dataset.src, svg.dataset.dst)));
+  if (pred || relActive) {
+    S.editor.container.querySelectorAll('svg.connection').forEach((svg) => svg.classList.toggle('rel', !!pred && svg.classList.contains('ret') && pred(svg.dataset.src, svg.dataset.dst)));
+    relActive = !!pred;
+  }
   if (S.badgesEl) S.badgesEl.querySelectorAll('.rbadge').forEach((el) => el.classList.toggle('rel', !!pred && pred(el.dataset.src, el.dataset.dst)));
 }
 export function installRetHover() {

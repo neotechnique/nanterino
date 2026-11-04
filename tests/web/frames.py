@@ -690,6 +690,10 @@ def sc_postit3(wd):
         js(wd, "window.__editor.focusRect({x0:arguments[0],y0:arguments[1],x1:arguments[2],y1:arguments[3]})",
            [min(f["x"] for f in cols.values()) - 40, min(f["y"] for f in cols.values()) - 80,
             max(f["x"] + f["w"] for f in cols.values()) + 40, max(f["y"] + f["h"] for f in cols.values()) + 40])
+        # S3 adaptation: this whole-graph view is under the semantic zoom, where the column cards cover the post-its and
+        # off-screen culling (canvas/culling.js) hides them (display:none, no box): measure the real layout with culling
+        # switched off, then switch it back on
+        js(wd, "window.__editor.setCullEnabled(false)")
         time.sleep(0.6)
         cover = js(wd, """const out=[]; const ns=[...document.querySelectorAll('.postit')].filter(e=>e.dataset.nid.startsWith('state-'));
           const nodes=[...document.querySelectorAll('.drawflow-node')].map(e=>e.getBoundingClientRect());
@@ -698,6 +702,7 @@ def sc_postit3(wd):
             if(r.left<col.left-1||r.right>col.right+1||r.top<col.top-1||r.bottom>col.bottom+1) out.push([e.dataset.nid,'outside column']);
             for(const b of nodes) if(r.left<b.right&&b.left<r.right&&r.top<b.bottom&&b.top<r.bottom){ out.push([e.dataset.nid,'covers a node']); break; } }
           return [ns.length, out]""")
+        js(wd, "window.__editor.setCullEnabled(true)")
         check("drawn: every column post-it in full mode, inside its column, covering no node", cover[0] == len(cols) and not cover[1], str(cover))
         # move a column by its title: its post-it follows by the same delta
         cid = "auto-veille" if "auto-veille" in cols else sorted(cols)[0]
