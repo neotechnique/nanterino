@@ -10,7 +10,8 @@
  *            back to polling GET /api/sound/state) and GET /api/body/state (head pan overlay, read only).
  * Invariants: azimuths are in the calibrated robot frame (0 = front = up on screen, + = robot's left = screen left,
  *            counter-clockwise); the array marker turns with the front offset; a direction is drawn only when the
- *            backend gives one (never a made-up angle); sim drags are throttled to one POST per 80 ms.
+ *            backend gives one (never a made-up angle); sim drags are throttled to one POST per 80 ms; the beam eases
+ *            toward each new frame on requestAnimationFrame (lot L45, TAU_S) but hides at once when the direction goes.
  * Test     : .venv/bin/python -m tests.web.run sound360   (window.__snd exposes state(), beam(), lastReply, errors)
  */
 const $ = (id) => document.getElementById(id);
@@ -22,7 +23,7 @@ const SIDES = { avant: 'devant', gauche: 'à gauche', arriere: 'derrière', droi
 
 let state = null, ws = null, pollTimer = null, headPan = null, lastSimAt = 0, simPending = null, dragging = false;
 const trail = [];                                  // {t, az, lvl, conf}
-const snd = { state: () => state, lastReply: null, errors: [], trail: () => trail.length };
+const snd = { state: () => state, lastReply: null, errors: [], trail: () => trail.length, frames: 0 };  // frames: L45 rate check
 window.__snd = snd;
 
 const fmt = (v, d = 1) => (v == null || !isFinite(v) ? '–' : Number(v).toFixed(d));
@@ -53,14 +54,48 @@ function say(text, bad) {
 }
 
 // ---- drawing
+// Lot L45: the beam is animated. Frames (15 Hz) only set the TARGET; a requestAnimationFrame loop eases the drawn
+// angle (shortest arc), length and opacity toward it (time constant TAU_S), so the beam glides instead of jumping.
+// Hiding (no direction) is immediate: the animation never draws an angle the backend did not give.
+const TAU_S = 0.08;
+const target = { az: null, r: R0, op: 0 };
+const drawn = { az: null, r: R0, op: 0 };
+let lastAnim = 0;
+
 function beam(az, lvl, conf) {
+  target.az = az;
+  target.r = R0 + norm(lvl) * (R1 - R0);
+  target.op = 0.15 + 0.85 * Math.max(0, Math.min(1, conf));
+  if (az == null || drawn.az == null || document.hidden) Object.assign(drawn, target);   // appear / hide: no glide
+  drawBeam();
+}
+
+function drawBeam() {
   const b = $('snd-beam'), dot = $('snd-src');
-  if (az == null) { b.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); return; }
-  const r = R0 + norm(lvl) * (R1 - R0);
-  const [x, y] = pt(az, r);
-  const op = (0.15 + 0.85 * Math.max(0, Math.min(1, conf))).toFixed(3);
+  if (drawn.az == null) { b.setAttribute('visibility', 'hidden'); dot.setAttribute('visibility', 'hidden'); return; }
+  const [x, y] = pt(drawn.az, drawn.r);
+  const op = drawn.op.toFixed(3);
   for (const [k, v] of [['x2', x.toFixed(1)], ['y2', y.toFixed(1)], ['opacity', op], ['visibility', 'visible']]) b.setAttribute(k, v);
   for (const [k, v] of [['cx', x.toFixed(1)], ['cy', y.toFixed(1)], ['opacity', op], ['visibility', 'visible']]) dot.setAttribute(k, v);
+}
+
+function animate(ts) {
+  const dt = lastAnim ? Math.min(0.5, (ts - lastAnim) / 1000) : 0;
+  lastAnim = ts;
+  const settled = drawn.az === target.az && drawn.r === target.r && drawn.op === target.op;
+  if (drawn.az != null && target.az != null && !settled) {    // settled: no DOM write at 60 Hz
+    const k = 1 - Math.exp(-dt / TAU_S);
+    const d = ((target.az - drawn.az + 540) % 360) - 180;      // shortest way round (-180..180)
+    const still = Math.abs(d) < 0.05 && Math.abs(target.r - drawn.r) < 0.05 && Math.abs(target.op - drawn.op) < 0.002;
+    if (still) Object.assign(drawn, target);
+    else {
+      drawn.az = ((drawn.az + d * k + 540) % 360) - 180;
+      drawn.r += (target.r - drawn.r) * k;
+      drawn.op += (target.op - drawn.op) * k;
+    }
+    drawBeam();
+  }
+  requestAnimationFrame(animate);
 }
 
 function drawTrail(now) {
@@ -114,7 +149,7 @@ const render = guard(() => {
 });
 
 // ---- data
-function onState(s) { state = s; render(); }
+function onState(s) { state = s; snd.frames += 1; render(); }
 
 function connect() {
   try {
@@ -205,4 +240,5 @@ if ($('snd')) {
   pollHead();
   setInterval(pollHead, 1000);
   setInterval(() => drawTrail(Date.now() / 1000), 500);
+  requestAnimationFrame(animate);
 }

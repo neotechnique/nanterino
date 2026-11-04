@@ -39,11 +39,16 @@ def _bad(msg, status=400):
 
 
 def state(tr):
+    tr.poll()   # lot L45: the screen reads the source itself, not only what the 10 Hz brain heartbeat last polled
     return 200, tr.state()
 
 
 def stream_frame(tr) -> dict:
-    """Compact frame of the WebSocket stream (the dashboard builds its trail from successive frames)."""
+    """Compact frame of the WebSocket stream (the dashboard builds its trail from successive frames).
+
+    Lot L45: polls the source first (non-blocking: sources return their latest reading), so the stream follows the
+    chip at the stream rate (15 Hz) and keeps moving even when the brain loop is busy."""
+    tr.poll()
     s = tr.state()
     return {k: s[k] for k in ("backend", "configured", "error", "message", "gives_direction", "last", "direction",
                               "front_offset_deg", "min_confidence", "t")}

@@ -496,7 +496,8 @@ def test_api_handlers():
     clock = Clock()
     tr = SoundTracker(SimSoundSource(), clock=clock)
     st, s = A.state(tr)
-    assert st == 200 and s["backend"] == "sim" and s["last"] is None
+    # L45: the handler polls the source itself, so `last` is the silent sim reading (no azimuth), not None
+    assert st == 200 and s["backend"] == "sim" and s["last"]["azimuth_deg"] is None and s["direction"] is None
     assert A.front(tr, None)[0] == 400 and A.front(tr, {})[0] == 400
     assert A.front(tr, {"set_current": True})[0] == 409                    # silence: no dominant direction
     assert A.sim(tr, {"azimuth": "x"})[0] == 400 and A.sim(tr, {"azimuth": 10, "level": 5})[0] == 400
@@ -601,6 +602,47 @@ def test_xvf3800_units_and_front_offset():
     assert tr.set_front_current()[0] and tr.front_offset == 100
     tr.poll()
     assert tr.direction()["azimuth_deg"] == 0
+
+
+def test_xvf3800_gate_and_hold():
+    """Lot L45: a speech-flag gap shorter than HOLD_S keeps the last voiced angle with a fading confidence; silence
+    longer than HOLD_S gives NO angle; the stream / state handlers poll the source themselves."""
+    from nanterino.sound import xvf3800 as X
+    dev = FakeXvf(doa=40, speech=1)
+    src = X.Xvf3800Source(device_factory=lambda: dev)
+    src._dev = src._factory()
+    r = src.read_once(now=10.0)
+    assert r.azimuth_deg == 40 and r.confidence == 1.0 and src.raw["held"] is False
+    dev.speech, dev.doa = 0, 300                     # flag drops between two words (chip doa drifts meanwhile)
+    r = src.read_once(now=10.1)
+    assert r.azimuth_deg == 40 and src.raw["held"] is True, r          # held angle, not the drifting raw doa
+    assert abs(r.confidence - 0.8) < 1e-6 and r.level_db == X.LEVEL_ENERGY_DB
+    r = src.read_once(now=10.2)
+    assert abs(r.confidence - 0.6) < 1e-6
+    # through the tracker: direction() (conf >= 0.5) during the first half of the hold only
+    clock = Clock(10.2)
+    tr = SoundTracker(src, clock=clock)
+    src.poll = lambda now, r=r: r
+    tr.poll()
+    assert tr.direction() is not None and tr.direction()["azimuth_deg"] == 40
+    late = src.read_once(now=10.4)                    # 0.4 s after the voice: still drawn, too weak for the nodes
+    assert late.azimuth_deg == 40 and 0 < late.confidence < 0.5, late
+    gone = src.read_once(now=10.0 + X.HOLD_S + 0.01)  # silence longer than the hold: no invented angle
+    assert gone.azimuth_deg is None and gone.confidence == 0.0 and src.raw["held"] is False
+    assert src.read_once(now=20.0).azimuth_deg is None
+    dev.speech = 1                                   # voice again: a fresh angle, no stale hold
+    assert src.read_once(now=20.1).azimuth_deg == -60
+    dev.speech, dev.energies = 0, (0.0, 2.5e4, 0.0, 0.0)    # clap: energy only -> auto-select beam, confidence 0.6
+    r = src.read_once(now=20.2)
+    assert r.confidence == 0.6 and src.raw["held"] is False and abs(r.azimuth_deg - 90) < 1e-3
+    # handlers poll: a reading appears in GET state / the stream without any heartbeat poll
+    sim = SimSoundSource()
+    tr2 = SoundTracker(sim, clock=Clock(1.0))
+    sim.set(25.0, -20.0, 1.0, now=1.0)
+    assert tr2.state()["last"] is None
+    assert A.stream_frame(tr2)["last"]["azimuth_deg"] == 25.0
+    polls = tr2.polls
+    assert A.state(tr2)[1]["last"]["azimuth_deg"] == 25.0 and tr2.polls == polls + 1
 
 
 def test_xvf3800_reasons_and_fallback():
@@ -718,7 +760,7 @@ TESTS = [test_wrap_and_sectors, test_in_sector_wrap_around, test_sim_source, tes
          test_trigger_never_from_mono_unlistened_or_deaf, test_trigger_parser_and_visual,
          test_condition_sound_direction_between, test_action_turn_toward_sound, test_api_handlers,
          test_xvf3800_protocol_decode, test_xvf3800_units_and_front_offset, test_xvf3800_reasons_and_fallback,
-         test_xvf3800_thread_and_unplug,
+         test_xvf3800_thread_and_unplug, test_xvf3800_gate_and_hold,
          test_goldens_c2_only_gained_entries, test_shipped_graph_unchanged, test_server_routes_and_dashboard]
 
 

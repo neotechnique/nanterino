@@ -25,7 +25,8 @@ Boundary
     NotConfiguredError with a French reason (create() then falls back to mono); after start(), read errors never
     raise: info()["available"] turns False with a reason and poll() returns an empty Reading.
 Invariants
-    - never a made-up angle: no speech flag and no energy -> azimuth None, confidence 0;
+    - never a made-up angle: no speech flag and no energy -> azimuth None, confidence 0 (after the HOLD_S hold of
+      the last voiced azimuth, lot L45, which bridges the chip's speech-flag gaps inside a sentence);
     - poll() never blocks (the reader thread owns all USB traffic; a lock-free copy of the latest Reading is returned);
     - the status byte is always checked; a retry status is re-asked at most RETRY_MAX times.
 How to test
@@ -52,6 +53,10 @@ PARAMS = {
 }
 UDEV_HINT = "Lancer une fois « sudo bash /opt/robot/scripts/install-respeaker-udev.sh » puis rebrancher le micro."
 LEVEL_SPEECH_DB, LEVEL_ENERGY_DB, LEVEL_NONE_DB = -25.0, -40.0, -90.0
+# Lot L45: the chip drops its speech flag between syllables / words; the last voiced azimuth is held for HOLD_S with a
+# confidence decaying linearly to 0 (direction() needs >= 0.5, so nodes see at most HOLD_S / 2 of hold), level_db
+# LEVEL_ENERGY_DB, raw["held"] True. After HOLD_S of silence: azimuth None again (no angle invented in silence).
+HOLD_S = 0.5
 
 
 class ControlError(RuntimeError):
@@ -139,6 +144,7 @@ class Xvf3800Source(SoundSource):
         self.available, self.reason, self.version = False, "Pas encore démarré.", None
         self.raw = {}
         self._fails = 0
+        self._voiced = None          # (t, azimuth, confidence) of the last voiced reading (HOLD_S hold)
 
     # ------------------------------------------------------------------ lifecycle
     def _open(self):
@@ -196,8 +202,14 @@ class Xvf3800Source(SoundSource):
         beams = read_param(dev, "AEC_AZIMUTH_VALUES")
         energies = read_param(dev, "AEC_SPENERGY_VALUES")
         az, conf, voice, level, emax = interpret(doa, flag, energies, self.sign, beams[3])
+        held = False
+        if az is not None:
+            self._voiced = (now, az, conf)
+        elif self._voiced is not None and 0 <= now - self._voiced[0] < HOLD_S:
+            t_v, az_v, conf_v = self._voiced          # short gap inside speech: keep the angle, fade the confidence
+            az, conf, level, held = az_v, round(conf_v * (1.0 - (now - t_v) / HOLD_S), 3), LEVEL_ENERGY_DB, True
         self.raw = {"doa_deg": doa, "speech": flag, "beams_rad": [round(b, 3) for b in beams],
-                    "energy_max": emax}
+                    "energy_max": emax, "held": held}
         return Reading(t=now, azimuth_deg=az, level_db=level, confidence=conf, voice_prob=voice)
 
     def _run(self):
