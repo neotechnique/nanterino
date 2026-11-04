@@ -3,6 +3,7 @@
 logging: robotlog -> /var/log/robot/nanterino-ui.log (which button was used, never content).
 Why not a real desktop folder: Nautilus 46 cannot launch .desktop files from a folder window.
 """
+import os
 import subprocess
 import sys
 
@@ -18,15 +19,14 @@ PY = "/opt/robot/nanterino/.venv/bin/python"
 ROOT = "/opt/robot/nanterino"
 # flock -n inside restart.sh: a second click while a restart runs only prints "Redémarrage déjà en cours".
 RESTART_SCRIPT = f"{ROOT}/nanterino_ui/restart.sh"
-# open_folder.sh raises an existing file-manager window on the folder instead of opening another.
-OPEN_FOLDER = f"{ROOT}/nanterino_ui/open_folder.sh"
 
 ACTIONS = [
     ("🙂  Visage (F11 = plein écran)", [PY, "-m", "nanterino_ui.app"]),
     ("📊  Tableau technique", [PY, "-m", "nanterino_ui.app", "--dash"]),
     ("🔄  Redémarrer Nanterino", ["gnome-terminal", "--", "bash", RESTART_SCRIPT]),
-    ("📁  Fiches du corpus", ["bash", OPEN_FOLDER, f"{ROOT}/fiches"]),
-    ("📜  Logs (/var/log/robot)", ["bash", OPEN_FOLDER, "/var/log/robot"]),
+    ("📁  Fiches du corpus", [PY, "-m", "nanterino_ui.corpus"]),
+    ("🗂  Explorateur", [PY, "-m", "nanterino_ui.explorer", os.path.expanduser("~")]),
+    ("📜  Logs (/var/log/robot)", [PY, "-m", "nanterino_ui.explorer", "/var/log/robot"]),
 ]
 
 
@@ -50,7 +50,7 @@ def main():
             subprocess.Popen(c, cwd=ROOT, start_new_session=True)
         b.clicked.connect(launch)
         lay.addWidget(b)
-    w.resize(380, 340)
+    w.resize(380, 420)
     si.on_raise = lambda: raise_window(w)
     w.show()
     sys.exit(app.exec())

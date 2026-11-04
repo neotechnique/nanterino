@@ -11,7 +11,7 @@ type log_info >/dev/null 2>&1 || log_info() { :; }
 
 cd /opt/robot/nanterino || exit 2
 rc=0
-for t in test_brain_graph test_graph_visual test_graph_features test_graph_vars test_graph_vars2 test_graph_domains test_graph_repack test_graph_bigworld test_nodes_registry test_vartypes_registry test_properties test_nodes_n1 test_nodes_n2 test_nodes_n3 test_graph_snapshot_jobs test_web_assets test_web_modules test_body test_body_mjcf test_sound test_nodes_motion test_ui_single_instance; do
+for t in test_brain_graph test_graph_visual test_graph_features test_graph_vars test_graph_vars2 test_graph_domains test_graph_repack test_graph_bigworld test_nodes_registry test_vartypes_registry test_properties test_nodes_n1 test_nodes_n2 test_nodes_n3 test_graph_snapshot_jobs test_web_assets test_web_modules test_body test_body_mjcf test_sound test_nodes_motion test_ui_single_instance test_ui_corpus test_ui_explorer; do
   start=$(date +%s)
   # G3: 700 s per suite (was 400): brain_graph runs 85 real-time traces + the no-trap tests (~470 s), graph_visual
   # replays the same 85 traces on the compiled graph
@@ -20,6 +20,6 @@ for t in test_brain_graph test_graph_visual test_graph_features test_graph_vars 
   [ $r -ne 0 ] && rc=1
   log_info "$t exit=$r $(( $(date +%s) - start ))s"
   echo "== $t exit=$r $(( $(date +%s) - start ))s"
-  grep -E "^(FAIL|ran |trace parity|extra tests|compiled-graph parity|parity |graph_visual tests|graph_features tests|graph_vars tests|graph_vars2 tests|graph_domains tests|graph_repack tests|graph_bigworld tests|nodes_registry tests|vartypes_registry tests|properties tests|nodes_n1 tests|nodes_n2 tests|nodes_n3 tests|graph_snapshot_jobs tests|web_assets tests|web_modules tests|body tests|body_mjcf tests|sound tests|nodes_motion tests|ui_single_instance tests|doa accuracy|doa cpu|passed|  variables drawing)" /tmp/graph-tests-$t.log
+  grep -E "^(FAIL|ran |trace parity|extra tests|compiled-graph parity|parity |graph_visual tests|graph_features tests|graph_vars tests|graph_vars2 tests|graph_domains tests|graph_repack tests|graph_bigworld tests|nodes_registry tests|vartypes_registry tests|properties tests|nodes_n1 tests|nodes_n2 tests|nodes_n3 tests|graph_snapshot_jobs tests|web_assets tests|web_modules tests|body tests|body_mjcf tests|sound tests|nodes_motion tests|ui_single_instance tests|ui_corpus tests|ui_explorer tests|doa accuracy|doa cpu|passed|  variables drawing)" /tmp/graph-tests-$t.log
 done
 exit $rc

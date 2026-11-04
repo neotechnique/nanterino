@@ -1,4 +1,4 @@
-"""Single instance per native tool (roles: hub, dash, face), per user, over QLocalServer / QLocalSocket.
+"""Single instance per native tool (roles: hub, dash, face, corpus), per user, over QLocalServer / QLocalSocket.
 
 logging: robotlog -> /var/log/robot/nanterino-ui.log (`single-instance role=.. action=..`, never content).
 
@@ -32,7 +32,8 @@ from PySide6.QtNetwork import QLocalServer, QLocalSocket  # noqa: E402
 
 log = get_logger("nanterino-ui")
 
-ROLE_LABELS = {"dash": "tableau technique", "face": "visage", "hub": "panneau Nanterino"}
+ROLE_LABELS = {"dash": "tableau technique", "face": "visage", "hub": "panneau Nanterino",
+               "corpus": "explorateur des fiches"}
 _CONNECT_MS = 500   # a live owner answers at once; slower means stale or stuck
 _REPLY_MS = 1500
 _VANISH_S = 3.0     # max wait for the previous owner to release the socket
