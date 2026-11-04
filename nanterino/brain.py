@@ -79,6 +79,14 @@ passes the live one (cfg["body_backend"], state/body-calibration.json); any othe
 in-memory simulated body. The heartbeat ticks it AFTER the graph, in its own try block: a body fault never stops the
 graph tick, and the body posts no graph event yet (Mouvement nodes = lot B1), so traces are unchanged.
 
+360-degree sound (lot C2, 2026-11-04): `self.sound` is a nanterino/sound SoundTracker (direction(), level(), history()).
+server.py replaces it with the live one (cfg["sound_backend"], default mono = the single USB mic: level only, never a
+direction; state/sound-calibration.json); any other Brain gets an in-memory tracker on its own mic. `_sound_tick`
+(heartbeat, after the body, own try block) polls it and posts `sound_from_direction` (value = sector) only when a
+transition listens to it, the robot is not deaf and the direction is confident: once per sound onset or sector change,
+at most one per SOUND_EVENT_GAP_S, re-armed after SOUND_REARM_S without a direction (anti-burst). Mono never posts, so
+traces are unchanged.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -106,6 +114,8 @@ from .audio import AudioIn, find_device
 from . import hours as hours_mod
 from . import journal as journal_mod
 from . import body as body_mod
+from . import sound as sound_mod
+from .sound.angles import sector_of
 from .log import log
 
 VEILLE, ACCUEIL, ECOUTE, REPONSE, RELANCE, CLOTURE, ETEINT = (
@@ -137,6 +147,7 @@ JOURNAL_KEEP = 200        # robot journal entries kept for recent_error (wall ti
 JOURNAL_POST_GAP_S = 0.2  # journal_entry from the log tap: at most one per 0.2 s (an error burst is one event)
 NOTIFY_MAX = 20           # pending dashboard notifications kept (oldest dropped)
 LOUD_LEVEL, LOUD_REARM = 0.6, 0.3   # lot N3 loud_noise: mic level (0..1) that fires it / that re-arms it
+SOUND_EVENT_GAP_S, SOUND_REARM_S = 1.0, 0.5   # lot C2 sound_from_direction: min gap between posts / silence re-arm
 
 
 # Single words Whisper typically invents on breath/noise; other single words are real answers
@@ -202,7 +213,7 @@ def build_messages(cfg: dict, sheets: list[dict], history: list[dict], question:
 
 class Brain:
     def __init__(self, cfg, out, stt, llm, tts, corpus, *, clock=None, wall=None, mic=None, graph=None,
-                 threaded=True, start_state=None, var_store=None, body=None):
+                 threaded=True, start_state=None, var_store=None, body=None, sound=None):
         """`clock`/`wall`/`mic`/`graph`/`threaded` exist for the graph simulator (nanterino/sim.py): a manual
         monotonic clock, a simulated wall clock, a fake microphone, an in-memory Graph (no file read) and no
         threads at all (events are processed by `pump()`). The live robot uses none of them.
@@ -293,6 +304,9 @@ class Brain:
         # lot C3: the robot body (live one from server.py; otherwise in-memory simulated, never persisted)
         self.body = body if body is not None else body_mod.create(cfg)
         self._body_err_at = -1e9
+        # lot C2: 360-degree sound (live tracker from server.py; otherwise in memory on this Brain's mic and clock)
+        self.sound = sound if sound is not None else sound_mod.create(cfg, mic=self.mic, clock=self.now, wall=self.wall)
+        self._sound_err_at, self._snd_seen, self._snd_sector, self._snd_posted_at = -1e9, -1e9, None, -1e9
         self.engine = self._build_engine()
         if self._threaded:
             journal_mod.attach(self)  # the live robot's WARNING / ERROR log records feed journal_notes
@@ -1292,6 +1306,35 @@ class Brain:
             if now - self._body_err_at > 5:
                 self._body_err_at = now
                 log.exception("body tick failed")
+        try:
+            self._sound_tick(now)        # lot C2: 360-degree sound, after the body (mono never posts)
+        except Exception:
+            if now - self._sound_err_at > 5:
+                self._sound_err_at = now
+                log.exception("sound tick failed")
+
+    def _sound_tick(self, now: float):
+        """Lot C2 (heartbeat): poll brain.sound; post sound_from_direction (value = sector of angles.SECTORS, plus
+        azimuth / level_db / confidence) on a confident sound onset or sector change, only when listened to and not deaf.
+        Anti-burst: at most one post per SOUND_EVENT_GAP_S; the same sector posts again only after SOUND_REARM_S
+        without any direction. Sensor-like: external depth for the anti-loop."""
+        self.sound.poll(now)
+        sub = self._watch.get("sound_from_direction")
+        if not sub or self.deaf:
+            return
+        d = self.sound.direction()
+        if d is None:
+            if now - self._snd_seen > SOUND_REARM_S:
+                self._snd_sector = None
+            return
+        self._snd_seen = now
+        sector = sector_of(d["azimuth_deg"])
+        if sector == self._snd_sector or now - self._snd_posted_at < SOUND_EVENT_GAP_S:
+            return
+        self._snd_sector, self._snd_posted_at = sector, now
+        if "*" in sub or sector in sub:
+            self._changed("sound_from_direction", external=True, value=sector, azimuth=d["azimuth_deg"],
+                          level_db=d["level_db"], confidence=d["confidence"])
 
     def _release_scheduled(self, now: float):
         with self._sched_lock:

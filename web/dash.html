@@ -2,7 +2,9 @@
 <!-- Nanterino technical dashboard (open from the PC through Tailscale: http://100.83.93.27:8080/dash).
      Offline page: no CDN. Live state via /ws, metrics and engines via /api/status every 2 s.
      Lot C3: « Mécanique » section (web/dash/mechanics.js, /api/body/*) and the always-visible ARRÊT D'URGENCE in the
-     sticky header. -->
+     sticky header.
+     Lot C2: « Son 360° » section (web/dash/sound360.js, /api/sound/*): robot seen from above, front marked, live beam
+     toward the sound, trail, « Définir comme avant », honest message when the mic gives no direction. -->
 <html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Nanterino — tableau technique</title>
 <style>
@@ -50,6 +52,21 @@
   .mech-schema .ray{stroke:var(--bad);stroke-width:2.5;stroke-linecap:round} .mech-schema .wheel{stroke:var(--ok);stroke-width:6;stroke-linecap:round}
   .mech-schema text{fill:var(--mute);font-size:10px}
   #mech-events{max-height:130px}
+  /* lot C2: Son 360° screen */
+  .snd-layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:16px;align-items:start}
+  @media (max-width:900px){.snd-layout{grid-template-columns:1fr}}
+  #snd-svg{width:100%;max-width:330px;height:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;touch-action:none}
+  #snd-svg .ring{fill:none;stroke:var(--line);stroke-width:1} #snd-svg .robot{fill:var(--card);stroke:var(--ink);stroke-width:2}
+  #snd-svg .front{fill:var(--ok)} #snd-svg .frontlbl{fill:var(--ok);font-weight:800;font-size:12px;letter-spacing:.06em}
+  #snd-svg .side{fill:var(--mute);font-size:10px} #snd-svg .arr{fill:none;stroke:var(--mute);stroke-width:1.5}
+  #snd-svg #snd-beam{stroke:#d97706;stroke-width:5;stroke-linecap:round} #snd-svg #snd-src{fill:#d97706}
+  #snd-svg #snd-trail circle{fill:#d97706} #snd-svg #snd-head{stroke:#2563eb;stroke-width:3;stroke-dasharray:5 4;stroke-linecap:round}
+  .snd-nums{display:grid;grid-template-columns:max-content 1fr;gap:4px 14px;font-size:14px;margin:6px 0 10px}
+  .snd-nums b{font-variant-numeric:tabular-nums} .snd-nums span{color:var(--mute)}
+  #snd-msg{background:color-mix(in srgb,var(--bad) 10%,transparent);border:1px solid var(--bad);border-radius:8px;padding:8px 10px;font-size:14px}
+  #snd-sim{border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px}
+  .snd-legend{font-size:12px;color:var(--mute);margin-top:6px}
+  #snd-front:disabled{opacity:.45;cursor:not-allowed}
 </style></head><body>
 <header><h1>Nanterino</h1><span class="pill" id="state">…</span><span id="sub" style="color:var(--mute)"></span>
   <a id="editorlink" class="navlink" href="/editor" title="Ouvrir l'éditeur visuel du graphe"><span class="ico"></span> Éditeur du graphe</a>
@@ -121,6 +138,45 @@
       </div>
     </div>
   </section>
+  <section id="snd" style="grid-column:1/-1"><h2>Son 360° — d'où vient le son</h2>
+    <div class="mech-top"><span class="info" id="snd-backend"></span>
+      <button id="snd-front" type="button" title="Tapez dans les mains juste devant le robot, puis appuyez : cette direction devient l'avant">Définir comme avant</button>
+      <span id="snd-feedback" class="mech-msg"></span></div>
+    <div id="snd-msg" hidden></div>
+    <div class="snd-layout">
+      <svg id="snd-svg" viewBox="0 0 300 300" role="img" aria-label="Robot vu de dessus et direction du son">
+        <circle class="ring" cx="150" cy="150" r="60"/><circle class="ring" cx="150" cy="150" r="100"/><circle class="ring" cx="150" cy="150" r="140"/>
+        <text class="frontlbl" x="150" y="13" text-anchor="middle">AVANT</text>
+        <text class="side" x="6" y="154">GAUCHE</text><text class="side" x="294" y="154" text-anchor="end">DROITE</text>
+        <text class="side" x="150" y="296" text-anchor="middle">ARRIÈRE</text>
+        <g id="snd-trail"></g>
+        <line id="snd-beam" x1="150" y1="150" x2="150" y2="150" visibility="hidden"/>
+        <circle id="snd-src" cx="150" cy="150" r="7" visibility="hidden"/>
+        <circle class="robot" cx="150" cy="150" r="30"/>
+        <polygon id="snd-front-mark" class="front" points="150,98 140,118 160,118"/>
+        <line x1="150" y1="118" x2="150" y2="128" stroke="var(--ok)" stroke-width="4"/>
+        <line id="snd-head" x1="150" y1="150" x2="150" y2="55" visibility="hidden"/>
+        <g id="snd-array" transform="rotate(0 150 150)"><circle class="arr" cx="150" cy="150" r="12"/><line class="arr" x1="150" y1="150" x2="150" y2="136"/></g>
+      </svg>
+      <div>
+        <div class="snd-nums">
+          <span>Direction</span><b id="snd-az">–</b>
+          <span>Niveau</span><b id="snd-level">–</b>
+          <span>Confiance</span><b id="snd-conf">–</b>
+          <span>Son net (direction utilisable)</span><b id="snd-net">–</b>
+          <span>Angle brut du micro</span><b id="snd-raw">–</b>
+          <span>Décalage de l'avant</span><b id="snd-offset">–</b>
+          <span>Tête (pan)</span><b id="snd-headval">–</b>
+        </div>
+        <p class="snd-legend">Vue de dessus, l'avant du robot en haut (flèche verte). Flèche orange : direction du son,
+          longueur = niveau, opacité = confiance ; points : les 8 dernières secondes. Trait bleu pointillé : où regarde la
+          tête. Petit cercle gris : repère du micro (tourne avec « Définir comme avant »).</p>
+        <div id="snd-sim" hidden><b>Simulation</b> : faites glisser la source autour du robot (plus loin = plus fort).
+          <div class="btns"><label>Niveau <input id="snd-sim-level" type="range" min="-60" max="0" step="1" value="-20"></label>
+            <button id="snd-sim-clear" type="button">Silence</button><button id="snd-sim-random" type="button">Démo aléatoire</button></div></div>
+      </div>
+    </div>
+  </section>
 </main>
 <script>
 const $ = id => document.getElementById(id);
@@ -157,4 +213,5 @@ async function pcPoll(){ if(!pc) return; try{ const ids=await (await fetch('/api
 setInterval(pcPoll,300);
 live(); poll(); devices(); setInterval(poll,2000);
 </script>
-<script type="module" src="/web/dash/mechanics.js"></script></body></html>
+<script type="module" src="/web/dash/mechanics.js"></script>
+<script type="module" src="/web/dash/sound360.js"></script></body></html>

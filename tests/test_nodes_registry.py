@@ -245,7 +245,7 @@ def test_discovery_finds_every_action():
     files = sorted(f[:-3] for f in os.listdir(os.path.join(PKG, "nodes", "actions"))
                    if f.endswith(".py") and not f.startswith("_"))
     assert sorted(nodes.ACTIONS) == files, set(files) ^ set(nodes.ACTIONS)
-    assert len(files) == 65, len(files)   # 38 + 12 (lot N1) + 15 (lot N3)
+    assert len(files) == 66, len(files)   # 38 + 12 (lot N1) + 15 (lot N3) + 1 (lot C2)
     assert list(G.ACTION_DOC) == list(nodes.ACTIONS) == list(G.ACTION_SPECS)
     for nid, n in nodes.ACTIONS.items():
         assert n.id == nid and type(n).__module__ == "nanterino.nodes.actions." + nid, (nid, type(n).__module__)
@@ -301,7 +301,7 @@ def test_drop_a_file():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["actions"][-1] == "say_hello" and len(res["actions"]) == 66, res["actions"]   # no `order`: last (50 since lot N1, 65 since N3)
+    assert res["actions"][-1] == "say_hello" and len(res["actions"]) == 67, res["actions"]   # no `order`: last (50 since lot N1, 65 since N3, 66 since C2)
     assert "say_hello" in res["specs"] and res["vocab_actions"][-1] == "say_hello"
     h = res["vocab_hello"]
     assert h["label"] == "Dire bonjour" and h["theme"] == "parole" and h["icon"] == "volume", h
@@ -320,7 +320,7 @@ def test_missing_module_breaks_golden():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert "show_text" not in res["actions"] and len(res["actions"]) == 64   # 65 since lot N3
+    assert "show_text" not in res["actions"] and len(res["actions"]) == 65   # 65 since lot N3, 66 since C2
     assert sorted(res["golden_diff"]) == ["vocab-default-graph.json", "vocab-no-graph.json"], res["golden_diff"]
 
 
@@ -369,9 +369,9 @@ def family_files(fam: str) -> list:
 
 
 def test_discovery_finds_every_condition_and_trigger():
-    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 65, list(nodes.CONDITIONS)   # 18 + 13 (N1) + 19 (N2) + 15 (N3)
-    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 67, list(nodes.TRIGGERS)   # 25 + 13 (N1) + 14 (N2) + 15 (N3)
-    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 197   # 81 + 38 (N1) + 33 (N2) + 45 (N3)
+    assert sorted(nodes.CONDITIONS) == family_files("conditions") and len(nodes.CONDITIONS) == 66, list(nodes.CONDITIONS)   # 18 + 13 (N1) + 19 (N2) + 15 (N3) + 1 (C2)
+    assert sorted(nodes.TRIGGERS) == family_files("triggers") and len(nodes.TRIGGERS) == 68, list(nodes.TRIGGERS)   # 25 + 13 (N1) + 14 (N2) + 15 (N3) + 1 (C2)
+    assert len(nodes.ACTIONS) + len(nodes.CONDITIONS) + len(nodes.TRIGGERS) == 200   # 81 + 38 (N1) + 33 (N2) + 45 (N3) + 3 (C2)
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         for nid, n in reg.items():
             assert n.id == nid and type(n).__module__ == "nanterino.nodes.%s.%s" % (fam, nid), (nid, type(n).__module__)
@@ -387,7 +387,7 @@ def test_discovery_finds_every_condition_and_trigger():
     assert G.INTERNAL_EVENTS == {"utterance", "tick"} and G.EVENTS == frozenset(nodes.TRIGGERS)
     assert G.WATCH_EVENTS == ("var_changed", "timer_reached", "list_changed", "dict_changed", "timer_stopped", "journal_entry",
                              "list_item_added", "list_item_removed", "var_reset", "var_bound_reached", "list_emptied",
-                             "list_filled", "dict_key_set", "dict_key_removed", "dict_emptied"), G.WATCH_EVENTS   # N1, N2, N3
+                             "list_filled", "dict_key_set", "dict_key_removed", "dict_emptied", "sound_from_direction"), G.WATCH_EVENTS   # N1, N2, N3, C2
     for fam, reg in (("conditions", nodes.CONDITIONS), ("triggers", nodes.TRIGGERS)):
         icons = set(G.all_icons())
         for n in reg.values():
@@ -481,8 +481,8 @@ def test_drop_a_condition_and_a_trigger():
     rc, out = run_probe(root)
     assert rc == 0, out[-2000:]
     res = probe_result(out)
-    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 66, res["conditions"]
-    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 68, res["triggers"]
+    assert res["conditions"][-1] == "always_true" and len(res["conditions"]) == 67, res["conditions"]   # 66 since C2
+    assert res["triggers"][-1] == "bouton_test" and len(res["triggers"]) == 69, res["triggers"]   # 69 since C2
     assert "always_true" in res["guards"] and "bouton_test" in res["events"]
     assert res["vocab_guards"][-1] == "always_true" and res["vocab_events"][-1] == "bouton_test"
     a = res["vocab_always"]
@@ -607,7 +607,7 @@ def test_node_parity():
         if e[1] == "reset_turns":
             e[0] = "systeme"
     msg = parity_problem(moved)
-    assert msg and "uneven: conversation, systeme" in msg and "Triggers 65 / Actions 65 / Conditions 65" in msg, msg
+    assert msg and "uneven: conversation, systeme" in msg and "Triggers 66 / Actions 66 / Conditions 66" in msg, msg   # 66 since lot C2 (sound triad)
 
 
 TESTS = [test_golden_vocab, test_discovery_finds_every_action, test_ids_unique_themes_kinds_icons_valid,

@@ -22,6 +22,11 @@ Lot C3 (2026-11-04): the robot body (nanterino/body) is built here with the pers
 nanterino/body/api.py (contract in its header): state, WebSocket stream, command, stop, estop / reset, sweep,
 calibration get / put / set_min|set_max|set_zero / export / import, trace. Limits are enforced by Body.clamp for every
 source. The dashboard's « Mécanique » screen script is served from web/dash/ (whitelist). Additive only.
+Lot C2 (2026-11-04): the 360-degree sound tracker (nanterino/sound, cfg["sound_backend"], default mono = level only) is
+built here on the brain's microphone with state/sound-calibration.json (front offset) and replaces brain.sound.
+/api/sound/* routes are thin wrappers of nanterino/sound/api.py (contract in its header): state, WebSocket stream,
+front offset, history, sim control (backend sim only), runtime backend switch (mono | sim only: they open no device).
+The « Son 360° » screen script is web/dash/sound360.js. Additive only.
 """
 import asyncio
 import atexit
@@ -52,6 +57,8 @@ from .var_store import DEFAULT_PATH as VARS_STATE_PATH, VarStore
 from . import body as body_mod
 from .body import api as body_api
 from .body.calibration import DEFAULT_PATH as BODY_CAL_PATH
+from . import sound as sound_mod
+from .sound import api as sound_api
 from . import web_assets
 from .vision import Vision
 
@@ -74,6 +81,10 @@ brain = Brain(cfg, out, stt, llm, tts, corpus, var_store=var_store, body=body)
 # lot N1: graph actions set_volume / set_mute / set_deaf act like the dashboard (speaker profile, persisted flags)
 brain.volume_hook = lambda v: speakers.update(volume=v)
 brain.flag_hook = lambda key, value: config.save_overrides({key: value})
+# lot C2: the live 360-degree sound tracker on the brain's mic (mono by default: nothing is opened besides that mic)
+sound = sound_mod.create(cfg, mic=brain.mic, calibration_path=sound_mod.DEFAULT_CAL_PATH, start=True)
+brain.sound = sound
+atexit.register(lambda: sound.source.stop())
 
 
 def _llm_warmer():
@@ -482,12 +493,12 @@ def graph_snapshot_png(key: str = ""):
 
 
 # ---- lot C3: robot body (handlers in nanterino/body/api.py; Body.clamp enforces the limits for every source)
-_DASH_ASSETS = {"mechanics.js": "text/javascript"}
+_DASH_ASSETS = {"mechanics.js": "text/javascript", "sound360.js": "text/javascript"}   # sound360: lot C2
 
 
 @app.get("/web/dash/{name}")
 def web_dash(name: str):
-    """Dashboard scripts (whitelist): web/dash/mechanics.js is the « Mécanique » screen."""
+    """Dashboard scripts (whitelist): web/dash/mechanics.js is the « Mécanique » screen, sound360.js « Son 360° »."""
     if name not in _DASH_ASSETS:
         return PlainTextResponse("not found", status_code=404)
     return FileResponse(os.path.join(WEB, "dash", name), media_type=_DASH_ASSETS[name], headers=_NO_CACHE)
@@ -580,6 +591,51 @@ async def body_stream(socket: WebSocket):
     try:
         while True:
             await socket.send_json(body.state())
+            await asyncio.sleep(period)
+    except Exception:
+        pass
+
+
+# ---- lot C2: 360-degree sound (handlers in nanterino/sound/api.py)
+@app.get("/api/sound/state")
+def sound_state():
+    return _body_reply(sound_api.state(sound))
+
+
+@app.post("/api/sound/front")
+async def sound_front(request: Request):
+    payload = await _json_or_none(request)
+    return _body_reply(await run_in_threadpool(sound_api.front, sound, payload))   # file write off the loop
+
+
+@app.get("/api/sound/history")
+def sound_history(seconds: str = "10"):
+    return _body_reply(sound_api.history(sound, seconds))
+
+
+@app.post("/api/sound/sim")
+async def sound_sim(request: Request):
+    return _body_reply(sound_api.sim(sound, await _json_or_none(request)))
+
+
+@app.post("/api/sound/backend")
+async def sound_backend(request: Request):
+    payload = await _json_or_none(request)
+    return _body_reply(sound_api.backend(sound, payload, lambda n: sound_mod.make_source(n, cfg, brain.mic),
+                                         sound_mod.RUNTIME_BACKENDS))
+
+
+@app.websocket("/api/sound/stream")
+async def sound_stream(socket: WebSocket):
+    """sound_api.stream_frame() pushed at ?hz= (1..20, default 15) for the « Son 360° » screen."""
+    if not _allowed(socket.client.host if socket.client else None):
+        await socket.close(code=1008)
+        return
+    await socket.accept()
+    period = 1.0 / sound_api.stream_hz(socket.query_params.get("hz"))
+    try:
+        while True:
+            await socket.send_json(sound_api.stream_frame(sound))
             await asyncio.sleep(period)
     except Exception:
         pass

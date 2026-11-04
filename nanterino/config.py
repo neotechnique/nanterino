@@ -63,6 +63,13 @@ DEFAULTS = {
     # Robot body backend (lot C3): sim (kinematic simulator, default until the hardware is chosen) | mujoco (lot B3)
     # | real (servos, plan B4). An unavailable backend falls back to sim with a dashboard banner (nanterino/body).
     "body_backend": "sim",
+    # 360-degree sound (lot C2, nanterino/sound): mono (default: today's single USB mic, level only, NO direction) | sim
+    # (virtual sources) | array (N-mic array, geometry in sound_array_geometry) | vendor (array that reports its own
+    # direction, sound_vendor_model; not written yet). An unavailable backend falls back to mono (dashboard message).
+    "sound_backend": "mono",
+    "sound_array_geometry": f"{ROOT}/nanterino/sound/array.yaml",
+    "sound_vendor_model": None,
+    "sound_min_level_db": -50,
     # Optional dialogue graph override (YAML, French); invalid -> logged, default graph.yaml used.
     "graph_file": f"{ROOT}/graph.yaml",
     "vad_silence_ms": 800,

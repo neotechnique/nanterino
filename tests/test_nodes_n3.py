@@ -55,14 +55,17 @@ N3 = {
 THEME_MOVES = {("actions", "speak_relance"): ("parole", "conversation"),
                ("actions", "set_relance_text"): ("parole", "conversation"),
                ("actions", "subtitle_listening"): ("micro", "vision")}
-# Palette per theme after N3 (T, A, C): every row equal.
-EXPECTED = {"conversation": 10, "parole": 11, "micro": 6, "vision": 8, "variables": 5, "listes": 9, "temps": 8,
+# Palette per theme after N3 (T, A, C): every row equal. Lot C2 (2026-11-04) adds the sound triad to micro (6 -> 7;
+# tests.test_sound.C2), totals 65 -> 66.
+EXPECTED = {"conversation": 10, "parole": 11, "micro": 7, "vision": 8, "variables": 5, "listes": 9, "temps": 8,
             "systeme": 7, "evenements": 1}
 
 
 def strip_n3(v: dict) -> dict:
-    """The vocabulary without the N3 entries and with the moved nodes back in their pre-N3 theme (order kept)."""
-    v = strip_ids(v, N3)
+    """The vocabulary without the N3 entries and with the moved nodes back in their pre-N3 theme (order kept). The
+    entries of the later lot C2 leave first (tests.test_sound.strip_c2), so every older additive check keeps working."""
+    from tests.test_sound import strip_c2   # lazy: tests.test_sound imports the N1 helpers
+    v = strip_ids(strip_c2(v), N3)
     fam_key = {"actions": "actions", "conditions": "guards", "triggers": "events"}
     for (fam, nid), (old, _new) in THEME_MOVES.items():
         v[fam_key[fam]] = [dict(e, theme=old) if e["id"] == nid else e for e in v[fam_key[fam]]]
@@ -503,7 +506,7 @@ def test_theme_moves_and_per_theme_counts():
     c = counts()
     for theme, n in EXPECTED.items():
         assert [c[f]["themes"].get(theme, 0) for f in ("triggers", "actions", "conditions")] == [n] * 3, (theme, c)
-    assert all(c[f]["total"] == 65 for f in c)
+    assert all(c[f]["total"] == 66 for f in c)   # 65 at N3, 66 since C2
     for fam, ids in N3.items():
         assert all(i in getattr(nodes, fam.upper()) for i in ids), fam
 

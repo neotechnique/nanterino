@@ -867,6 +867,34 @@
    "help": "« Annuler un événement programmé » vient de retirer un événement qui attendait (kw value = l'événement). Anti-boucle comme « Une variable change ».",
    "icon": "clock",
    "theme": "temps"
+  },
+  {
+   "id": "sound_from_direction",
+   "label": "Un son vient d'une direction",
+   "help": "Un son net arrive d'un côté du robot : devant, à gauche, derrière ou à droite (direction facultative ; vide = n'importe où). Une fois par son ou par changement de côté, au plus une fois par seconde ; il faut une barrette de micros (le micro mono actuel ne donne pas de direction). kw azimuth = l'angle (0 devant, + à gauche), level_db, confidence.",
+   "icon": "ear",
+   "theme": "micro",
+   "args": [
+    {
+     "name": "value",
+     "type": "enum",
+     "options": [
+      "avant",
+      "gauche",
+      "arriere",
+      "droite"
+     ],
+     "labels": {
+      "avant": "Devant",
+      "gauche": "À gauche",
+      "arriere": "Derrière",
+      "droite": "À droite"
+     },
+     "optional": true,
+     "label": "Direction (facultative)",
+     "help": "Seulement les sons de ce côté (devant = -45 à 45 degrés) ; vide = de n'importe où."
+    }
+   ]
   }
  ],
  "actions": [
@@ -2418,6 +2446,14 @@
    "help": "Écrit tout de suite les variables et listes « gardées au redémarrage » dans le fichier du robot (state/vars.json), sans attendre l'écriture automatique (2 s au plus).",
    "icon": "lock",
    "theme": "systeme",
+   "args": []
+  },
+  {
+   "id": "turn_toward_sound",
+   "label": "Tourner la tête vers le son",
+   "help": "Tourne la tête (rotation pan) vers la direction du dernier son net, dans les limites de calibration de la tête (au-delà, la tête s'arrête à sa limite) ; les roues ne bougent jamais. Sans direction connue (micro mono, silence), rien ne bouge.",
+   "icon": "scan-eye",
+   "theme": "micro",
    "args": []
   }
  ],
@@ -4225,6 +4261,31 @@
      "type": "number",
      "options": [],
      "label": "Nombre",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "sound_direction_between",
+   "label": "La direction du son est entre deux angles",
+   "help": "Le dernier son net vient d'une direction comprise entre deux angles en degrés, en tournant vers la gauche du premier au second (0 = devant, 90 = à gauche, -90 = à droite, 180 = derrière ; de 135 à -135 = derrière). Faux s'il n'y a pas de son net depuis 1 s ou si le micro ne donne pas de direction (micro mono).",
+   "icon": "ear",
+   "theme": "micro",
+   "args": [
+    {
+     "name": "start",
+     "type": "number",
+     "options": [],
+     "label": "De (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "end",
+     "type": "number",
+     "options": [],
+     "label": "À (degrés)",
      "help": "Un nombre (négatif pour retirer).",
      "props": "number"
     }

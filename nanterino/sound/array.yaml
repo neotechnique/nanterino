@@ -1,0 +1,26 @@
+# Microphone array geometry of the `array` sound backend (lot C2, nanterino/sound/doa.py reads it).
+#
+# PLACEHOLDER until the user's spatial microphone is identified: a generic 4-mic circle of radius 32 mm (the size of
+# common USB 4-mic boards). Replace every value with the real array's numbers (Notes/HOWTO-sound360.md), then set
+# "sound_backend": "array" in config.json and restart nanterino.service.
+#
+# Frame: robot seen from above, x = forward, y = to the robot's LEFT, z = up, origin = centre of the array, mm.
+# Azimuth 0 = straight ahead, + = left (same sign as the head pan). If the board is mounted rotated, keep the board's
+# own coordinates here and use « Définir comme avant » in the dashboard (state/sound-calibration.json).
+name: "Exemple : 4 micros en cercle, rayon 32 mm (à remplacer)"
+device: null          # PortAudio name substring (as cfg mic_device), e.g. "ReSpeaker"; null = default input
+rate: 16000           # 8000 | 16000 | 32000 | 48000
+channels: 4           # channels the device delivers (some boards add a processed channel 0: then channels: 6 ...)
+mics:                 # one entry per raw microphone: device channel index and position (mm)
+  - {channel: 0, x: 32.0, y: 0.0, z: 0.0}
+  - {channel: 1, x: 0.0, y: 32.0, z: 0.0}
+  - {channel: 2, x: -32.0, y: 0.0, z: 0.0}
+  - {channel: 3, x: 0.0, y: -32.0, z: 0.0}
+frame: 1024           # samples per analysis frame (64 ms at 16 kHz); power of two
+hop: 1024             # samples between frames (1024 at 16 kHz = 15.6 directions per second)
+band_hz: [300, 3400]  # voice band used for the direction and the level
+gate: level           # level: any sound above min_level_db (claps work) | voice: webrtcvad must hear speech too
+min_level_db: -50     # dBFS of the voice band below which a frame has no direction
+vad_threshold: 0.5    # share of 30 ms sub-frames that must be speech (gate: voice)
+smoothing: 0.5        # 0..1, 1 = no smoothing (circular exponential smoothing of the azimuth)
+grid_deg: 1           # azimuth grid of the SRP-PHAT search
