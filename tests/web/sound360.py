@@ -6,6 +6,8 @@ Purpose : the screen renders with the robot's FRONT marked (arrow + « AVANT »)
           follows a virtual source at 3 angles (0, 90 = left, -135 = back right) both in numbers and in the drawing, a
           pointer drag on the drawing moves the virtual source, and « Définir comme avant » turns the frame (a source at
           60 becomes the new front: offset +60, beam straight up, array marker rotated); no script error.
+          Lot L45: the sticky section nav (7 links, « Son 360° » scrolls the section below the header and is
+          highlighted), the /dash#snd deep link, and the stream reaching the screen at >= 10 Hz.
 Boundary: drives the live dashboard (http://127.0.0.1:8080/dash) through tests/web/driver.py; never imports
           nanterino.server; never opens or unmutes a microphone. Everything changed is rolled back at the end: the front
           offset is written back (state/sound-calibration.json keeps the original value) and the backend returns to the
@@ -48,6 +50,13 @@ DRAG = ("const svg=document.getElementById('snd-svg'); const r=svg.getBoundingCl
         "   svg.dispatchEvent(new PointerEvent(t,{clientX:x,clientY:y,pointerId:7,bubbles:true}));")
 
 
+# Lot L45: section top sits just below the sticky header (not hidden under it) and inside the viewport.
+IN_VIEW = ("const t=document.getElementById(arguments[0]).getBoundingClientRect().top,"
+           " h=document.querySelector('header').offsetHeight,"
+           " bottom=Math.ceil(scrollY+innerHeight) >= document.documentElement.scrollHeight-2;"
+           " return t >= h - 2 && (t <= h + 40 || bottom) && t < innerHeight")   # last section: page may end first
+
+
 def sc_sound360(wd):
     st0 = _state()
     saved_offset, saved_backend = st0["front_offset_deg"], st0["backend"]
@@ -61,6 +70,24 @@ def sc_sound360(wd):
         check("Son 360° screen loaded and receiving the stream", ready)
         check("Son 360° module without script error", js(wd, "return window.__snd.errors.length === 0"),
               js(wd, "return window.__snd && window.__snd.errors"))
+        # lot L45: sticky section nav; the « Son 360° » link brings the (last) section under the sticky header
+        links = js(wd, "return window.__secnav ? window.__secnav.links() : null")
+        check("section nav lists the 7 sections, Son 360° last (#snd)",
+              links and [l[0] for l in links] == ["Dialogue", "Audio", "Moteurs IA", "Matériel", "Erreurs", "Mécanique",
+                                                  "Son 360°"] and links[-1][1] == "#snd"
+              and all(js(wd, "return !!document.getElementById(arguments[0])", [h[1:]]) for _, h in links), repr(links))
+        js(wd, "window.scrollTo(0,0); [...document.querySelectorAll('#secnav a')].find(a=>a.textContent==='Son 360°').click()")
+        in_view = _wait(lambda: js(wd, IN_VIEW, ["snd"]), 4)
+        check("« Son 360° » nav link scrolls the section into view below the sticky header", in_view,
+              repr(js(wd, "return [document.getElementById('snd').getBoundingClientRect().top,"
+                          " document.querySelector('header').offsetHeight, innerHeight]")))
+        check("nav highlights « Son 360° » once there",
+              _wait(lambda: js(wd, "return window.__secnav.current()") == "Son 360°", 4),
+              repr(js(wd, "return window.__secnav.current()")))
+        js(wd, "window.scrollTo(0,0)")
+        check("nav highlights « Dialogue » back at the top (first of the grid row)",
+              _wait(lambda: js(wd, "return window.__secnav.current()") == "Dialogue", 4),
+              repr(js(wd, "return window.__secnav.current()")))
         front = js(wd, "const t=[...document.querySelectorAll('#snd-svg text')].find(e=>e.textContent==='AVANT');"
                        " const m=document.getElementById('snd-front-mark').getBBox();"
                        " return [!!t, m.y < 150, m.height > 5]")
@@ -79,6 +106,10 @@ def sc_sound360(wd):
         check("backend switched to sim at run time", st == 200 and rep.get("backend") == "sim", repr((st, rep)))
         check("sim controls shown, message hidden", _wait(lambda: js(
             wd, "return !document.getElementById('snd-sim').hidden && document.getElementById('snd-msg').hidden"), 6))
+        f0 = js(wd, "return window.__snd.frames")
+        time.sleep(2.0)
+        rate = (js(wd, "return window.__snd.frames") - f0) / 2.0
+        check("stream frames reach the screen at >= 10 Hz (%.1f Hz, lot L45)" % rate, rate >= 10)
         for az in (0, 90, -135):
             _api("POST", "/api/sound/sim", {"azimuth": az, "level": -15})
             ok = _wait(lambda: _adiff(js(wd, "return window.__snd.screenAngle()"), az) < 1.5, 6)
@@ -118,6 +149,12 @@ def sc_sound360(wd):
         time.sleep(0.4)
         wd.shot("dash-sound360.png")
         check("no script error after the scenario", js(wd, "return window.__snd.errors.length") == 0)
+        # lot L45: a deep link /dash#snd lands on the section even though the sections above fill in afterwards
+        wd.go("about:blank")
+        wd.go(BASE + "/dash#snd")
+        time.sleep(2.5)                                   # load + the one re-scroll after the async renders
+        check("deep link /dash#snd shows the Son 360° section after the page filled in", js(wd, IN_VIEW, ["snd"]),
+              repr(js(wd, "return [document.getElementById('snd').getBoundingClientRect().top, scrollY]")))
     finally:
         _api("POST", "/api/sound/sim", {"clear": True})
         _api("POST", "/api/sound/front", {"offset_deg": saved_offset})

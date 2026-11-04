@@ -67,14 +67,20 @@
   #snd-sim{border:1px dashed var(--line);border-radius:8px;padding:8px 10px;margin-top:10px;font-size:13px}
   .snd-legend{font-size:12px;color:var(--mute);margin-top:6px}
   #snd-front:disabled{opacity:.45;cursor:not-allowed}
+  /* lot L45: compact section nav in the sticky header (the page is long: Son 360° is last) */
+  #secnav{flex-basis:100%;display:flex;gap:4px;flex-wrap:wrap;margin:-6px 0 -4px;font-size:13px}
+  #secnav a{padding:3px 10px;border-radius:99px;color:var(--mute);text-decoration:none;border:1px solid transparent}
+  #secnav a:hover{border-color:var(--line);color:var(--ink)} #secnav a.on{background:var(--line);color:var(--ink);font-weight:600}
+  main>section{scroll-margin-top:calc(var(--hdr,130px) + 8px)}
 </style></head><body>
 <header><h1>Nanterino</h1><span class="pill" id="state">…</span><span id="sub" style="color:var(--mute)"></span>
   <a id="editorlink" class="navlink" href="/editor" title="Ouvrir l'éditeur visuel du graphe"><span class="ico"></span> Éditeur du graphe</a>
   <span id="estop-state" aria-live="assertive"></span>
   <button id="estop-reset" type="button" hidden title="Réarmer les moteurs après un arrêt d'urgence">Réarmer</button>
-  <button id="estop" class="estop" type="button" title="Arrête immédiatement tous les moteurs (verrouillé jusqu'au réarmement)">⏹ ARRÊT D'URGENCE</button></header>
+  <button id="estop" class="estop" type="button" title="Arrête immédiatement tous les moteurs (verrouillé jusqu'au réarmement)">⏹ ARRÊT D'URGENCE</button>
+  <nav id="secnav" aria-label="Sections du tableau"><a href="#sec-dialogue">Dialogue</a><a href="#sec-audio">Audio</a><a href="#sec-engines">Moteurs IA</a><a href="#sec-hw">Matériel</a><a href="#sec-err">Erreurs</a><a href="#mech">Mécanique</a><a href="#snd">Son 360°</a></nav></header>
 <main>
-  <section><h2>Dialogue</h2>
+  <section id="sec-dialogue"><h2>Dialogue</h2>
     <div class="btns"><button class="primary" onclick="ctl('start')">Démarrer</button>
       <button class="stop" onclick="ctl('stop')">Stop</button>
       <button onclick="ctl('hush')">🤫 Tais-toi</button>
@@ -86,7 +92,7 @@
     <p style="margin:12px 0 4px">Faire parler le robot</p>
     <input id="say" placeholder="Bonjour !" onkeydown="if(event.key==='Enter'){ctl('say',{text:this.value});this.value=''}">
   </section>
-  <section><h2>Audio</h2>
+  <section id="sec-audio"><h2>Audio</h2>
     <div class="btns" style="margin:0 0 10px"><button id="pcbtn" onclick="togglePc()">🔈 Écouter sur ce PC : non</button></div>
     <div class="row"><span>Micro</span><span id="mic">–</span></div><div class="bar"><i id="micbar" style="width:0"></i></div>
     <div class="row" style="margin-top:6px"><span>Sortie</span><span id="spk">–</span></div><div class="bar"><i id="outbar" style="width:0"></i></div>
@@ -97,12 +103,12 @@
     <p style="margin:12px 0 4px">Micro (redémarrage requis)</p><select id="micdev" onchange="ctl('mic_device',{value:this.value})"></select>
     <p style="margin:8px 0 4px">Sortie (redémarrage requis)</p><select id="outdev" onchange="ctl('out_device',{value:this.value})"></select>
   </section>
-  <section><h2>Moteurs IA</h2><div id="engines"></div>
+  <section id="sec-engines"><h2>Moteurs IA</h2><div id="engines"></div>
     <div class="row"><span>Fiches du corpus</span><span id="sheets"></span></div>
     <div class="btns"><button onclick="ctl('reload_corpus')">Recharger le corpus</button></div>
     <h2 style="margin-top:14px">Latence fin de phrase → voix (objectif &lt; 5 s)</h2><div id="lat">–</div></section>
-  <section><h2>Matériel (tegrastats)</h2><div id="hw"></div></section>
-  <section style="grid-column:1/-1"><h2>Erreurs et avertissements récents (/var/log/robot/errors.log)</h2><pre id="err"></pre></section>
+  <section id="sec-hw"><h2>Matériel (tegrastats)</h2><div id="hw"></div></section>
+  <section id="sec-err" style="grid-column:1/-1"><h2>Erreurs et avertissements récents (/var/log/robot/errors.log)</h2><pre id="err"></pre></section>
   <section id="mech" style="grid-column:1/-1"><h2>Mécanique — moteurs et calibration</h2>
     <div class="mech-top">
       <button id="mech-stop" type="button" title="Arrête les mouvements en cours (sans verrouillage)">Arrêter les mouvements</button>
@@ -212,6 +218,28 @@ async function pcPoll(){ if(!pc) return; try{ const ids=await (await fetch('/api
     playing=playing.then(()=>new Promise(res=>{ const a=new Audio('/api/monitor/'+id+'.wav'); a.onended=res; a.onerror=res; a.play().catch(res); })); } }catch(e){} }
 setInterval(pcPoll,300);
 live(); poll(); devices(); setInterval(poll,2000);
+// Lot L45: section nav. --hdr = sticky header height (sections scroll below it); the link of the section in view is
+// highlighted (rAF-throttled passive scroll listener); a deep link (#snd) is scrolled again once after the async
+// sections rendered (their content shifts the target), unless the user scrolled meanwhile.
+(function secnav(){
+  const hdr=document.querySelector('header'), links=[...document.querySelectorAll('#secnav a')];
+  const setH=()=>document.documentElement.style.setProperty('--hdr',hdr.offsetHeight+'px'); setH(); addEventListener('resize',setH);
+  const mark=id=>links.forEach(a=>a.classList.toggle('on',a.getAttribute('href')==='#'+id));
+  // current = the last section whose top passed under the header; at the page bottom, the last one (Son 360° is
+  // short and can never reach the header). One passive scroll listener, at most one computation per frame.
+  const secs=links.map(a=>document.getElementById(a.getAttribute('href').slice(1)));
+  let queued=false;
+  const pick=()=>{ queued=false; const h=hdr.offsetHeight+40, el=document.documentElement;
+    let cur=secs[0], best=-Infinity;   // grid rows: sections side by side share a top, the first of the row wins
+    for(const s of secs){ if(!s) continue; const t=s.getBoundingClientRect().top; if(t<=h && t>best+1){ best=t; cur=s; } }
+    if(Math.ceil(scrollY+innerHeight)>=el.scrollHeight-2) cur=secs[secs.length-1]; if(cur) mark(cur.id); };
+  addEventListener('scroll',()=>{ if(!queued){ queued=true; requestAnimationFrame(pick); } },{passive:true}); pick();
+  let userMoved=false; for(const ev of ['wheel','touchstart','keydown','mousedown']) addEventListener(ev,()=>{userMoved=true},{once:true,passive:true});
+  const rescroll=()=>{ const el=location.hash&&document.getElementById(location.hash.slice(1)); if(el&&!userMoved){ setH(); el.scrollIntoView({block:'start'}); mark(el.id); } };
+  links.forEach(a=>a.addEventListener('click',()=>{ userMoved=true; mark(a.getAttribute('href').slice(1)); }));
+  if(location.hash){ const once=()=>{ rescroll(); setTimeout(rescroll,700); }; if(document.readyState==='complete') setTimeout(once,300); else addEventListener('load',()=>setTimeout(once,300)); }
+  window.__secnav={links:()=>links.map(a=>[a.textContent,a.getAttribute('href')]),current:()=>(links.find(a=>a.classList.contains('on'))||{}).textContent||null};
+})();
 </script>
 <script type="module" src="/web/dash/mechanics.js"></script>
 <script type="module" src="/web/dash/sound360.js"></script></body></html>
