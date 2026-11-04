@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QFormLayout, QGridLayout
                                QProgressBar, QPushButton, QSlider, QStackedWidget, QVBoxLayout, QWidget)
 
 from nanterino_ui.face import FaceWidget  # noqa: E402
+from nanterino_ui.single_instance import SingleInstance, raise_window  # noqa: E402
 
 log = get_logger("nanterino-ui")
 API = "http://127.0.0.1:8080/api"
@@ -261,7 +262,18 @@ def main():
         # Qt's own Wayland decorations were hard to use (user, 2026-10-15). Kiosk keeps Wayland.
         os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     app = QApplication(sys.argv)
-    win = Main(start_dash="--dash" in sys.argv)
+    # One window per tool: the kiosk counts as the face; a second launch raises the first (or offers a takeover).
+    dash = "--dash" in sys.argv
+    si = SingleInstance("dash" if dash else "face")
+    if not si.acquire():
+        sys.exit(0)
+    win = Main(start_dash=dash)
+
+    def _raise():
+        if dash:
+            win.stack.setCurrentWidget(win.dash)
+        raise_window(win)
+    si.on_raise = _raise
     win.setMinimumSize(480, 320)
     if kiosk:
         win.showFullScreen()  # robot screen: full screen face (F11 / Échap still work)
