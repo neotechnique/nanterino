@@ -5,6 +5,10 @@ Privacy (cahier §7): frames live in RAM only and are dropped immediately. No im
 embedding, no identity is ever stored or logged. "Tracking" = keeping the same anonymous box
 from one frame to the next (IoU), never recognising who it is.
 
+Camera absent (lot L45): the retry loop probes query_devices() first and only calls pipeline.start() when a device
+is on the bus, because start() with no device holds the GIL ~15 s and froze the whole server. Test:
+.venv/bin/python -m tests.test_vision
+
 Published state (`Vision.state`), read by the UI 10x/s:
   present: bool, x/y: face centre in [-1, 1] (image coordinates, x right, y down),
   dist_m: median depth inside the face box, track_id: stable while it is the same box, fps.
@@ -44,14 +48,37 @@ class Vision:
         self._lost_fired = False
         threading.Thread(target=self._run, daemon=True, name="vision").start()
 
+    @staticmethod
+    def _device_count() -> int:
+        """Number of RealSense devices on the bus (~20 ms, GIL released between calls).
+
+        Lot L45 seam: probed BEFORE pipe.start(). With no camera plugged, pyrealsense2's pipeline.start() spends
+        ~15 s searching for a device WITHOUT releasing the GIL, which froze every Python thread of the server
+        (brain loop -> watchdog trip every 20 s, audio underflows, multi-second HTTP answers)."""
+        import pyrealsense2 as rs
+        return len(rs.context().query_devices())
+
+    def _mark_no_camera(self):
+        self.state = {**self.state, "present": False, "camera": False, "faces": 0}
+        if self.on_faces:
+            self.on_faces(0)
+
     def _run(self):
+        missing_logged = False   # "no camera" is logged once per absence, not every 5 s
         while True:  # survives camera unplug/replug: retry every 5 s
             try:
+                # Invariant (L45): never call pipe.start() without a device seen by query_devices(); see _device_count.
+                if self._device_count() == 0:
+                    self._mark_no_camera()
+                    if not missing_logged:
+                        missing_logged = True
+                        log.warning("vision: no RealSense camera connected (polling every 5 s)")
+                    time.sleep(5)
+                    continue
+                missing_logged = False
                 self._loop()
             except Exception as e:
-                self.state = {**self.state, "present": False, "camera": False, "faces": 0}
-                if self.on_faces:
-                    self.on_faces(0)
+                self._mark_no_camera()
                 log.warning("vision stopped: %s (retry in 5 s)", e)
                 time.sleep(5)
 
