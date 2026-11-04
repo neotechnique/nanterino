@@ -8,6 +8,7 @@
  *            diagnostics/check.js, menu/node-menu.js
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
+import { forgetNode } from './geometry.js';
 import { esc, icoHtml } from '../core/util.js';
 import {
   S, CATS, KINDS, KIND_TIP, PORT_TIP, byId, evs, iconOf, nidToDf, stateColor, stateIcon, stateLabel
@@ -135,6 +136,7 @@ export function refreshNode(dfid) {
   if (!el || !m) return;
   const c = el.querySelector('.drawflow_content_node');
   if (c) c.innerHTML = nodeHtml(m);
+  forgetNode(dfid);          // S2: its size may change (the ResizeObserver would also catch it, one frame later)
   markNode(dfid);
 }
 

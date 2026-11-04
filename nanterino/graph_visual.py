@@ -76,6 +76,12 @@ Lot S1 (2026-11-03, "domaines"): the variables drawing gets a level above the co
     validated by from_visual and stored in graph.layout.json only (domain_doc / clean_domains / clean_columns): the
     compiled YAML is unchanged, a layout without them loads with the defaults.
 
+Lot S2 (2026-11-04, "espace sans limite" A2 + A3): a SAVED layout whose drawn regions overlap (written before S1 / S2,
+    or a column mapped to another domain by hand without moving its frame) is repaired by to_visual: the regions are
+    repacked on their grid with their whole content (graph_layout.repack_regions, deterministic, mirror of the editor's
+    fold repack); a layout without overlap is never touched. A region also holds its explanatory post-it when the
+    domain has columns (the editor puts it right of them). Layout only: the compiled YAML is unchanged.
+
 Invariants
     - Round trip: `from_visual(to_visual(raw))` gives a graph whose `Graph.to_dict()` equals the one of
       `raw` (same transitions in the same order, same actions, guards, on_enter, intents, descriptions).
@@ -537,11 +543,15 @@ def to_visual(graph_dict: dict, layout: dict | None = None, start_state: str = "
     doc["frames"], doc["notes"] = clean_parents(doc["frames"], doc["notes"])
     if vform:   # lot S1: domains above the columns (organisation only, layout file); see domain_doc
         groups = list(states_raw) + ["global"]
-        doc["columns"], doc["domains"] = domain_doc(groups, layout, doc["frames"], regions if not usable else [])
+        doc["columns"], doc["domains"] = domain_doc(groups, layout, doc["frames"], regions if not usable else [], doc["notes"])
         if seed_frames and not usable:
             doc["notes"] = (domain_notes(doc["domains"], doc["notes"]) + doc["notes"])[:MAX_NOTES]
         for d in doc["domains"]:
             d.pop("_empty", None)
+        # lot S2: a saved layout whose regions overlap (written before S1 / S2, or a column mapped to another domain by
+        # hand) is repaired here, deterministically: regions repacked on their grid with their content (see
+        # graph_layout.repack_regions); a layout without overlap is never touched
+        GL.repack_regions(doc)
     return doc
 
 
@@ -746,7 +756,7 @@ def _layout_columns(layout) -> dict:
     return out
 
 
-def domain_doc(groups, layout, frames, regions) -> tuple:
+def domain_doc(groups, layout, frames, regions, notes=()) -> tuple:
     """(columns, domains) of a variables document. Every column of `groups` gets a domain (its saved one, else
     graph_layout.default_domain); a domain region is region_rect of its column frames (`auto-<group>`, the editor
     computes the same), else the rectangle the server just drew (`regions`, empty domains), else its saved rectangle,
@@ -765,6 +775,9 @@ def domain_doc(groups, layout, frames, regions) -> tuple:
     for d in table:
         boxes = [(f["x"], f["y"], f["x"] + f["w"], f["y"] + f["h"]) for f in col_frames
                  if (cols.get(f["id"][5:]) or {"domain": GL.default_domain(f["id"][5:])})["domain"] == d["id"]]
+        if boxes:   # lot S2: the explanatory post-it of a domain that has columns sits beside them, inside the region
+            boxes += [(n["x"], n["y"], n["x"] + n["w"], n["y"] + n.get("h", 0)) for n in notes or ()
+                      if isinstance(n, dict) and n.get("auto") == "domain:" + d["id"] and not n.get("parent")]
         r = GL.region_rect(boxes) or reg.get(d["id"]) or (d if _rect_ok(d) else None)
         e = {k: v for k, v in d.items() if k not in ("x", "y", "w", "h")}
         if r:

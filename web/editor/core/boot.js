@@ -43,6 +43,7 @@ import { installTriggerDropGuard } from '../canvas/trigger-guard.js';
 import { toggleExport } from '../export/export.js';
 import { runDebug } from './debug.js';
 import { startTask, track } from './progress.js';
+import { bumpGeo, setGeoListener } from '../canvas/geometry.js';
 
 // ---------- boot ----------
 export async function boot() {
@@ -60,7 +61,8 @@ async function bootSteps(task) {
   if (hold) document.body.append(h('img', { src: 'http://127.0.0.1:' + hold + '/hold.gif', width: 1, height: 1 }));
   S.editor = new Drawflow($('#drawflow'));
   S.editor.reroute = false;
-  S.editor.zoom_min = 0.03; S.editor.zoom_max = 1.6;
+  // S2: zoom_min is derived from the world (frames/nesting.js updateZoomMin, after every frame redraw); 0.01 until then
+  S.editor.zoom_min = 0.01; S.editor.zoom_max = 1.6;
   S.editor.start();
   S.editor.on('nodeSelected', (id) => {
     clearChainSel();
@@ -76,7 +78,7 @@ async function bootSteps(task) {
     renderInspector(); if (innerWidth <= 900) document.body.classList.remove('hide-right');
   });
   S.editor.on('connectionUnselected', () => { S.selConn = null; renderInspector(); });
-  S.editor.on('nodeMoved', commitSoon);
+  S.editor.on('nodeMoved', () => { bumpGeo(); commitSoon(); });   // S2: node boxes moved: cached world stale
   S.editor.on('nodeRemoved', (id) => { if (S.loading) return; for (const [k, v] of nidToDf) if (String(v) === String(id)) nidToDf.delete(k); S.selDf = null; renderInspector(); commitSoon(); });
   S.editor.on('connectionCreated', (c) => {
     if (S.loading) return;
@@ -116,6 +118,7 @@ async function bootSteps(task) {
   window.addEventListener('touchend', finishOutside);
   installRetHover();
   S.editor.on('zoom', zoomVars); S.editor.on('translate', scheduleMinimap);
+  setGeoListener(scheduleMinimap);    // S2: a node size change seen by the geometry observer redraws the minimap
   setRetVisible(retVisible());
   // Vars L2: no returning wires any more (no hubs); the toggle stays wired only if a page still has the button
   if ($('#btnRet')) $('#btnRet').onclick = () => setRetVisible(!document.body.classList.contains('ret-visible'));

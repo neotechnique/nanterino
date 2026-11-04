@@ -12,7 +12,8 @@
 import { $, h, ico, icoUrl } from '../core/util.js';
 import { S } from '../core/state.js';
 import { zoomVars } from '../minimap/overview.js';
-import { canvasPoint, fit } from '../frames/nesting.js';
+import { fit } from '../frames/nesting.js';
+import { fastCanvasPoint, viewOrigin } from './geometry.js';
 import { selectNote } from '../frames/notes.js';
 import { closeCtx } from '../menu/context-menu.js';
 import { openContextFor } from '../clipboard/clipboard.js';
@@ -76,11 +77,12 @@ function panBy(dx, dy) { setRawView(S.editor.zoom, S.editor.canvas_x + dx, S.edi
 function zoomAt(clientX, clientY, factor) {
   const z = S.editor.zoom, z2 = Math.min(S.editor.zoom_max, Math.max(S.editor.zoom_min, z * factor));
   if (Math.abs(z2 - z) < 1e-6) return;
-  const r = S.editor.precanvas.getBoundingClientRect(), p = canvasPoint(clientX, clientY);
-  const ox = S.editor.precanvas.clientWidth / 2, oy = S.editor.precanvas.clientHeight / 2;
-  setRawView(z2, S.editor.canvas_x + clientX - p.x * z2 - r.x + ox * (z2 - z), S.editor.canvas_y + clientY - p.y * z2 - r.y + oy * (z2 - z));
+  // S2: arithmetic (canvas/geometry.js), no rect read per wheel tick: precanvas left = origin left + cx + ox(1 - z)
+  const o = viewOrigin(), p = fastCanvasPoint(clientX, clientY), ox = o.ox, oy = o.oy;
+  const rx = o.left + S.editor.canvas_x + ox * (1 - z), ry = o.top + S.editor.canvas_y + oy * (1 - z);
+  setRawView(z2, S.editor.canvas_x + clientX - p.x * z2 - rx + ox * (z2 - z), S.editor.canvas_y + clientY - p.y * z2 - ry + oy * (z2 - z));
 }
-export function zoomCentre(factor) { const r = $('#drawflow').getBoundingClientRect(); zoomAt(r.x + r.width / 2, r.y + r.height / 2, factor); }
+export function zoomCentre(factor) { const o = viewOrigin(); zoomAt(o.cl + o.w / 2, o.ct + o.h / 2, factor); }
 function onNavWheel(e) {
   if (!inCanvasEv(e) || e.target.closest(NAV_SKIP)) return;
   const zoom = e.ctrlKey || e.metaKey;                       // trackpad pinch arrives as ctrlKey wheel

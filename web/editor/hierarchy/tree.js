@@ -97,7 +97,13 @@ export function treeChains() {
   Object.keys(data).forEach((df) => { const id = data[df].data.model.id; if (!reached.has(id)) out.push({ df, nid: id, ids: [id], orphan: true }); });
   return out;
 }
-function chainHost(df) { const b = nodeBox(df); return dropTargetAt({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }); }
+// S2: a chain hidden by a fold stays under its own column (its sub-groups), whatever slid over its position.
+function chainHost(df) {
+  const b = nodeBox(df), pt = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }, el = nodeEl(df), m = model(df);
+  const col = m && m.group && el && el.parentElement && el.parentElement.classList.contains('fold-hide') ? frameById('auto-' + m.group) : null;
+  if (col) return dropTargetAt(pt, null, new Set([col.id].concat(descendantFrames(col).map((g) => g.id)))) || col;
+  return dropTargetAt(pt);
+}
 // Reference of the chain a node belongs to (first chain reaching it, else the node alone), for moveInto / fileMenu.
 export function chainRef(nid) {
   const all = treeChains(), c = all.find((x) => !x.orphan && x.ids.includes(nid)) || all.find((x) => x.ids.includes(nid));

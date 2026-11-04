@@ -110,7 +110,13 @@ def test_roundtrip_and_fold():
     check("reload: column domain + fold kept", doc2["columns"]["relance"] == {"domain": "comportement", "folded": True}, doc2["columns"])
     check("reload: domain fold + label kept", next(d for d in doc2["domains"] if d["id"] == "mouvement").get("folded") is True
           and next(d for d in doc2["domains"] if d["id"] == "systeme")["label"] == "Global")
-    check("reload: node positions kept", {n["id"]: (n["x"], n["y"]) for n in doc2["nodes"]} == {n["id"]: (n["x"], n["y"]) for n in doc["nodes"]})
+    # CHANGED (lot S2): the hand mapping of relance (its frame did not move) makes the Comportement region overlap
+    # Dialogue; the server now repairs that on load (graph_layout.repack_regions moves regions with their content), so
+    # absolute positions may change: every node keeps its offset to its column frame, and no region overlaps any more
+    fr = lambda d: {f["id"][5:]: (f["x"], f["y"]) for f in d["frames"] if f.get("auto")}
+    rel = lambda d: {n["id"]: (n["x"] - fr(d)[n["group"]][0], n["y"] - fr(d)[n["group"]][1]) for n in d["nodes"] if n.get("group") in fr(d)}
+    check("reload: node positions kept relative to their column (S2 repack of overlapping regions)", rel(doc2) == rel(doc))
+    check("reload: regions repaired, none overlaps (S2)", GL.overlapping_regions(GL.region_boxes(doc2)) == [], GL.region_boxes(doc2))
     _r3, lay3, e3 = V.from_visual(doc2, CFG)
     # region rectangles are derived from the column frames (the mapping alone moved relance: its frame did not move,
     # so the comportement region now wraps it); everything else of the table is kept as is

@@ -1,7 +1,10 @@
 /**
  * Minimap navigation (lot L8).
  *
- * Purpose :  press-and-drag on the minimap (pointer capture, one rAF per frame, wheel = zoom).
+ * Purpose :  press-and-drag on the minimap (pointer capture, one rAF per frame), S2: the resize grip (top-left corner:
+ *            the minimap is anchored bottom-right; size persisted per browser on release), the chain focus
+ *            (fit-to-target between READABLE and 1, was a fixed 0.3-0.75 range). The wheel zooms the minimap view
+ *            (minimap/overview.js miniZoomAt), never the main canvas.
  * Boundary:  DOM of the editor page and the shared state S only, no network call. Moved unchanged out of the former
  *            single-file editor.js (lot M6).
  * Depends :  core/util.js, tooltips/tooltips.js, core/state.js, core/api.js, core/chains.js, canvas/view.js,
@@ -14,7 +17,7 @@ import { S, nidToDf } from '../core/state.js';
 import { dfData, model } from '../core/api.js';
 import { panTo } from '../core/chains.js';
 import { nodeBox } from '../canvas/view.js';
-import { drawMinimap, miniGeo, scheduleMinimap } from './overview.js';
+import { READABLE, drawMinimap, miniGeo, scheduleMinimap, setMiniSize } from './overview.js';
 import { setView } from '../frames/nesting.js';
 import { setRawView } from '../canvas/navigation.js';
 import { closeCtx } from '../menu/context-menu.js';
@@ -100,12 +103,32 @@ export function frameCard(f) {
   }
   return h('div', { class: 'fcard' }, h('div', { class: 'fcname' }, f.title || g), h('div', { class: 'fcstat' }, chains + ' chaîne' + (chains > 1 ? 's' : '') + ' · ↘ ' + inn + ' entrant' + (inn > 1 ? 's' : '') + ' · ↗ ' + out + ' sortant' + (out > 1 ? 's' : '')));
 }
-// Pan / zoom to a chain: its non-hub nodes at ~0.75, or the whole chain when larger (zoom >= 0.3).
+// Pan / zoom to a chain: its non-hub nodes, fit-to-target (S2).
 export function focusChainIds(ids) {
   let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
   (ids || []).forEach((nid) => { const d = nidToDf.get(nid); const m = d == null ? null : model(d); if (!m || m.kind === 'state') return; const b = nodeBox(d); x0 = Math.min(x0, b.x0); y0 = Math.min(y0, b.y0); x1 = Math.max(x1, b.x1 + 120); y1 = Math.max(y1, b.y1); });
   if (x0 > x1) { const first = (ids || [])[0]; if (first) panTo(first, 0.75); return; }
   const c = $('#drawflow'), w = x1 - x0, hh = y1 - y0;
-  const z = Math.max(0.3, Math.min(0.75, c.clientWidth / (w * 1.15), (c.clientHeight - 50) / (hh * 1.15)));
+  const fit = Math.min(c.clientWidth / (w * 1.15), (c.clientHeight - 50) / (hh * 1.15));
+  // S2: the whole chain when it fits at a readable zoom (<= 1), else its start at READABLE
+  const z = fit >= READABLE ? Math.min(1, fit) : READABLE;
+  if (fit < READABLE) { setView(z, 20 - x0 * z, 60 - y0 * z); return; }
   setView(z, c.clientWidth / 2 - ((x0 + x1) / 2) * z, 25 + c.clientHeight / 2 - ((y0 + y1) / 2) * z);
+}
+// S2: resize grip of the minimap (top-left corner). Pointer capture on the grip; the size follows live and is persisted
+// on release (localStorage, per browser); the press never reaches the canvas (stopPress on the minimap).
+export function miniResizeDown(e) {
+  if (e.button || !S.miniSize) return;
+  e.preventDefault(); e.stopPropagation();
+  const grip = e.currentTarget, x0 = e.clientX, y0 = e.clientY, w0 = S.miniSize.w, h0 = S.miniSize.h;
+  try { grip.setPointerCapture(e.pointerId); } catch (err) { /* synthetic event without a live pointer */ }
+  document.body.classList.add('mini-drag');
+  const move = (ev) => { if (ev.pointerId !== e.pointerId) return; setMiniSize({ w: w0 + (x0 - ev.clientX), h: h0 + (y0 - ev.clientY) }, false); };
+  const up = (ev) => {
+    if (ev.pointerId !== e.pointerId) return;
+    grip.removeEventListener('pointermove', move); grip.removeEventListener('pointerup', up); grip.removeEventListener('pointercancel', up);
+    document.body.classList.remove('mini-drag');
+    setMiniSize(S.miniSize, true);
+  };
+  grip.addEventListener('pointermove', move); grip.addEventListener('pointerup', up); grip.addEventListener('pointercancel', up);
 }

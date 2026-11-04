@@ -155,6 +155,9 @@ def sc_domains(wd):
         check("domains: undo unfolds the domain", not _meta(wd)["domains"][3].get("folded") and _hidden_nodes(wd) == 0)
         js(wd, "window.__editor.redo()")
         time.sleep(0.4)
+        # CHANGED (lot S2): a fold repacks the regions, so the folded card may now sit elsewhere: frame it before the click
+        js(wd, "window.__editor.focusDomain('systeme')")
+        time.sleep(0.5)
         check("domains: Déplier button of the card unfolds", _click(wd, '.dregion[data-dom="systeme"] .funfold') and not _meta(wd)["domains"][3].get("folded") and _hidden_nodes(wd) == 0)
         for _ in range(3):                    # Déplier -> fold -> patch -> back to: relance moved, nothing patched
             js(wd, "window.__editor.undo()")

@@ -21,7 +21,8 @@ import { commit, commitSoon } from '../core/history.js';
 import { analyze } from '../diagnostics/analysis.js';
 import { nodeBox } from '../canvas/view.js';
 import { paintWires } from '../canvas/wires.js';
-import { FRAME_COLORS, frameById, frames } from '../frames/groups.js';
+import { FRAME_COLORS, frameById, frameEls, frames } from '../frames/groups.js';
+import { FOLD_COL } from '../canvas/geometry.js';
 import {
   addFrame, canvasPoint, deleteFrame, descendantFrames, drawFrames, dropTargetAt, editFrame, editFrameTitle,
   fitAncestors, selectFrame
@@ -50,7 +51,18 @@ export function paintChainSel() {
   for (const dfid in dfData()) { const el = nodeEl(dfid); if (el) el.classList.toggle('chainsel', on.has(nidOf(dfid))); }
 }
 export function clearChainSel() { if (!S.selChain) return false; S.selChain = null; paintChainSel(); return true; }
-export const inFrame = (f, dfid) => { const b = nodeBox(dfid), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2; return cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h; };
+// S2: a node hidden by a fold belongs to its own column (by its `group`) and to hidden frames only: a fold repack slides
+// the neighbours over the folded column's former area, geometry alone would hand them its hidden nodes (and back). A
+// folded column (card) holds what lies on its card, plus its hidden nodes.
+export const inFrame = (f, dfid) => {
+  const el = nodeEl(dfid), m = model(dfid), fe = frameEls.get(f.id);
+  if (el && el.parentElement && el.parentElement.classList.contains('fold-hide') && m && m.group && frameById('auto-' + m.group)) {
+    if (f.id === 'auto-' + m.group) return true;
+    if (!(fe && fe.classList.contains('fold-hide'))) return false;
+  }
+  const b = nodeBox(dfid), cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, card = !!(fe && fe.classList.contains('folded'));
+  return cx >= f.x && cx <= f.x + (card ? FOLD_COL.w : f.w) && cy >= f.y && cy <= f.y + (card ? FOLD_COL.h : f.h);
+};
 // What belongs to frame `f` for a copy or a move: the frame and its descendant frames, the nodes whose centre is inside
 // it, the post-its of the whole subtree (same membership as a title-bar drag).
 export function frameMembers(f) {

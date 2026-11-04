@@ -423,11 +423,14 @@ def sc_l8(wd):
         time.sleep(0.3)
         check("minimap: touch press-and-drag pans continuously (monotonic), ends on release",
               ts[0] != nva["x"] and all(b > a for a, b in zip(ts, ts[1:])) and not js(wd, "return window.__editor.miniMap().dragging"), "%s -> %s" % (nva["x"], ts))
-        z0 = js(wd, "return window.__editor.nav().zoom")
+        # CHANGED (lot S2, plan A3): the wheel over the minimap zooms the MINIMAP view (its own zoom), never the main
+        # canvas; the press-and-drag above still pans the main view
+        z0, mz0 = js(wd, "return window.__editor.nav().zoom"), js(wd, "return window.__editor.miniMap().mz")
         wheel(wd, int(r[0] + r[2] / 2), int(r[1] + r[3] / 2), 0, -120)
         time.sleep(0.4)
-        z1 = js(wd, "return window.__editor.nav().zoom")
-        check("minimap: wheel over it zooms the main view", z1 > z0 * 1.05, "%s -> %s" % (z0, z1))
+        z1, mz1 = js(wd, "return window.__editor.nav().zoom"), js(wd, "return window.__editor.miniMap().mz")
+        check("minimap: wheel over it zooms the minimap view, the main view keeps its zoom", z1 == z0 and mz1 > mz0 * 1.05, "%s -> %s, mini %s -> %s" % (z0, z1, mz0, mz1))
+        js(wd, "window.__editor.resetMiniZoom()")
         check("console errors 0 (tooltips + minimap)", not js(wd, "return window.__editor.errors.length"), str(js(wd, "return window.__editor.errors")))
         # ================= 3. nested groups and post-its (L9: human-like pointer drops) =================
         # L9 (2026-11-01): the user could not nest a group into another with a real mouse, while the L8 checks passed.
