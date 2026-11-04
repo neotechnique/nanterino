@@ -50,8 +50,10 @@ REPORT = {}
 
 
 def strip_c2(v: dict) -> dict:
-    """The vocabulary without the lot C2 entries (used first by tests.test_nodes_n3.strip_n3)."""
-    return strip_ids(v, C2)
+    """The vocabulary without the lot C2 entries (used first by tests.test_nodes_n3.strip_n3). The entries of the later
+    lot B1 (Mouvement theme) leave first (tests.test_nodes_motion.strip_b1), so every older additive check keeps working."""
+    from tests.test_nodes_motion import strip_b1   # lazy: tests.test_nodes_motion imports the N1 helpers
+    return strip_ids(strip_b1(v), C2)
 
 
 def fresh_tmp():

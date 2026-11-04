@@ -57,8 +57,9 @@ THEME_MOVES = {("actions", "speak_relance"): ("parole", "conversation"),
                ("actions", "subtitle_listening"): ("micro", "vision")}
 # Palette per theme after N3 (T, A, C): every row equal. Lot C2 (2026-11-04) adds the sound triad to micro (6 -> 7;
 # tests.test_sound.C2), totals 65 -> 66.
+# Lot B1 (2026-11-04) adds the theme mouvement (12 / 12 / 12; tests.test_nodes_motion.B1), totals 66 -> 78.
 EXPECTED = {"conversation": 10, "parole": 11, "micro": 7, "vision": 8, "variables": 5, "listes": 9, "temps": 8,
-            "systeme": 7, "evenements": 1}
+            "systeme": 7, "evenements": 1, "mouvement": 12}
 
 
 def strip_n3(v: dict) -> dict:
@@ -506,7 +507,7 @@ def test_theme_moves_and_per_theme_counts():
     c = counts()
     for theme, n in EXPECTED.items():
         assert [c[f]["themes"].get(theme, 0) for f in ("triggers", "actions", "conditions")] == [n] * 3, (theme, c)
-    assert all(c[f]["total"] == 66 for f in c)   # 65 at N3, 66 since C2
+    assert all(c[f]["total"] == 78 for f in c)   # 65 at N3, 66 since C2, 78 since B1
     for fam, ids in N3.items():
         assert all(i in getattr(nodes, fam.upper()) for i in ids), fam
 

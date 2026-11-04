@@ -18,7 +18,10 @@ Invariant: M7 moved /opt/robot/scripts/editor6_wd.py here verbatim (26 scenarios
           « Mécanique » screen on the simulated body: joints, bounded sliders, set min, e-stop latch / reset, export /
           import; never saves the graph, calibration rolled back). C2 adds `sound360` (area sound360: the dashboard
           « Son 360° » screen: front marked, mono message, sim backend switched at run time, beam at 3 angles, drag,
-          « Définir comme avant »; never opens a microphone, front offset and backend rolled back).
+          « Définir comme avant »; never opens a microphone, front offset and backend rolled back). B1 adds `motion`
+          (area motion: the Mouvement theme in the 3 menu categories, « Regarder (angles) » inserted from Actions ›
+          Mouvement, angles typed in the inspector, Tester simulate moves the SIMULATED head; live body only read,
+          nothing saved).
 
 History of the former scripts/editor6_wd.py (scenario -> lot, kept for reference):
 Headless Firefox checks of lot L6 (state nodes, gradient wires, ports, post-its, mouse buttons, context menu).
@@ -62,12 +65,12 @@ from tests.web.driver import W, BASE, check, checks  # noqa: E402
 
 # Area files, in the order their scenarios appeared in the former single file (for `all`).
 AREAS = ["canvas", "tester", "menu", "frames", "variables", "tooltips", "diagnostics", "human", "hierarchy",
-         "export", "inspector", "progress", "savegate", "domains", "mechanics", "sound360"]
+         "export", "inspector", "progress", "savegate", "domains", "mechanics", "sound360", "motion"]
 # Order of the former single file, which `all` keeps (the scenarios share one browser session there).
 ALL_ORDER = ["nodes", "wires", "tester", "buttons", "menu", "postit", "ctxsub", "nav", "noinput", "vars", "testervars",
              "nostart", "wiredrag", "menu3", "tooltips", "postit2", "diag", "l6", "human", "l8", "postit3", "l10",
              "vars2", "switch", "subgroups", "export", "props", "progress", "postitsave", "emptylist", "domains", "mechanics",
-             "sound360"]
+             "sound360", "motion"]
 
 
 def registry():

@@ -23,6 +23,7 @@ Boundary
       same steps still give the same result.
 
 Invariants
+    - Lot B1: the result carries `body` (brain.motion.snapshot() of the simulated body after the last step).
     - Same inputs give the same trace (no real time, no randomness, no threads).
     - At most MAX_STEPS steps and MAX_VIRTUAL_S virtual seconds per call; an event loop in the graph is cut
       after 5000 events and reported as an error.
@@ -284,6 +285,9 @@ def simulate(raw_graph: dict, cfg: dict, start_state: str = "veille", steps=(), 
                       "actions": list(e["actions"]), **({"conflict": True} if e.get("conflict") else {}),
                       "effects": [x for x in map(_effect, rec.events[at:end]) if x], "vars": step_vars.get(step)})
     snap = brain.snapshot()
+    # lot B1 (additive key, outside `final`): the SIMULATED body after the last step (positions in logical units,
+    # estop, gesture / base move in progress); the live body is never touched by a simulation.
     return {"trace": trace, "final": {"state": brain.state, "turns": brain.turns,
                                       "expression": snap["expression"], "gaze_mode": snap["gaze_mode"],
-                                      "vars": brain.var_snapshot(volatile)}}
+                                      "vars": brain.var_snapshot(volatile)},
+            "body": brain.motion.snapshot()}

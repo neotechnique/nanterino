@@ -87,6 +87,14 @@ transition listens to it, the robot is not deaf and the direction is confident: 
 at most one per SOUND_EVENT_GAP_S, re-armed after SOUND_REARM_S without a direction (anti-burst). Mono never posts, so
 traces are unchanged.
 
+Mouvement (lot B1, 2026-11-04): `self.motion` is a nanterino/body/motion.py MotionRuntime on `self.body`: the Mouvement
+nodes call it (look, gestures of nanterino/body/gestures.yaml, poses, arms, base moves by odometry, stops, face
+tracking); its Body event hook only posts graph events (motion_done, motion_interrupted, motion_stopped,
+motion_refused, motion_clamped, overcurrent_detected, estop_pressed, estop_released, gesture_done, pose_reached,
+base_move_done; face_tracking_changed through `_changed`). The heartbeat ticks it right after the body, in its own try
+block. Nothing moves in the shipped graph, so nothing is posted and traces are unchanged. server.py sets
+`motion.face_source` to the live vision state; elsewhere face tracking is a logged no-op.
+
 Cancellation (fix 2026-10-15): every speaking/answering thread carries the generation number it
 was started with. stop/off/hush/barge-in bump the generation, so an old thread can never speak
 again or post a late "done" event. (The previous set()+clear() of a shared Event was so fast that
@@ -114,6 +122,7 @@ from .audio import AudioIn, find_device
 from . import hours as hours_mod
 from . import journal as journal_mod
 from . import body as body_mod
+from .body import motion as motion_mod
 from . import sound as sound_mod
 from .sound.angles import sector_of
 from .log import log
@@ -142,7 +151,9 @@ CHANGE_EVENTS = frozenset({"media_started", "volume_changed", "mute_changed", "d
                            # lot N3 (per-theme parity)
                            "speech_started", "voice_detected", "loud_noise", "var_reset", "var_bound_reached",
                            "random_drawn", "list_emptied", "list_filled", "dict_key_set", "dict_key_removed",
-                           "dict_emptied", "schedule_cancelled"})
+                           "dict_emptied", "schedule_cancelled",
+                           # lot B1 (Mouvement)
+                           "face_tracking_changed"})
 JOURNAL_KEEP = 200        # robot journal entries kept for recent_error (wall time, level, source)
 JOURNAL_POST_GAP_S = 0.2  # journal_entry from the log tap: at most one per 0.2 s (an error burst is one event)
 NOTIFY_MAX = 20           # pending dashboard notifications kept (oldest dropped)
@@ -308,6 +319,9 @@ class Brain:
         self.sound = sound if sound is not None else sound_mod.create(cfg, mic=self.mic, clock=self.now, wall=self.wall)
         self._sound_err_at, self._snd_seen, self._snd_sector, self._snd_posted_at = -1e9, -1e9, None, -1e9
         self.engine = self._build_engine()
+        # lot B1: Mouvement nodes runtime (after the engine: its hook reads self._watch at post time)
+        self.motion = motion_mod.MotionRuntime(self)
+        self._motion_err_at = -1e9
         if self._threaded:
             journal_mod.attach(self)  # the live robot's WARNING / ERROR log records feed journal_notes
             self._start_threads()
@@ -1306,6 +1320,12 @@ class Brain:
             if now - self._body_err_at > 5:
                 self._body_err_at = now
                 log.exception("body tick failed")
+        try:
+            self.motion.tick(now)        # lot B1: gesture steps, base odometry, face tracking (after the body)
+        except Exception:
+            if now - self._motion_err_at > 5:
+                self._motion_err_at = now
+                log.exception("motion tick failed")
         try:
             self._sound_tick(now)        # lot C2: 360-degree sound, after the body (mono never posts)
         except Exception:

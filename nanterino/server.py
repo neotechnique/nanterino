@@ -112,6 +112,8 @@ vision.on_face = lambda dist: cfg.get("auto_greet_on_face") and brain.post("visa
 # `visage_perdu` (no face for lost_face_s) is posted for graph authors; the default graph ignores it.
 vision.on_face_lost = lambda: brain.post("visage_perdu")
 vision.on_faces = brain.set_faces   # face count for the events personnes_multiples / inactivite_longue
+# lot B1: « Suivre le visage » reads the live face centre (x, y in [-1, 1]); no vision object = logged no-op elsewhere
+brain.motion.face_source = lambda: vision.state
 app = FastAPI(title="Nanterino")
 
 

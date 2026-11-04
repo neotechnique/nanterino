@@ -895,6 +895,138 @@
      "help": "Seulement les sons de ce côté (devant = -45 à 45 degrés) ; vide = de n'importe où."
     }
    ]
+  },
+  {
+   "id": "motion_done",
+   "label": "Un mouvement est terminé",
+   "help": "Une commande de mouvement est arrivée au bout : tête, bras, pose, geste complet ou déplacement de la base (du graphe ou du tableau de bord). kw what = commande, pose, geste ou base.",
+   "icon": "flag",
+   "theme": "mouvement"
+  },
+  {
+   "id": "motion_interrupted",
+   "label": "Un mouvement est interrompu",
+   "help": "Un mouvement n'est pas arrivé au bout : une commande plus récente, un arrêt, un arrêt d'urgence, une surintensité ou un délai dépassé l'a coupé. kw reason = la raison.",
+   "icon": "x",
+   "theme": "mouvement"
+  },
+  {
+   "id": "motion_stopped",
+   "label": "Les mouvements sont arrêtés",
+   "help": "Un arrêt simple vient d'avoir lieu (graphe ou tableau de bord) : les articulations tiennent leur position. kw source.",
+   "icon": "hand-stop",
+   "theme": "mouvement"
+  },
+  {
+   "id": "motion_refused",
+   "label": "Une commande de mouvement est refusée",
+   "help": "Le corps a refusé une commande, par exemple pendant un arrêt d'urgence. Au plus une fois par seconde.",
+   "icon": "lock",
+   "theme": "mouvement"
+  },
+  {
+   "id": "motion_clamped",
+   "label": "Une limite de mouvement est atteinte",
+   "help": "Une consigne dépassait la calibration d'une articulation : elle a été ramenée à la limite. Au plus une fois par seconde et par articulation. kw joint, requested, applied.",
+   "icon": "bolt",
+   "theme": "mouvement"
+  },
+  {
+   "id": "overcurrent_detected",
+   "label": "Un moteur force (surintensité)",
+   "help": "Le courant d'un moteur dépasse son maximum (blocage, choc) : l'articulation est tenue sur place. Au plus une fois toutes les 2 s par articulation. kw joint.",
+   "icon": "power",
+   "theme": "mouvement"
+  },
+  {
+   "id": "estop_pressed",
+   "label": "L'arrêt d'urgence est déclenché",
+   "help": "L'arrêt d'urgence vient d'être déclenché (tableau de bord, API ou graphe) : tout est arrêté et verrouillé. kw source.",
+   "icon": "lock",
+   "theme": "mouvement"
+  },
+  {
+   "id": "estop_released",
+   "label": "L'arrêt d'urgence est réarmé",
+   "help": "Quelqu'un a réarmé l'arrêt d'urgence (bouton « Réarmer ») : les commandes sont de nouveau acceptées.",
+   "icon": "lock-open",
+   "theme": "mouvement"
+  },
+  {
+   "id": "gesture_done",
+   "label": "Un geste est terminé",
+   "help": "Un geste de la bibliothèque est allé jusqu'au bout (geste facultatif ; vide = n'importe lequel). Un geste interrompu ne compte pas.",
+   "icon": "hand-move",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "value",
+     "type": "enum",
+     "options": [
+      "salut",
+      "oui",
+      "non",
+      "montrer_gauche",
+      "montrer_droite",
+      "hausser",
+      "curieux"
+     ],
+     "labels": {
+      "salut": "Saluer de la main",
+      "oui": "Hocher la tête (oui)",
+      "non": "Secouer la tête (non)",
+      "montrer_gauche": "Montrer à gauche",
+      "montrer_droite": "Montrer à droite",
+      "hausser": "Hausser les épaules",
+      "curieux": "Pencher la tête (curieux)"
+     },
+     "optional": true,
+     "label": "Geste (facultatif)",
+     "help": "Seulement ce geste ; vide = n'importe lequel."
+    }
+   ]
+  },
+  {
+   "id": "pose_reached",
+   "label": "Une pose est atteinte",
+   "help": "La tête et les bras sont arrivés dans une pose de la bibliothèque (pose facultative ; vide = n'importe laquelle).",
+   "icon": "flag",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "value",
+     "type": "enum",
+     "options": [
+      "repos",
+      "accueil",
+      "bras_leves",
+      "pensif"
+     ],
+     "labels": {
+      "repos": "Repos",
+      "accueil": "Accueil (bras ouverts)",
+      "bras_leves": "Bras levés",
+      "pensif": "Pensif"
+     },
+     "optional": true,
+     "label": "Pose (facultative)",
+     "help": "Seulement cette pose ; vide = n'importe laquelle."
+    }
+   ]
+  },
+  {
+   "id": "base_move_done",
+   "label": "Le déplacement de la base est terminé",
+   "help": "La base a fini d'avancer, de reculer ou de tourner (odométrie des roues). kw move = move ou turn, requested, done (distance en m ou angle en degrés réellement parcourus).",
+   "icon": "arrow-right",
+   "theme": "mouvement"
+  },
+  {
+   "id": "face_tracking_changed",
+   "label": "Le suivi du visage change",
+   "help": "Le suivi du visage vient d'être activé ou coupé ; à combiner avec la condition sur le suivi. Anti-boucle comme « Une variable change ».",
+   "icon": "scan-eye",
+   "theme": "mouvement"
   }
  ],
  "actions": [
@@ -1098,7 +1230,17 @@
       "vars_restored",
       "hour_changed",
       "day_changed",
-      "schedule_cancelled"
+      "schedule_cancelled",
+      "motion_done",
+      "motion_interrupted",
+      "motion_stopped",
+      "motion_refused",
+      "motion_clamped",
+      "overcurrent_detected",
+      "estop_pressed",
+      "estop_released",
+      "base_move_done",
+      "face_tracking_changed"
      ],
      "label": "Événement à la fin",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -1165,7 +1307,17 @@
       "vars_restored",
       "hour_changed",
       "day_changed",
-      "schedule_cancelled"
+      "schedule_cancelled",
+      "motion_done",
+      "motion_interrupted",
+      "motion_stopped",
+      "motion_refused",
+      "motion_clamped",
+      "overcurrent_detected",
+      "estop_pressed",
+      "estop_released",
+      "base_move_done",
+      "face_tracking_changed"
      ],
      "label": "Événement à déclencher",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -1243,7 +1395,17 @@
       "vars_restored",
       "hour_changed",
       "day_changed",
-      "schedule_cancelled"
+      "schedule_cancelled",
+      "motion_done",
+      "motion_interrupted",
+      "motion_stopped",
+      "motion_refused",
+      "motion_clamped",
+      "overcurrent_detected",
+      "estop_pressed",
+      "estop_released",
+      "base_move_done",
+      "face_tracking_changed"
      ],
      "label": "Événement à déclencher",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -2374,7 +2536,17 @@
       "vars_restored",
       "hour_changed",
       "day_changed",
-      "schedule_cancelled"
+      "schedule_cancelled",
+      "motion_done",
+      "motion_interrupted",
+      "motion_stopped",
+      "motion_refused",
+      "motion_clamped",
+      "overcurrent_detected",
+      "estop_pressed",
+      "estop_released",
+      "base_move_done",
+      "face_tracking_changed"
      ],
      "label": "Événement",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -2455,6 +2627,269 @@
    "icon": "scan-eye",
    "theme": "micro",
    "args": []
+  },
+  {
+   "id": "look_at",
+   "label": "Regarder (angles)",
+   "help": "Tourne la tête vers deux angles en degrés : rotation (0 = devant, + = vers la gauche du robot) et inclinaison (+ = vers le haut), à une vitesse en % de la vitesse maxi. Les limites de calibration s'appliquent (au-delà, la tête s'arrête à sa limite). Refusé pendant un arrêt d'urgence.",
+   "icon": "eye",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "pan",
+     "type": "number",
+     "options": [],
+     "label": "Rotation (degrés, + = gauche)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "tilt",
+     "type": "number",
+     "options": [],
+     "label": "Inclinaison (degrés, + = haut)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "speed",
+     "type": "number",
+     "options": [],
+     "label": "Vitesse (%)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "look_center",
+   "label": "Regarder droit devant",
+   "help": "Ramène la tête au centre (rotation 0, inclinaison 0) à mi-vitesse. Refusé pendant un arrêt d'urgence.",
+   "icon": "eye",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "nod_head",
+   "label": "Hocher la tête (oui)",
+   "help": "Fait « oui » de la tête (geste « oui » de la bibliothèque des gestes : haut, bas, puis retour au centre). Un geste en cours est interrompu. À la fin, le geste « oui » compte comme un geste terminé.",
+   "icon": "mood-smile",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "shake_head",
+   "label": "Secouer la tête (non)",
+   "help": "Fait « non » de la tête (geste « non » de la bibliothèque des gestes : gauche, droite, puis retour au centre). Un geste en cours est interrompu. À la fin, le geste « non » compte comme un geste terminé.",
+   "icon": "x",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "play_gesture",
+   "label": "Faire un geste",
+   "help": "Joue un geste nommé de la bibliothèque (nanterino/body/gestures.yaml) : saluer, montrer à gauche ou à droite, hausser les épaules… pas à pas, chaque pas attend que les articulations soient arrivées. Un geste en cours est interrompu. Refusé pendant un arrêt d'urgence.",
+   "icon": "hand-move",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "gesture",
+     "type": "enum",
+     "options": [
+      "salut",
+      "oui",
+      "non",
+      "montrer_gauche",
+      "montrer_droite",
+      "hausser",
+      "curieux"
+     ],
+     "labels": {
+      "salut": "Saluer de la main",
+      "oui": "Hocher la tête (oui)",
+      "non": "Secouer la tête (non)",
+      "montrer_gauche": "Montrer à gauche",
+      "montrer_droite": "Montrer à droite",
+      "hausser": "Hausser les épaules",
+      "curieux": "Pencher la tête (curieux)"
+     },
+     "label": "Geste",
+     "help": "Geste de la bibliothèque nanterino/body/gestures.yaml."
+    }
+   ]
+  },
+  {
+   "id": "set_pose",
+   "label": "Prendre une pose",
+   "help": "Amène la tête et les bras dans une pose nommée de la bibliothèque (repos, accueil, bras levés, pensif) en une seule commande, à une vitesse en %. Son arrivée est signalée comme une pose atteinte.",
+   "icon": "flag",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "pose",
+     "type": "enum",
+     "options": [
+      "repos",
+      "accueil",
+      "bras_leves",
+      "pensif"
+     ],
+     "labels": {
+      "repos": "Repos",
+      "accueil": "Accueil (bras ouverts)",
+      "bras_leves": "Bras levés",
+      "pensif": "Pensif"
+     },
+     "label": "Pose",
+     "help": "Pose de la bibliothèque nanterino/body/gestures.yaml."
+    },
+    {
+     "name": "speed",
+     "type": "number",
+     "options": [],
+     "label": "Vitesse (%)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "arm_to",
+   "label": "Bouger un bras",
+   "help": "Amène l'épaule et le coude d'un bras (ou des deux) à des angles en degrés (épaule 0 = bras baissé, coude 0 = bras tendu), à une vitesse en %. Les limites de calibration s'appliquent.",
+   "icon": "hand-move",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "arm",
+     "type": "enum",
+     "options": [
+      "arm_r",
+      "arm_l",
+      "both"
+     ],
+     "labels": {
+      "arm_r": "Bras droit",
+      "arm_l": "Bras gauche",
+      "both": "Les deux bras"
+     },
+     "label": "Bras",
+     "help": "Bras droit, bras gauche ou les deux."
+    },
+    {
+     "name": "shoulder",
+     "type": "number",
+     "options": [],
+     "label": "Épaule (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "elbow",
+     "type": "number",
+     "options": [],
+     "label": "Coude (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "speed",
+     "type": "number",
+     "options": [],
+     "label": "Vitesse (%)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "base_move",
+   "label": "Avancer / reculer",
+   "help": "Fait avancer la base d'une distance en mètres (négative = reculer), à une vitesse en % : les deux roues tournent ensemble et s'arrêtent d'après leur odométrie (freinage compris). Un déplacement en cours est interrompu ; trop long, il est arrêté. Sa fin est signalée comme un déplacement terminé.",
+   "icon": "arrow-right",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "distance",
+     "type": "number",
+     "options": [],
+     "label": "Distance (m, négatif = reculer)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "speed",
+     "type": "number",
+     "options": [],
+     "label": "Vitesse (%)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "base_turn",
+   "label": "Tourner sur place",
+   "help": "Fait tourner la base sur place d'un angle en degrés (+ = vers la gauche, - = vers la droite), à une vitesse en % : les roues tournent en sens opposés et s'arrêtent d'après leur odométrie. Sa fin est signalée comme un déplacement terminé.",
+   "icon": "refresh",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "angle",
+     "type": "number",
+     "options": [],
+     "label": "Angle (degrés, + = gauche)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "speed",
+     "type": "number",
+     "options": [],
+     "label": "Vitesse (%)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "motion_stop",
+   "label": "Arrêter les mouvements",
+   "help": "Arrêt simple : chaque articulation s'arrête là où elle est, les gestes et les déplacements en cours sont interrompus. Pas de verrouillage : une commande suivante repart tout de suite.",
+   "icon": "hand-stop",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "emergency_stop",
+   "label": "Déclencher l'arrêt d'urgence",
+   "help": "Arrête tous les moteurs tout de suite et VERROUILLE : toute commande est refusée jusqu'au bouton « Réarmer » du tableau de bord (écran Mécanique). Le graphe ne peut pas réarmer.",
+   "icon": "lock",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "set_face_tracking",
+   "label": "Suivre le visage",
+   "help": "Active ou coupe le suivi du visage : la tête suit le visage vu par la caméra (au plus 5 corrections par seconde, pas pendant un geste). Sans caméra (Testeur, simulation), rien ne bouge.",
+   "icon": "scan-eye",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "state",
+     "type": "enum",
+     "options": [
+      "on",
+      "off"
+     ],
+     "labels": {
+      "on": "Activé",
+      "off": "Désactivé"
+     },
+     "label": "Suivi",
+     "help": "Activé ou désactivé."
+    }
+   ]
   }
  ],
  "guards": [
@@ -3675,7 +4110,17 @@
       "vars_restored",
       "hour_changed",
       "day_changed",
-      "schedule_cancelled"
+      "schedule_cancelled",
+      "motion_done",
+      "motion_interrupted",
+      "motion_stopped",
+      "motion_refused",
+      "motion_clamped",
+      "overcurrent_detected",
+      "estop_pressed",
+      "estop_released",
+      "base_move_done",
+      "face_tracking_changed"
      ],
      "label": "Événement",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -3781,7 +4226,17 @@
       "vars_restored",
       "hour_changed",
       "day_changed",
-      "schedule_cancelled"
+      "schedule_cancelled",
+      "motion_done",
+      "motion_interrupted",
+      "motion_stopped",
+      "motion_refused",
+      "motion_clamped",
+      "overcurrent_detected",
+      "estop_pressed",
+      "estop_released",
+      "base_move_done",
+      "face_tracking_changed"
      ],
      "label": "Événement",
      "help": "Événement envoyé au graphe : il lance les déclencheurs « Un événement arrive » qui l'attendent."
@@ -4287,6 +4742,215 @@
      "options": [],
      "label": "À (degrés)",
      "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "is_moving",
+   "label": "Le robot bouge",
+   "help": "Une partie du corps est en mouvement : une commande pas encore arrivée, un geste ou un déplacement de la base en cours.",
+   "icon": "hand-move",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "group",
+     "type": "enum",
+     "options": [
+      "all",
+      "head",
+      "arm_l",
+      "arm_r",
+      "base"
+     ],
+     "labels": {
+      "all": "Tout le corps",
+      "head": "Tête",
+      "arm_l": "Bras gauche",
+      "arm_r": "Bras droit",
+      "base": "Base"
+     },
+     "label": "Partie du corps",
+     "help": "Partie du corps : tout le corps, la tête, un bras ou la base."
+    }
+   ]
+  },
+  {
+   "id": "at_pose",
+   "label": "Le robot est dans une pose",
+   "help": "Chaque articulation de la pose est à moins de la tolérance (en degrés) de sa valeur ; une valeur hors calibration compte à sa limite.",
+   "icon": "flag",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "pose",
+     "type": "enum",
+     "options": [
+      "repos",
+      "accueil",
+      "bras_leves",
+      "pensif"
+     ],
+     "labels": {
+      "repos": "Repos",
+      "accueil": "Accueil (bras ouverts)",
+      "bras_leves": "Bras levés",
+      "pensif": "Pensif"
+     },
+     "label": "Pose",
+     "help": "Pose de la bibliothèque nanterino/body/gestures.yaml."
+    },
+    {
+     "name": "tolerance",
+     "type": "number",
+     "options": [],
+     "label": "Tolérance (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "gesture_playing",
+   "label": "Un geste est en cours",
+   "help": "Un geste de la bibliothèque est en train d'être joué (hocher, secouer ou un geste nommé).",
+   "icon": "hand-move",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "estop_active",
+   "label": "L'arrêt d'urgence est actif",
+   "help": "L'arrêt d'urgence est verrouillé : toute commande de mouvement est refusée jusqu'au réarmement.",
+   "icon": "lock",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "body_available",
+   "label": "Le corps peut bouger",
+   "help": "Le corps accepte des commandes : pas d'arrêt d'urgence, son moteur (simulé ou réel) a démarré sans erreur et au moins une articulation est activée.",
+   "icon": "circle-dot",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "body_simulated",
+   "label": "Le corps est simulé",
+   "help": "Les mouvements sont simulés (aucun moteur réel branché) : vrai aujourd'hui, faux avec MuJoCo ou le vrai matériel.",
+   "icon": "question-mark",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "head_pan_between",
+   "label": "La tête est tournée entre deux angles",
+   "help": "La rotation actuelle de la tête (0 = devant, + = gauche) est comprise entre deux angles en degrés (dans n'importe quel ordre).",
+   "icon": "eye",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "start",
+     "type": "number",
+     "options": [],
+     "label": "De (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "end",
+     "type": "number",
+     "options": [],
+     "label": "À (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "head_tilt_between",
+   "label": "La tête est inclinée entre deux angles",
+   "help": "L'inclinaison actuelle de la tête (+ = haut) est comprise entre deux angles en degrés (dans n'importe quel ordre).",
+   "icon": "eye",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "start",
+     "type": "number",
+     "options": [],
+     "label": "De (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    },
+    {
+     "name": "end",
+     "type": "number",
+     "options": [],
+     "label": "À (degrés)",
+     "help": "Un nombre (négatif pour retirer).",
+     "props": "number"
+    }
+   ]
+  },
+  {
+   "id": "joint_at_limit",
+   "label": "Une articulation est en butée",
+   "help": "Une articulation de la partie choisie a reçu une consigne au-delà de sa calibration et se trouve à cette limite, mini ou maxi (à 0,5 degré près ou à sa zone morte). Une articulation simplement envoyée à sa limite (un coude tendu à 0) ne compte pas.",
+   "icon": "square",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "group",
+     "type": "enum",
+     "options": [
+      "all",
+      "head",
+      "arm_l",
+      "arm_r",
+      "base"
+     ],
+     "labels": {
+      "all": "Tout le corps",
+      "head": "Tête",
+      "arm_l": "Bras gauche",
+      "arm_r": "Bras droit",
+      "base": "Base"
+     },
+     "label": "Partie du corps",
+     "help": "Partie du corps : tout le corps, la tête, un bras ou la base."
+    }
+   ]
+  },
+  {
+   "id": "overcurrent_active",
+   "label": "Un moteur est en surintensité",
+   "help": "Le courant d'au moins un moteur est encore au-dessus de son maximum (l'articulation est tenue sur place).",
+   "icon": "power",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "face_tracking_on",
+   "label": "Le suivi du visage est actif",
+   "help": "Le suivi du visage par la tête est activé (même sans caméra, où il ne fait rien).",
+   "icon": "scan-eye",
+   "theme": "mouvement",
+   "args": []
+  },
+  {
+   "id": "motion_idle_since",
+   "label": "Le robot est immobile depuis",
+   "help": "Plus rien ne bouge (aucune commande, aucun geste, aucun déplacement) depuis au moins ce nombre de secondes.",
+   "icon": "hourglass",
+   "theme": "mouvement",
+   "args": [
+    {
+     "name": "seconds",
+     "type": "number",
+     "options": [],
+     "min": 0,
+     "label": "Secondes",
+     "help": "Nombre de secondes (0 ou plus).",
      "props": "number"
     }
    ]
@@ -5268,6 +5932,13 @@
    "icon": "bolt",
    "help": "Événements programmés ou envoyés par le graphe lui-même.",
    "order": 10
+  },
+  {
+   "id": "mouvement",
+   "label": "Mouvement",
+   "icon": "hand-move",
+   "help": "Le corps du robot : regarder, gestes, poses, bras, déplacements de la base, arrêts (simulé tant que les moteurs ne sont pas branchés).",
+   "order": 11
   }
  ],
  "theme_slots": {

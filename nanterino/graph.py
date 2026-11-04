@@ -120,6 +120,7 @@ from .log import log
 from . import nodes as _nodes
 from . import listkinds as _listkinds, listmodes as _listmodes, vartypes as _vartypes
 from . import properties as _props
+from .body import motion as _motion   # lot B1: gesture / pose library (pure: no graph / brain import)
 
 DEFAULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "graph.yaml")
 
@@ -220,7 +221,14 @@ LIST_FILLERS = frozenset({"list_add", "remember_utterance"})
 # _Parser checks and vocabulary() renders. An unknown kind would silently render as a delay: refused at import.
 ARG_KINDS = frozenset(VAR_KIND_TYPES) | frozenset(LIST_KIND_RULES) | frozenset({
     "cfgkey", "event", "delay", "text", "expression", "seconds", "gazemode", "value", "listvalue", "op", "number",
-    "dictkey", "seconds0", "hhmm", "weekdays", "optext", "onoff", "loglevel", "media"})
+    "dictkey", "seconds0", "hhmm", "weekdays", "optext", "onoff", "loglevel", "media",
+    "gesture", "pose", "bodygroup", "arm"})
+# Lot B1 (2026-11-04) Mouvement enumerations: {kind: {value: French label}}. gesture / pose come from the library
+# nanterino/body/gestures.yaml (read at import), bodygroup / arm from nanterino/body/motion.py. Parser: calls()
+# (actions) and guard_enums (conditions) refuse any other value; vocabulary(): an `enum` argument (no editor code).
+MOTION_ENUMS = {"gesture": {k: g["label"] for k, g in _motion.LIB["gestures"].items()},
+                "pose": {k: p["label"] for k, p in _motion.LIB["poses"].items()},
+                "bodygroup": dict(_motion.GROUP_LABELS), "arm": dict(_motion.ARM_LABELS)}
 # Lot N1 (2026-11-02) enumerated kinds: on/off switches (set_mute / set_deaf), journal levels (log_note,
 # notify_dashboard, journal_entry) and a playable media file (play_media: a .wav of media/).
 ONOFF = {"on": "Activé", "off": "Désactivé"}
@@ -394,6 +402,9 @@ THEME_DOC = {
     "temps": ("Temps & délais", "clock", "Délais, attentes, horaires d'ouverture et inactivité."),
     "systeme": ("Tableau de bord & système", "power", "Les boutons du tableau de bord et les commandes tapées."),
     "evenements": ("Événements", "bolt", "Événements programmés ou envoyés par le graphe lui-même."),
+    # lot B1 (2026-11-04): last, so the order of the older themes (and the goldens) does not move
+    "mouvement": ("Mouvement", "hand-move", "Le corps du robot : regarder, gestes, poses, bras, déplacements de la base, "
+                  "arrêts (simulé tant que les moteurs ne sont pas branchés)."),
 }
 # A node module with an unknown theme / argument kind stops the start here (NodeRegistryError naming the file),
 # before the generic theme asserts below.
@@ -452,6 +463,11 @@ ARG_KIND_HELP = {
     "onoff": "Activé ou désactivé.",
     "loglevel": "Niveau du message : information, avertissement ou erreur.",
     "media": "Fichier son (.wav) du dossier media/ du robot.",
+    # lot B1 (Mouvement)
+    "gesture": "Geste de la bibliothèque nanterino/body/gestures.yaml.",
+    "pose": "Pose de la bibliothèque nanterino/body/gestures.yaml.",
+    "bodygroup": "Partie du corps : tout le corps, la tête, un bras ou la base.",
+    "arm": "Bras droit, bras gauche ou les deux.",
 }
 
 
@@ -760,6 +776,8 @@ class _Parser:
                     self.err(where, "%s.%s: unknown gaze mode %r (allowed: %s)" % (name, k, val, ", ".join(GAZE_MODES)))
                 elif kind == "seconds" and not (_num(val) and 0 < val <= SECONDS_MAX):
                     self.err(where, "%s.%s: expected a number of seconds in (0, %d]" % (name, k, SECONDS_MAX))
+                elif kind in MOTION_ENUMS and val not in MOTION_ENUMS[kind]:   # lot B1
+                    self.err(where, "%s.%s: unknown %s %r (allowed: %s)" % (name, k, kind, val, ", ".join(MOTION_ENUMS[kind])))
             if name in EMPTY_LIST_READERS and isinstance(args.get("list"), str):
                 self.list_reads.append((where, name, args["list"]))
             if name in LIST_FILLERS and isinstance(args.get("list"), str):   # an action that adds items to its list
@@ -938,6 +956,9 @@ class _Parser:
             elif kind == "media" and not (isinstance(val, str) and MEDIA_NAME.match(val) and val.lower().endswith(PLAYABLE_EXTS)):
                 # lot N3 (media_is): the same rule and message as the play_media action
                 self.err(where, "%s: expected a .wav file name of media/, got %r" % (what, val))
+            elif kind in MOTION_ENUMS and val not in MOTION_ENUMS[kind]:
+                # lot B1 (at_pose, is_moving, joint_at_limit): the same rule and message as the Mouvement actions
+                self.err(where, "%s: unknown %s %r (allowed: %s)" % (what, kind, val, ", ".join(MOTION_ENUMS[kind])))
 
     def variables(self, d, intent_names):
         """Parse the `variables:` block into self.vars / self.lists."""
@@ -1286,6 +1307,9 @@ def vocabulary(cfg: dict, graph: "Graph | None" = None) -> dict:
             return {"name": a, "type": "enum", "options": list(GAZE_MODES), "labels": dict(GAZE_MODES), "label": alabel}
         if kind == "event":
             return {"name": a, "type": "enum", "options": ev_ids, "label": alabel}
+        if kind in MOTION_ENUMS:   # lot B1: gesture / pose (library), bodygroup, arm
+            return {"name": a, "type": "enum", "options": list(MOTION_ENUMS[kind]), "labels": dict(MOTION_ENUMS[kind]),
+                    "label": alabel}
         return None
 
     actions = []

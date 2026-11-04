@@ -175,9 +175,10 @@ def test_vocabulary():
     # CHANGED (lot N2): + 14 triggers, 19 conditions (parity 50 / 50 / 50)
     assert isinstance(counts.pop("media"), int)
     # CHANGED (lot N3): + 15 triggers, 15 actions, 15 conditions (parity per theme 65 / 65 / 65); lot C2: + 1 / 1 / 1
-    assert counts == {"events": 66, "actions": 66, "guards": 66, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
+    # lot B1: + 12 / 12 / 12 (theme mouvement, 12th theme)
+    assert counts == {"events": 78, "actions": 78, "guards": 78, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
                       "var_types": 19, "list_types": 17, "ops": 6, "op_sets": 19, "scopes": 2, "list_kinds": 2, "list_modes": 3,
-                      "weekdays": 7, "themes": 11, "theme_slots": 5, "variables": 2,
+                      "weekdays": 7, "themes": 12, "theme_slots": 5, "variables": 2,
                       "properties": 2, "type_compat": 19}, counts   # CHANGED (lot M4): + properties {get, set}; (lot M5): + type_compat (additive key, last)
     ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
     assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])

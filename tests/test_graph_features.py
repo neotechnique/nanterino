@@ -554,7 +554,9 @@ def test_two_moving_branches_first_wins_conflict_warned_and_journaled():
                                     "ga": ("goto", {"state": "a"}), "gb": ("goto", {"state": "b"})},
                                    [("t", "out", "c1"), ("c1", "true", "ga"), ("t", "out", "c2"), ("c2", "true", "gb")]))
     assert not rep_ok["warnings"]
-    guard = sorted(G.GUARDS)[0]
+    # CHANGED (lot B1): the first guard WITHOUT arguments (at_pose, B1, sorts first and needs pose / tolerance);
+    # still auto_greet_on_face, the guard this test always used
+    guard = sorted(g for g in G.GUARDS if not G.GUARD_ARGS.get(g))[0]
     _raw, rep_g = vcompile(vdoc({"t": ("trigger", ON_START), "c": ("condition", IN_VEILLE), "cg": ("condition", {"type": "guard", "guard": guard, "negate": False}),
                                  "ga": ("goto", {"state": "a"}), "gb": ("goto", {"state": "b"})},
                                 [("t", "out", "c"), ("c", "true", "cg"), ("cg", "true", "ga"), ("cg", "false", "gb")]))
