@@ -11,7 +11,7 @@ Boundary
     The live store (state/body-calibration.json) is only passed by server.py; Brain(...) without `body=` gets an
     in-memory simulated body (simulator, tests: nothing written).
 Invariants
-    - a backend that cannot start (MuJoCo / real placeholders, unknown name) never stops the robot: create() logs an
+    - a backend that cannot start (MuJoCo without its module, real placeholder, unknown name) never stops the robot: create() logs an
       error and falls back to the simulator, the reason is in Body.backend_error (dashboard banner) - unless
       strict=True (tests), where the NotImplementedError / ValueError propagates;
 How to test
@@ -40,4 +40,4 @@ def create(cfg=None, calibration_path=None, *, layout_path=DEFAULT_LAYOUT, stric
         backend = SimBackend()
     store = CalibrationStore(calibration_path) if calibration_path else None
     kw = {k: v for k, v in (("clock", clock), ("wall", wall)) if v is not None}
-    return Body(load_layout(layout_path), backend, store, backend_error=err, **kw)
+    return Body(load_layout(layout_path), backend, store, backend_error=err, backend_requested=name, **kw)

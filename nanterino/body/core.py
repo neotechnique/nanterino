@@ -51,10 +51,12 @@ def _num(v) -> bool:
 
 
 class Body:
-    def __init__(self, joints, backend, store=None, *, clock=time.monotonic, wall=time.time, backend_error=None):
+    def __init__(self, joints, backend, store=None, *, clock=time.monotonic, wall=time.time, backend_error=None,
+                 backend_requested=None):
         self.joints = collections.OrderedDict((j.id, j) for j in joints)
         self.backend, self.store = backend, store
         self.backend_error = backend_error      # why the configured backend was replaced by the simulator (or None)
+        self.backend_requested = backend_requested or backend.name   # name asked in the config (sim | mujoco | real)
         self.clock, self.wall = clock, wall
         self._lock = threading.RLock()
         stored = store.load(set(self.joints)) if store else {}
@@ -99,7 +101,7 @@ class Body:
 
     def add_event_hook(self, fn) -> None:
         """fn(event dict) on every body event (kinds: arrived, interrupted, clamp, refused, estop, estop_reset, stop,
-        overcurrent, calibration, sweep_done). Runs under the body lock: must not block (lot B1 posts graph events)."""
+        overcurrent, calibration, sweep_done, collision). Runs under the body lock: must not block (lot B1 posts graph events)."""
         self._hooks.append(fn)
 
     def _event(self, kind, level="info", joint=None, message="", **extra):
@@ -369,6 +371,8 @@ class Body:
             dt = 0.0 if self._last_tick is None else min(MAX_DT_S, max(0.0, now - self._last_tick))
             self._last_tick = now
             self.backend.step(dt)
+            for ev in self.backend.poll_events():   # physical contacts (MuJoCo); informative, limits stay in clamp()
+                self._event("collision", "warning", ev.get("joint"), ev.get("message", "Collision"))
             raw = self.backend.read_state()
             done = set()
             for jid, j in self.joints.items():
@@ -435,7 +439,8 @@ class Body:
                                "current": round(r["current"], 3), "temperature": round(r["temperature"], 2),
                                "enabled": self.cal[jid]["enabled"], "moving": self.moving(jid),
                                "sweeping": jid in self._sweeps, "overcurrent": jid in self._overcurrent})
-            return {"backend": self.backend.name, "backend_error": self.backend_error, "estop": dict(self.estop),
+            return {"backend": self.backend.name, "backend_requested": self.backend_requested,
+                    "backend_available": self.backend_error is None, "backend_error": self.backend_error, "estop": dict(self.estop),
                     "joints": joints, "groups": [{"id": g, "label": lbl} for g, lbl in GROUPS.items()],
                     "pending": sorted(self._pending), "events": list(self.events)[-20:],
                     "calibration_store": self.store.info() if self.store else None, "t": round(self.wall(), 3)}

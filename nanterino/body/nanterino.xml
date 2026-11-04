@@ -1,0 +1,109 @@
+<mujoco model="nanterino">
+  <!--
+    Nanterino robot body, MuJoCo MJCF model (lot B3a, 2026-11-04) - PROVISIONAL DIMENSIONS.
+
+    The real hardware is not chosen yet: every size below is a plausible placeholder, NOT a measurement. Replace them
+    when the robot exists. The numbers that the software depends on are mirrored in nanterino/body/body.yaml and
+    checked by tests/test_body_mjcf.py:
+      - one <joint> and one <actuator> per body.yaml joint, same name (the joint id);
+      - joint range (position joints) = body.yaml min / max, in DEGREES (compiler angle="degree");
+      - wheel track = distance between the two wheel bodies on y = geometry.track_m;
+      - wheel radius = size[0] of the geoms named <wheel id>_tire = geometry.wheel_radius_m;
+      - wheel actuator ctrlrange = +/- (max_speed / radius) in rad/s.
+
+    Units: metres, kilograms, seconds, degrees for joint ranges (the compiler converts them to radians), N.m for
+    torques. Frame: x forward (the red "front_marker" boxes), y left, z up. The base free joint starts on the floor.
+    Position actuators are driven by nanterino/body/mujoco_backend.py, which clamps every set point; the
+    Body.clamp / e-stop of nanterino/body/core.py stay in front of it (this file is a model, not a safety layer).
+  -->
+  <compiler angle="degree" autolimits="true"/>
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+
+  <default>
+    <geom density="400" friction="0.9 0.01 0.001"/>
+    <joint damping="0.15" armature="0.002"/>
+  </default>
+
+  <asset>
+    <material name="shell" rgba="0.80 0.80 0.84 1"/>
+    <material name="dark" rgba="0.15 0.15 0.18 1"/>
+    <material name="marker" rgba="0.90 0.10 0.10 1"/>
+    <material name="floor_mat" rgba="0.55 0.60 0.55 1"/>
+  </asset>
+
+  <worldbody>
+    <geom name="floor" type="plane" size="5 5 0.1" material="floor_mat" friction="0.9 0.01 0.001"/>
+    <light name="sun" pos="0 0 3" dir="0 0 -1"/>
+    <camera name="overview" pos="1.4 -1.4 0.9" xyaxes="1 1 0 -0.3 0.3 1" fovy="45"/>
+
+    <!-- Base: chassis + torso rigid on one free body; origin at the wheel axle height (0.05 m). -->
+    <body name="base" pos="0 0 0.05">
+      <freejoint name="base_free"/>
+      <geom name="chassis" type="box" size="0.12 0.11 0.03" pos="0 0 0.04" material="shell"/>
+      <geom name="torso" type="box" size="0.09 0.10 0.14" pos="0 0 0.19" material="shell"/>
+      <geom name="base_front_marker" type="box" size="0.01 0.04 0.01" pos="0.125 0 0.04" material="marker"
+            contype="0" conaffinity="0" mass="0.001"/>
+      <!-- Two frictionless ball casters (front and rear) keep the base level on two driven wheels. -->
+      <geom name="caster_front" type="sphere" size="0.015" pos="0.10 0 -0.035" friction="0.01 0.005 0.0001" material="dark"/>
+      <geom name="caster_rear" type="sphere" size="0.015" pos="-0.10 0 -0.035" friction="0.01 0.005 0.0001" material="dark"/>
+
+      <!-- Driven wheels: y = +/- track_m / 2 (track 0.30 m), radius 0.05 m, axis y. Continuous (no range). -->
+      <body name="base_left_wheel_link" pos="0 0.15 0">
+        <joint name="base_left_wheel" type="hinge" axis="0 1 0" damping="0.02"/>
+        <geom name="base_left_wheel_tire" type="cylinder" size="0.05 0.015" euler="90 0 0" material="dark" friction="1.2 0.01 0.001"/>
+      </body>
+      <body name="base_right_wheel_link" pos="0 -0.15 0">
+        <joint name="base_right_wheel" type="hinge" axis="0 1 0" damping="0.02"/>
+        <geom name="base_right_wheel_tire" type="cylinder" size="0.05 0.015" euler="90 0 0" material="dark" friction="1.2 0.01 0.001"/>
+      </body>
+
+      <!-- Head: pan (z) on the torso top, then tilt (y). Positive tilt looks up. Camera looks along +x. -->
+      <body name="head_pan_link" pos="0 0 0.34">
+        <joint name="head_pan" type="hinge" axis="0 0 1" range="-90 90"/>
+        <geom name="neck" type="cylinder" size="0.02 0.02" pos="0 0 0.02" material="dark"/>
+        <body name="head_tilt_link" pos="0 0 0.05">
+          <joint name="head_tilt" type="hinge" axis="0 -1 0" range="-30 40"/>
+          <geom name="head" type="box" size="0.06 0.07 0.05" pos="0.01 0 0.05" material="shell"/>
+          <geom name="head_front_marker" type="box" size="0.01 0.03 0.01" pos="0.075 0 0.05" material="marker"
+                contype="0" conaffinity="0" mass="0.001"/>
+          <camera name="head_cam" pos="0.072 0 0.06" xyaxes="0 -1 0 0 0 1" fovy="60"/>
+        </body>
+      </body>
+
+      <!-- Arms: shoulder pitch then elbow, hanging down at 0 deg; positive angles swing the arm forward / up. -->
+      <body name="arm_l_upper" pos="0 0.13 0.28">
+        <joint name="arm_l_shoulder" type="hinge" axis="0 -1 0" range="-45 170"/>
+        <geom name="arm_l_upper_geom" type="capsule" fromto="0 0 0 0 0 -0.09" size="0.02" material="dark"/>
+        <body name="arm_l_fore" pos="0 0 -0.09">
+          <joint name="arm_l_elbow" type="hinge" axis="0 -1 0" range="0 135"/>
+          <geom name="arm_l_fore_geom" type="capsule" fromto="0 0 0 0 0 -0.07" size="0.018" material="dark"/>
+        </body>
+      </body>
+      <body name="arm_r_upper" pos="0 -0.13 0.28">
+        <joint name="arm_r_shoulder" type="hinge" axis="0 -1 0" range="-45 170"/>
+        <geom name="arm_r_upper_geom" type="capsule" fromto="0 0 0 0 0 -0.09" size="0.02" material="dark"/>
+        <body name="arm_r_fore" pos="0 0 -0.09">
+          <joint name="arm_r_elbow" type="hinge" axis="0 -1 0" range="0 135"/>
+          <geom name="arm_r_fore_geom" type="capsule" fromto="0 0 0 0 0 -0.07" size="0.018" material="dark"/>
+        </body>
+      </body>
+    </body>
+  </worldbody>
+
+  <!--
+    Actuators, named after the body.yaml joint ids. Position joints: <position> (ctrl = angle, rad); wheels:
+    <velocity> (ctrl = wheel angular speed, rad/s = m/s / 0.05). forcerange (N.m) is about 0.9 x max_current of
+    body.yaml at a provisional 1 A per N.m, so the model can never request more than the electrical limit.
+  -->
+  <actuator>
+    <position name="head_pan" joint="head_pan" kp="6" forcerange="-0.9 0.9"/>
+    <position name="head_tilt" joint="head_tilt" kp="6" forcerange="-0.9 0.9"/>
+    <position name="arm_l_shoulder" joint="arm_l_shoulder" kp="9" forcerange="-1.35 1.35"/>
+    <position name="arm_l_elbow" joint="arm_l_elbow" kp="7" forcerange="-1.08 1.08"/>
+    <position name="arm_r_shoulder" joint="arm_r_shoulder" kp="9" forcerange="-1.35 1.35"/>
+    <position name="arm_r_elbow" joint="arm_r_elbow" kp="7" forcerange="-1.08 1.08"/>
+    <velocity name="base_left_wheel" joint="base_left_wheel" kv="1.5" ctrlrange="-10 10" forcerange="-2.7 2.7"/>
+    <velocity name="base_right_wheel" joint="base_right_wheel" kv="1.5" ctrlrange="-10 10" forcerange="-2.7 2.7"/>
+  </actuator>
+
+</mujoco>

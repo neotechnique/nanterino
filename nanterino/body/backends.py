@@ -5,11 +5,12 @@ logging: robotlog via nanterino.log (backends log nothing on the hot path; Body 
 Purpose
     A backend moves the motors and reports their state in HARDWARE units (calibration offset / direction are applied
     by Body, never here). SimBackend is a deterministic first-order kinematic model used by the tests, the traces,
-    the dashboard and the future Mouvement nodes (lot B1) until real hardware exists; MujocoBackend (lot B3) and
-    HardwareBackend (servos over serial / PWM / ROS 2, plan B4) are placeholders that refuse to start with a pointer.
+    the dashboard and the Mouvement nodes (lot B1) until real hardware exists; MujocoBackend (lot B3a) lives in
+    mujoco_backend.py (lazy import: needs the optional `mujoco` module, refuses to start with a French reason when it
+    is missing); HardwareBackend (servos over serial / PWM / ROS 2, plan B4) is a placeholder that refuses to start.
 Boundary
     Interface used by Body only: configure(joints), read_state(), command(targets), stop_all(), enable(id),
-    disable(id), step(dt). Body holds its lock around every call, so backends need no locking of their own.
+    disable(id), step(dt), plus the optional poll_events() / close(). Body holds its lock around every call, so backends need no locking of their own.
     `step(dt)` advances the simulation; a real backend would poll / stream its bus there (or ignore dt).
 Invariants (SimBackend)
     - position joints: |velocity| <= target.max_speed and |velocity change| <= max_accel * dt at every step; with a
@@ -61,6 +62,14 @@ class Backend:
 
     def step(self, dt: float) -> None:
         raise NotImplementedError
+
+    def poll_events(self) -> list:
+        """Optional: new physical events since the last call, [{"joint": id | None, "message": French text, ...}].
+        Body turns each into a `collision` body event. Backends without contact sensing return nothing."""
+        return []
+
+    def close(self) -> None:
+        """Optional: release threads / devices (no-op by default)."""
 
 
 class _SimJoint:
@@ -183,27 +192,34 @@ class SimBackend(Backend):
             s.pos = s.target
 
 
-class MujocoBackend(Backend):
-    """Placeholder of lot B3 (MJCF model + MuJoCo loop): refuses to start."""
-    name = "mujoco"
-
-    def __init__(self, *_a, **_k):
-        raise NotImplementedError("Backend MuJoCo pas encore disponible (lot B3) : voir " + NOT_READY_HINT)
-
-
 class HardwareBackend(Backend):
     """Placeholder of the real motors (servos over serial bus / PWM, ROS 2; plan B4): refuses to start."""
     name = "real"
+    REASON = "Backend matériel réel pas encore disponible (matériel non choisi) : voir " + NOT_READY_HINT
 
     def __init__(self, *_a, **_k):
-        raise NotImplementedError("Backend matériel réel pas encore disponible (matériel non choisi) : voir "
-                                  + NOT_READY_HINT)
+        raise NotImplementedError(self.REASON)
 
 
-BACKENDS = {"sim": SimBackend, "mujoco": MujocoBackend, "real": HardwareBackend}
+BACKENDS = ("sim", "mujoco", "real")
+
+
+def _mujoco_module():
+    from . import mujoco_backend    # lazy: nothing heavy is imported until the backend is asked for
+    return mujoco_backend
+
+
+def availability() -> dict:
+    """{name: {"available": bool, "reason": French text or None}} of every backend (additive state field)."""
+    ok, why = _mujoco_module().status()
+    return {"sim": {"available": True, "reason": None}, "mujoco": {"available": ok, "reason": why},
+            "real": {"available": False, "reason": HardwareBackend.REASON}}
 
 
 def make_backend(name: str) -> Backend:
+    """Build the named backend; NotImplementedError (French reason) when it cannot start, ValueError when unknown."""
     if name not in BACKENDS:
         raise ValueError("body_backend inconnu : %r (attendu %s)" % (name, " | ".join(BACKENDS)))
-    return BACKENDS[name]()
+    if name == "mujoco":
+        return _mujoco_module().MujocoBackend()
+    return SimBackend() if name == "sim" else HardwareBackend()
