@@ -174,10 +174,11 @@ def test_vocabulary():
     # CHANGED (lot N1): + 13 triggers, 12 actions, 13 conditions (concept triads)
     # CHANGED (lot N2): + 14 triggers, 19 conditions (parity 50 / 50 / 50)
     assert isinstance(counts.pop("media"), int)
-    # CHANGED (lot N3): + 15 triggers, 15 actions, 15 conditions (parity per theme 65 / 65 / 65)
-    assert counts == {"events": 65, "actions": 65, "guards": 65, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
+    # CHANGED (lot N3): + 15 triggers, 15 actions, 15 conditions (parity per theme 65 / 65 / 65); lot C2: + 1 / 1 / 1
+    # lot B1: + 12 / 12 / 12 (theme mouvement, 12th theme)
+    assert counts == {"events": 78, "actions": 78, "guards": 78, "delays": 3, "since": 2, "states": 7, "intents": 4, "kinds": 6,
                       "var_types": 19, "list_types": 17, "ops": 6, "op_sets": 19, "scopes": 2, "list_kinds": 2, "list_modes": 3,
-                      "weekdays": 7, "themes": 11, "theme_slots": 5, "variables": 2,
+                      "weekdays": 7, "themes": 12, "theme_slots": 5, "variables": 2,
                       "properties": 2, "type_compat": 19}, counts   # CHANGED (lot M4): + properties {get, set}; (lot M5): + type_compat (additive key, last)
     ports = {k["id"]: (k["inputs"], k["outputs"]) for k in v["kinds"]}
     assert ports["trigger"] == (0, ["out"]) and ports["start"] == (0, ["out"]) and ports["end"] == (1, [])
@@ -463,9 +464,9 @@ def test_frames_cosmetic_groups():
     ok, errs = V.save(dup, CFG, gp, lp)
     assert not ok and errs[0]["frame"] == "f1"
     many = copy.deepcopy(base)
-    many["frames"] = [dict(f2, id="g%d" % i) for i in range(101)]
+    many["frames"] = [dict(f2, id="g%d" % i) for i in range(V.MAX_FRAMES + 1)]
     assert not V.save(many, CFG, gp, lp)[0]
-    many["frames"] = many["frames"][:100]
+    many["frames"] = many["frames"][:V.MAX_FRAMES]
     assert V.from_visual(many, CFG)[2] == []
     assert open(lp, encoding="utf-8").read() == before
     # versions: a later save without frames, then restoring the previous version brings them back
@@ -802,9 +803,9 @@ def test_notes_cosmetic_postits():
     assert not ok and errs[0]["note"] == "p1"
     assert V.from_visual(dict(base, notes="nope"), CFG)[2][0]["note"] is None
     many = copy.deepcopy(base)
-    many["notes"] = [_note(i) for i in range(201)]
+    many["notes"] = [_note(i) for i in range(V.MAX_NOTES + 1)]
     assert not V.save(many, CFG, gp, lp)[0]
-    many["notes"] = many["notes"][:200]
+    many["notes"] = many["notes"][:V.MAX_NOTES]
     assert V.from_visual(many, CFG)[2] == []
     ok_text = copy.deepcopy(base)
     ok_text["notes"] = [_note(1, text="é" * 2000)]

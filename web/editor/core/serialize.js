@@ -7,7 +7,7 @@
  * Depends :  core/util.js, core/state.js, variables/model.js, inspector/property-picker.js, core/api.js, canvas/nodes.js,
  *            diagnostics/analysis.js, canvas/wires.js, minimap/overview.js, frames/groups.js, frames/nesting.js,
  *            frames/notes.js, hierarchy/tree.js, inspector/inspector.js, panels/intents.js, variables/tables.js,
- *            tester/tester.js
+ *            tester/tester.js, canvas/culling.js, canvas/wiredraw.js (S3)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { clone, dbg } from './util.js';
@@ -18,6 +18,8 @@ import { dfData, model, nidOf } from './api.js';
 import { addNodeFromModel } from '../canvas/nodes.js';
 import { analyze } from '../diagnostics/analysis.js';
 import { paintWires } from '../canvas/wires.js';
+import { cullAll, resetCull } from '../canvas/culling.js';
+import { resetWires } from '../canvas/wiredraw.js';
 import { clearJumpbar, drawJumpbar, zoomVars } from '../minimap/overview.js';
 import { frameById } from '../frames/groups.js';
 import { adoptLegacy, drawFrames, initialView } from '../frames/nesting.js';
@@ -60,6 +62,7 @@ export function serialize() {
 }
 
 export function rebuild(doc, keepView) {
+  const T = (S.perf = { t0: performance.now(), marks: [] }), mark = (k) => T.marks.push([k, Math.round(performance.now() - T.t0)]);   // S3: phase timings (scenario bigworld prints them)
   S.loading = true;
   S.meta = {};
   for (const k in doc) if (!['nodes', 'links', 'error', 'pending'].includes(k)) S.meta[k] = clone(doc[k]);
@@ -69,8 +72,10 @@ export function rebuild(doc, keepView) {
   S.editor.drag = false; S.editor.drag_point = false; S.editor.connection = false; S.editor.editor_selected = false;
   S.editor.ele_selected = null; S.editor.node_selected = null; S.editor.connection_selected = null; S.editor.connection_ele = null;
   S.editor.clear();
+  resetCull(); resetWires();   // S3: every element of the culling pass / wire index is gone (culling is applied again by zoomVars() at the end)
   S.selDf = null; S.selConn = null; S.selChain = null;   // L10: a hierarchy chain selection refers to the old nodes
   S.linkMeta = new Map();
+  mark('clear');
   (doc.links || []).forEach((l) => {
     const mt = {};
     if (l.reason) mt.reason = l.reason;
@@ -85,6 +90,7 @@ export function rebuild(doc, keepView) {
     m.params = m.params || {}; m.description = m.description || '';
     addNodeFromModel(m, n.x || 0, n.y || 0);
   });
+  mark('nodes');
   (doc.links || []).forEach((l) => {
     const a = nidToDf.get(l.from), b = nidToDf.get(l.to);
     if (a == null || b == null) return;
@@ -94,21 +100,25 @@ export function rebuild(doc, keepView) {
     if (!kb || !kb.ins || !ka || !ka.outs || (l.port === 'false' && ka.outs < 2)) { dbg('wire skipped ' + l.from + '>' + l.to); return; }
     S.editor.addConnection(a, b, l.port === 'false' ? 'output_2' : 'output_1', 'input_1');
   });
+  mark('links');
+  cullAll();               // S3: hide everything before the first layout; the first view shows (and draws) what it needs
   docVars();               // the variables block always exists from here on (stable dirty snapshot)
   S.loading = false;
   if (!keepView) initialView();
   if (S.selFrame && !frameById(S.selFrame)) S.selFrame = null;
   if (S.selNote && !noteById(S.selNote)) S.selNote = null;
-  analyze();
-  paintWires();
-  drawFrames();
-  drawNotes();
+  mark('docVars');
+  analyze(); mark('analyze');
+  paintWires(); mark('paintWires');
+  drawFrames(); mark('drawFrames');
+  drawNotes(); mark('drawNotes');
   if (!keepView && adoptLegacy()) drawFrames();   // L8: old flat layout -> membership from geometry, once
-  drawJumpbar(); zoomVars();
+  drawJumpbar(); mark('jumpbar'); zoomVars(); mark('zoomVars');
   if (!keepView) clearJumpbar();   // L6: the jump bar exists only now: measure it and free the column titles
   scheduleTree();
   renderInspector();
   renderIntents();
   if (S.curTab === 'vars') renderVars();
   if (S.curTab === 'tester') renderTester();
+  mark('end');
 }

@@ -9,10 +9,15 @@
  *            core/chains.js, canvas/view.js, minimap/overview.js, minimap/minimap.js, frames/groups.js, frames/notes.js,
  *            canvas/navigation.js, clipboard/clipboard.js, menu/node-menu.js, hierarchy/tree.js, inspector/fields.js,
  *            inspector/inspector.js, core/ui.js, domains/domains.js (S1)
+ *            S2: frames hidden by a fold are never drop targets (a repack may slide neighbours over them); a column drag
+ *            takes the nodes of clipboard.inFrame (hidden nodes by their column, never by geometry); "Ajuster" and the
+ *            minimum zoom use the whole world (worldBounds: nodes + frames + regions); zoom_min = half the fit zoom of
+ *            the world (no fixed floor), refreshed on every redraw of the frames; focusRect takes {min, max}.
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h, ico } from '../core/util.js';
 import { S, nidToDf } from '../core/state.js';
+import { applyCull, updateWires } from '../canvas/culling.js';
 import { dfData, dfNode, model, nidOf } from '../core/api.js';
 import { nodeEl, stateDesc } from '../canvas/nodes.js';
 import { serialize } from '../core/serialize.js';
@@ -24,13 +29,13 @@ import { frameCard } from '../minimap/minimap.js';
 import { FRAME_COLORS, FRAME_PAD, ensureFrames, frameById, frameEls, frames, placeFrame } from './groups.js';
 import { noteEls, noteHeight, notes, placeNote } from './notes.js';
 import { editBlocked } from '../canvas/navigation.js';
-import { clearChainSel } from '../clipboard/clipboard.js';
+import { clearChainSel, inFrame } from '../clipboard/clipboard.js';
 import { selectDf } from '../menu/node-menu.js';
 import { colColor, colIcon, colState, scheduleTree, treeStats } from '../hierarchy/tree.js';
 import { areaCtl, checkCtl, field, textCtl } from '../inspector/fields.js';
 import { renderInspector } from '../inspector/inspector.js';
 import { toast } from '../core/ui.js';
-import { domainById, domainList, domainOfCol, drawDomains, foldColumn, isColFolded, moveColumnToDomain, worldBox } from '../domains/domains.js';
+import { domainById, domainList, domainOfCol, drawDomains, foldColumn, isColFolded, moveColumnToDomain, worldBounds } from '../domains/domains.js';
 
 // ---------- nested groups (lot L8) ----------
 // f.parent / note.parent = id of the enclosing frame (absent = top level), saved in graph.layout.json (the server's
@@ -62,11 +67,13 @@ export const frameBox = (f) => ({ x0: f.x, y0: f.y, x1: f.x + f.w, y1: f.y + f.h
 export const noteBox = (n, hh) => ({ x0: n.x, y0: n.y, x1: n.x + n.w, y1: n.y + (hh == null ? noteHeight(n) : hh) });
 // Frame that would receive an item whose box is `b`: deepest frame containing its centre (then smallest), skipping
 // `skip` ids. opts.frame: the item is a frame (only enters a larger one); opts.smallest: smallest area wins (legacy).
+// S2: a frame hidden by a fold (class fold-hide) is never a target.
+const foldHidden = (g) => { const el = frameEls.get(g.id); return !!(el && el.classList.contains('fold-hide')); };
 export function dropTarget(b, skip, opts) {
   const o = opts || {}, cx = (b.x0 + b.x1) / 2, cy = (b.y0 + b.y1) / 2, area = (b.x1 - b.x0) * (b.y1 - b.y0);
   let best = null, bd = -1, ba = 0;
   frames().forEach((g) => {
-    if ((skip && skip.has(g.id)) || cx < g.x || cx > g.x + g.w || cy < g.y || cy > g.y + g.h) return;
+    if ((skip && skip.has(g.id)) || foldHidden(g) || cx < g.x || cx > g.x + g.w || cy < g.y || cy > g.y + g.h) return;
     const ga = g.w * g.h; if (o.frame && ga <= area) return;
     const d = o.smallest ? 0 : frameDepth(g);
     if (!best || d > bd || (d === bd && ga < ba)) { best = g; bd = d; ba = ga; }
@@ -75,11 +82,12 @@ export function dropTarget(b, skip, opts) {
 }
 // L9: frame that receives a drop: the deepest frame under the POINTER (canvas point `pt`), then the smallest, skipping
 // `skip` ids (the dragged frame and its descendants). Size never matters: the receiving chain grows to fit.
-export function dropTargetAt(pt, skip) {
+// S2: frames hidden by a fold are skipped, unless `only` (Set of ids) restricts the candidates (hierarchy of hidden chains).
+export function dropTargetAt(pt, skip, only) {
   if (!pt) return null;
   let best = null, bd = -1, ba = 0;
   frames().forEach((g) => {
-    if ((skip && skip.has(g.id)) || pt.x < g.x || pt.x > g.x + g.w || pt.y < g.y || pt.y > g.y + g.h) return;
+    if ((skip && skip.has(g.id)) || (only ? !only.has(g.id) : foldHidden(g)) || pt.x < g.x || pt.x > g.x + g.w || pt.y < g.y || pt.y > g.y + g.h) return;
     const d = frameDepth(g), ga = g.w * g.h;
     if (!best || d > bd || (d === bd && ga < ba)) { best = g; bd = d; ba = ga; }
   });
@@ -166,6 +174,13 @@ export function drawFrames() {
   });
   drawBands();             // live / simulated state glow on the auto column frames
   drawDomains();           // lot S1: domain regions follow their columns; fold cards / hidden content re-applied
+  updateZoomMin();         // S2: the zoom range follows the size of the world
+  applyCull(true);         // S3: the new frame elements are culled by the same rule as the nodes
+}
+// S2: lowest zoom = half the zoom that fits the whole world (no fixed floor: a 10x graph zooms out 10x further).
+export function updateZoomMin() {
+  if (!S.editor) return;
+  S.editor.zoom_min = Math.max(1e-4, Math.min(0.5, fitZoom() * 0.5));
 }
 export function clearNodeSelection() {
   if (S.editor.node_selected) { S.editor.node_selected.classList.remove('selected'); S.editor.node_selected = null; }
@@ -186,13 +201,13 @@ function startFrameDrag(e, f, mode) {
   if (e.button) return;                 // left button / touch only
   e.stopPropagation(); e.preventDefault();   // Drawflow must not pan the canvas or select a node
   selectFrame(f.id);
-  const p = evPoint(e), ctr = (b) => [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2];
-  const inside = (cx, cy) => cx >= f.x && cx <= f.x + f.w && cy >= f.y && cy <= f.y + f.h;
+  const p = evPoint(e);
   S.frameDrag = { f, mode, cx: p.clientX, cy: p.clientY, ox: f.x, oy: f.y, ow: f.w, oh: f.h, moved: false, nodes: [], frames: [], notes: [],
     skip: new Set([f.id]), min: mode === 'resize' ? minFrameSize(f) : null };
   if (mode === 'move') {
     // Nodes whose centre lies in the frame at drag start follow it; L8: so do all descendant frames and their post-its.
-    S.frameDrag.nodes = Object.keys(dfData()).filter((dfid) => inside(...ctr(nodeBox(dfid))))
+    // S2: clipboard.inFrame: a node hidden by a fold follows its own column only (a repack may slide it under this frame)
+    S.frameDrag.nodes = Object.keys(dfData()).filter((dfid) => inFrame(f, dfid))
       .map((dfid) => ({ dfid, x: dfNode(dfid).pos_x, y: dfNode(dfid).pos_y }));
     const kids = descendantFrames(f);
     kids.forEach((g) => S.frameDrag.skip.add(g.id));
@@ -214,8 +229,8 @@ export function moveFrameDrag(e) {
       const nd = dfNode(n.dfid), el = nodeEl(n.dfid);
       nd.pos_x = n.x + dx; nd.pos_y = n.y + dy;
       if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
-      S.editor.updateConnectionNodes('node-' + n.dfid);
     });
+    updateWires(d.nodes.map((n) => n.dfid));          // S3: positions first, then ONE redraw pass of their wires
     d.frames.forEach((o) => { o.g.x = Math.round(o.x + dx); o.g.y = Math.round(o.y + dy); const el = frameEls.get(o.g.id); if (el) placeFrame(o.g, el); });
     d.notes.forEach((o) => { o.n.x = Math.round(o.x + dx); o.n.y = Math.round(o.y + dy); const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
     d.pt = canvasPoint(p.clientX, p.clientY);
@@ -247,8 +262,8 @@ function undoFrameMove(d) {
     const nd = dfNode(n.dfid), el = nodeEl(n.dfid);
     nd.pos_x = n.x; nd.pos_y = n.y;
     if (el) { el.style.left = n.x + 'px'; el.style.top = n.y + 'px'; }
-    S.editor.updateConnectionNodes('node-' + n.dfid);
   });
+  updateWires(d.nodes.map((n) => n.dfid));
   d.frames.forEach((o) => { o.g.x = o.x; o.g.y = o.y; });
   d.notes.forEach((o) => { o.n.x = o.x; o.n.y = o.y; const el = noteEls.get(o.n.id); if (el) placeNote(o.n, el); });
 }
@@ -363,14 +378,14 @@ export function bbox() {
   return x0 > x1 ? null : { x0, y0, x1, y1 };
 }
 function fitZoom() {
-  const b = worldBox(bbox()), c = $('#drawflow');   // S1: the domain regions (even empty ones) are part of the world
+  const b = worldBounds(), c = $('#drawflow');   // S1: the domain regions (even empty ones) are part of the world; S2: + frames
   if (!b) return 1;
-  // L7: the column layout is wide (~14 000 px): allow a smaller zoom so "Ajuster" really shows everything
-  return Math.max(0.02, Math.min(1, c.clientWidth / ((b.x1 - b.x0) * 1.1), c.clientHeight / ((b.y1 - b.y0) * 1.1)));
+  // L7: the column layout is wide (~14 000 px): allow a smaller zoom so "Ajuster" really shows everything; S2: no floor
+  return Math.max(1e-4, Math.min(1, c.clientWidth / ((b.x1 - b.x0) * 1.1), c.clientHeight / ((b.y1 - b.y0) * 1.1)));
 }
 // "Ajuster": whole graph, centred, ~5 % padding each side.
 export function fit() {
-  const b = worldBox(bbox()), c = $('#drawflow');
+  const b = worldBounds(), c = $('#drawflow');
   if (!b) return;
   // L6: leave the measured jump bar row plus one column-title row (titles never draw smaller than ~14 px) free
   const jbb = jumpbarBottom(), jbH = jbb == null ? 38 : jbb - c.getBoundingClientRect().top;
@@ -380,11 +395,13 @@ export function fit() {
   setView(z, (c.clientWidth - w * z) / 2 - b.x0 * z, top + (c.clientHeight - top - hh * z) / 2 - b.y0 * z);
   clearJumpbar();
 }
-// Jump to a state band: fit it to the canvas (or use a fixed readable zoom when given).
-export function focusRect(r, zoom) {
-  const c = $('#drawflow');
+// Jump to a state band: fit it to the canvas (or use a fixed readable zoom when given). S2: opts {min, max} bound the
+// fit (default: the world-derived zoom_min .. 1, no fixed 0.1 floor).
+export function focusRect(r, zoom, opts) {
+  const c = $('#drawflow'), o = opts || {};
   const w = r.x1 - r.x0, hh = r.y1 - r.y0;
-  const z = zoom || Math.max(0.1, Math.min(1, c.clientWidth / (w * 1.05), c.clientHeight / (hh * 1.05)));
+  const lo = o.min != null ? o.min : S.editor.zoom_min, hi = o.max != null ? o.max : 1;
+  const z = zoom || Math.max(lo, Math.min(hi, c.clientWidth / (w * 1.05), c.clientHeight / (hh * 1.05)));
   const cx = w * z <= c.clientWidth ? (c.clientWidth - w * z) / 2 - r.x0 * z : 20 - r.x0 * z;
   const cy = hh * z <= c.clientHeight ? (c.clientHeight - hh * z) / 2 - r.y0 * z : 20 - r.y0 * z;
   setView(z, cx, cy);

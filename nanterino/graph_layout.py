@@ -30,6 +30,9 @@ Domains (lot S1): `domain_layout()` runs the variables drawing PER DOMAIN (Dialo
     Système) and packs one region per domain on a grid; `region_rect()` is the region formula the editor mirrors. The
     cosmetic theme frames (THEMES / `default_frames`, ids `t-*`) are only drawn by the legacy go-to form: the domain
     regions replace them as the level above the columns. Organisation only: nothing here reaches graph.yaml.
+Lot S2: `region_boxes()` (drawn regions: folded cards FOLD_COL / FOLD_DOM, the domain post-it), `pack_positions()`
+    (grid repack, rows by top within ROW_TOL) and `repack_regions()` (moves each region with its content when two drawn
+    regions overlap) mirror web/editor/domains/domains.js; graph_visual.to_visual repairs saved layouts with it.
 
 Invariants
     - One band per state group, stacked top to bottom in the order the groups first appear in `nodes`.
@@ -609,6 +612,183 @@ def domain_layout(nodes, links, col_dom: dict, domains=None, y0: int = TOP, head
     if regions_out is not None:
         regions_out.sort(key=lambda r: doms.index(r["id"]))
     return pos
+
+
+# ---- lot S2 (2026-11-04): folds that reclaim space, overlapping regions repaired on load
+# Mirror of web/editor/domains/domains.js (domainRect, packPositions, packRegions). The editor repacks the regions on
+# every fold / unfold (a folded column is drawn as a FOLD_COL card, a folded domain as a FOLD_DOM card); the server
+# repacks a SAVED layout only when two of its regions overlap (layouts written before S1 / S2, a hand mapping of a
+# column to another domain whose frame did not move), so the editor never receives overlapping regions. The repack is
+# deterministic: same layout in, same positions out; a packed layout (the default grid) packs to itself.
+FOLD_COL_W, FOLD_COL_H = 340, 190   # editor canvas/geometry.js FOLD_COL
+FOLD_DOM_W, FOLD_DOM_H = 520, 250   # editor canvas/geometry.js FOLD_DOM
+ROW_TOL = DOM_GAP                   # pack_positions: same row when the tops differ by less
+
+
+def _frame_col(f) -> str | None:
+    """State column of an automatic column frame (`auto-<group>`), else None."""
+    fid = str(f.get("id", ""))
+    return fid[5:] if f.get("auto") and fid.startswith("auto-") else None
+
+
+def _dom_of(doc, g) -> str:
+    ids = {d["id"] for d in doc.get("domains") or []}
+    e = (doc.get("columns") or {}).get(g) or {}
+    return e["domain"] if e.get("domain") in ids else default_domain(g)
+
+
+def region_boxes(doc: dict, full: bool = False) -> dict:
+    """{domain id: {x, y, w, h}} drawn by the editor: column frames (a folded column = its FOLD_COL card) plus the
+    domain's explanatory post-it (`auto: "domain:<id>"`, top level), grown like region_rect; else the stored rectangle;
+    a folded domain = its FOLD_DOM card at the same top-left. `full=True`: as if nothing were folded (what it owns)."""
+    cols = doc.get("columns") or {}
+    out = {}
+    for d in doc.get("domains") or []:
+        boxes = []
+        for f in doc.get("frames") or []:
+            g = _frame_col(f)
+            if g is None or _dom_of(doc, g) != d["id"]:
+                continue
+            fold = not full and (cols.get(g) or {}).get("folded")
+            boxes.append((f["x"], f["y"], f["x"] + (FOLD_COL_W if fold else f["w"]), f["y"] + (FOLD_COL_H if fold else f["h"])))
+        if boxes:
+            for n in doc.get("notes") or []:
+                if n.get("auto") == "domain:" + d["id"] and not n.get("parent"):
+                    boxes.append((n["x"], n["y"], n["x"] + n["w"], n["y"] + n.get("h", 0)))
+            r = region_rect(boxes)
+        elif all(isinstance(d.get(k), (int, float)) for k in ("x", "y", "w", "h")) and d["w"] > 0 and d["h"] > 0:
+            r = {k: d[k] for k in ("x", "y", "w", "h")}
+        else:
+            r = None
+        if r and d.get("folded") and not full:
+            r = {"x": r["x"], "y": r["y"], "w": FOLD_DOM_W, "h": FOLD_DOM_H}
+        if r:
+            out[d["id"]] = r
+    return out
+
+
+def overlapping_regions(rects: dict) -> list:
+    """[(id a, id b)] of region rectangles that overlap (strictly: touching edges do not count)."""
+    ids = list(rects)
+    return [(a, b) for i, a in enumerate(ids) for b in ids[i + 1:]
+            if rects[a]["x"] < rects[b]["x"] + rects[b]["w"] and rects[b]["x"] < rects[a]["x"] + rects[a]["w"]
+            and rects[a]["y"] < rects[b]["y"] + rects[b]["h"] and rects[b]["y"] < rects[a]["y"] + rects[a]["h"]]
+
+
+def pack_positions(items: list) -> dict:
+    """Grid positions {id: (x, y)} of region rectangles [{id, x, y, w, h, i}] (i = domain order). Sorted by top, then
+    left, then i; a region starts a new row when its top is ROW_TOL or more below the row's first top; rows stacked from
+    the top-left corner of all regions, DOM_GAP between rows (row height = its tallest region) and between regions."""
+    if not items:
+        return {}
+    x0, y0 = min(r["x"] for r in items), min(r["y"] for r in items)
+    rows = []
+    for r in sorted(items, key=lambda r: (r["y"], r["x"], r["i"])):
+        if rows and r["y"] - rows[-1]["top"] < ROW_TOL:
+            rows[-1]["items"].append(r)
+        else:
+            rows.append({"top": r["y"], "items": [r]})
+    out, y = {}, y0
+    for row in rows:
+        x = x0
+        for r in sorted(row["items"], key=lambda r: (r["x"], r["i"])):
+            out[r["id"]] = (x, y)
+            x += r["w"] + DOM_GAP
+        y += max(r["h"] for r in row["items"]) + DOM_GAP
+    return out
+
+
+def _centre_in(box, r) -> bool:
+    cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
+    return r["x"] <= cx <= r["x"] + r["w"] and r["y"] <= cy <= r["y"] + r["h"]
+
+
+def _domain_content(doc, d, claimed: set, rect) -> dict:
+    """What a region owns (mirror of the editor's domainContent): its column frames with their sub-groups (parent
+    links) and their post-its, the nodes of its column groups, its explanatory post-it, then the loose top-level groups
+    / post-its / nodes (no column) whose centre lies in its full rectangle. `claimed` (ids) keeps every item in ONE
+    region: the first that claims it, in domain order. Returns {"frames": [...], "notes": [...], "nodes": [...]}."""
+    out = {"frames": [], "notes": [], "nodes": []}
+    frames, notes = doc.get("frames") or [], doc.get("notes") or []
+
+    def take(kind, it):
+        key = (kind, it["id"])
+        if key not in claimed:
+            claimed.add(key)
+            out[kind].append(it)
+
+    def subtree(f):
+        ids, todo = {f["id"]}, [f["id"]]
+        while todo:
+            cur = todo.pop()
+            for g in frames:
+                if g.get("parent") == cur and g["id"] not in ids:
+                    ids.add(g["id"])
+                    todo.append(g["id"])
+        return ids
+
+    col_groups = {_frame_col(f) for f in frames if _frame_col(f)}
+    groups, owned = set(), set()
+    for f in frames:
+        g = _frame_col(f)
+        if g is not None and _dom_of(doc, g) == d["id"]:
+            groups.add(g)
+            owned |= subtree(f)
+    for f in frames:
+        if f["id"] in owned:
+            take("frames", f)
+    for n in notes:
+        if n.get("parent") in owned or (n.get("auto") == "domain:" + d["id"] and not n.get("parent")):
+            take("notes", n)
+    for n in doc.get("nodes") or []:
+        if n.get("group") in groups:
+            take("nodes", n)
+    if rect:
+        for f in frames:
+            if not f.get("auto") and not f.get("parent") and _centre_in((f["x"], f["y"], f["x"] + f["w"], f["y"] + f["h"]), rect):
+                sub = subtree(f)
+                for g in frames:
+                    if g["id"] in sub:
+                        take("frames", g)
+                for n in notes:
+                    if n.get("parent") in sub:
+                        take("notes", n)
+        for n in notes:
+            if not n.get("parent") and _centre_in((n["x"], n["y"], n["x"] + n["w"], n["y"] + n.get("h", 0)), rect):
+                take("notes", n)
+        for n in doc.get("nodes") or []:
+            if n.get("group") not in col_groups and _centre_in((n["x"], n["y"], n["x"] + NODE_W, n["y"] + node_height(n)), rect):
+                take("nodes", n)
+    return out
+
+
+def repack_regions(doc: dict, force: bool = False) -> int:
+    """Lot S2: repack the domain regions of an editor document on their grid (pack_positions) with their whole content
+    (frames, post-its, nodes; stored rectangles of the domains too). Only when two drawn regions overlap, unless
+    `force`. Mutates `doc`; returns the number of regions moved (0 = untouched)."""
+    rects = region_boxes(doc)
+    if not rects or (not force and not overlapping_regions(rects)):
+        return 0
+    full = region_boxes(doc, full=True)
+    order = [d["id"] for d in doc.get("domains") or [] if d["id"] in rects]
+    claimed = set()
+    content = {i: _domain_content(doc, next(d for d in doc["domains"] if d["id"] == i), claimed, full.get(i)) for i in order}
+    pos = pack_positions([dict(rects[i], id=i, i=k) for k, i in enumerate(order)])
+    moved = 0
+    for i in order:
+        dx, dy = int(round(pos[i][0] - rects[i]["x"])), int(round(pos[i][1] - rects[i]["y"]))
+        if not dx and not dy:
+            continue
+        c = content[i]
+        for it in c["frames"] + c["notes"] + c["nodes"]:
+            it["x"] += dx
+            it["y"] += dy
+        d = next(d for d in doc["domains"] if d["id"] == i)
+        if isinstance(d.get("x"), (int, float)) and isinstance(d.get("y"), (int, float)):
+            d["x"] += dx
+            d["y"] += dy
+        moved += 1
+    return moved
 
 
 def auto_layout(nodes, links, y0: int = TOP, hub: bool = False) -> dict:

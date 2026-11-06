@@ -1,0 +1,76 @@
+# Nanterino gesture and pose library (lot B1, 2026-11-04) - PROVISIONAL, like body.yaml.
+#
+# Read by nanterino/body/motion.py at import (a bad entry stops the start with an error naming it). The Mouvement
+# graph nodes offer exactly these names: « Faire un geste » (gestures), « Prendre une pose » / « Le robot est dans une
+# pose » (poses), « Hocher la tête (oui) » = gesture `oui`, « Secouer la tête (non) » = gesture `non`.
+#
+# Conventions (logical joint units of body.yaml, calibration limits still apply - out of range = clamped at run time):
+#   head_pan   deg, 0 = front, + = the robot's left       head_tilt  deg, + = up (provisional)
+#   arm_*_shoulder deg, 0 = arm down, + = raised forward    arm_*_elbow deg, 0 = straight, + = bent
+# A gesture is a list of steps played in order: each step sends `targets` at `speed` (fraction of max_speed, (0, 1])
+# through Body.command, waits until those joints arrived, then waits `hold_s` seconds. A gesture should end where it
+# started (last step back to rest) so that it can be chained. A pose is one set of targets sent at once.
+# `base` declares the differential base used by « Avancer / reculer » and « Tourner sur place ».
+schema: nanterino.gestures
+version: 1
+gestures:
+  salut:
+    label: "Saluer de la main"
+    steps:
+      - {targets: {arm_r_shoulder: 150, arm_r_elbow: 30}, speed: 0.8}
+      - {targets: {arm_r_elbow: 80}, speed: 1.0}
+      - {targets: {arm_r_elbow: 30}, speed: 1.0}
+      - {targets: {arm_r_elbow: 80}, speed: 1.0}
+      - {targets: {arm_r_elbow: 30}, speed: 1.0}
+      - {targets: {arm_r_shoulder: 0, arm_r_elbow: 0}, speed: 0.6}
+  oui:
+    label: "Hocher la tête (oui)"
+    steps:
+      - {targets: {head_tilt: -15}, speed: 0.8}
+      - {targets: {head_tilt: 10}, speed: 0.8}
+      - {targets: {head_tilt: -15}, speed: 0.8}
+      - {targets: {head_tilt: 0}, speed: 0.6}
+  non:
+    label: "Secouer la tête (non)"
+    steps:
+      - {targets: {head_pan: 20}, speed: 0.8}
+      - {targets: {head_pan: -20}, speed: 0.8}
+      - {targets: {head_pan: 20}, speed: 0.8}
+      - {targets: {head_pan: 0}, speed: 0.6}
+  montrer_gauche:
+    label: "Montrer à gauche"
+    steps:
+      - {targets: {head_pan: 45, arm_l_shoulder: 90, arm_l_elbow: 10}, speed: 0.7, hold_s: 1.0}
+      - {targets: {head_pan: 0, arm_l_shoulder: 0, arm_l_elbow: 0}, speed: 0.6}
+  montrer_droite:
+    label: "Montrer à droite"
+    steps:
+      - {targets: {head_pan: -45, arm_r_shoulder: 90, arm_r_elbow: 10}, speed: 0.7, hold_s: 1.0}
+      - {targets: {head_pan: 0, arm_r_shoulder: 0, arm_r_elbow: 0}, speed: 0.6}
+  hausser:
+    label: "Hausser les épaules"
+    steps:
+      - {targets: {arm_l_shoulder: 25, arm_r_shoulder: 25, arm_l_elbow: 90, arm_r_elbow: 90, head_tilt: -8}, speed: 0.7, hold_s: 0.6}
+      - {targets: {arm_l_shoulder: 0, arm_r_shoulder: 0, arm_l_elbow: 0, arm_r_elbow: 0, head_tilt: 0}, speed: 0.6}
+  curieux:
+    label: "Pencher la tête (curieux)"
+    steps:
+      - {targets: {head_pan: 12, head_tilt: 15}, speed: 0.5, hold_s: 1.0}
+      - {targets: {head_pan: 0, head_tilt: 0}, speed: 0.5}
+poses:
+  repos:
+    label: "Repos"
+    targets: {head_pan: 0, head_tilt: 0, arm_l_shoulder: 0, arm_l_elbow: 0, arm_r_shoulder: 0, arm_r_elbow: 0}
+  accueil:
+    label: "Accueil (bras ouverts)"
+    targets: {head_pan: 0, head_tilt: 10, arm_l_shoulder: 45, arm_l_elbow: 30, arm_r_shoulder: 45, arm_r_elbow: 30}
+  bras_leves:
+    label: "Bras levés"
+    targets: {head_tilt: 15, arm_l_shoulder: 160, arm_l_elbow: 0, arm_r_shoulder: 160, arm_r_elbow: 0}
+  pensif:
+    label: "Pensif"
+    targets: {head_pan: 15, head_tilt: -10, arm_r_shoulder: 60, arm_r_elbow: 120, arm_l_shoulder: 0, arm_l_elbow: 0}
+base:
+  left: base_left_wheel
+  right: base_right_wheel
+  track_m: 0.30          # distance between the two wheels (provisional, measured on the real robot later)

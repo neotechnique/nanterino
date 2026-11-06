@@ -3,6 +3,7 @@
 logging: robotlog -> /var/log/robot/nanterino-ui.log (which button was used, never content).
 Why not a real desktop folder: Nautilus 46 cannot launch .desktop files from a folder window.
 """
+import os
 import subprocess
 import sys
 
@@ -11,24 +12,29 @@ from robotlog import get_logger  # noqa: E402
 
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget  # noqa: E402
 
+from nanterino_ui.single_instance import SingleInstance, raise_window  # noqa: E402
+
 log = get_logger("nanterino-ui")
 PY = "/opt/robot/nanterino/.venv/bin/python"
 ROOT = "/opt/robot/nanterino"
+# flock -n inside restart.sh: a second click while a restart runs only prints "Redémarrage déjà en cours".
+RESTART_SCRIPT = f"{ROOT}/nanterino_ui/restart.sh"
 
 ACTIONS = [
     ("🙂  Visage (F11 = plein écran)", [PY, "-m", "nanterino_ui.app"]),
     ("📊  Tableau technique", [PY, "-m", "nanterino_ui.app", "--dash"]),
-    ("🔄  Redémarrer Nanterino", ["gnome-terminal", "--", "bash", "-c",
-                                 "systemctl --user restart nanterino-stt nanterino-llm nanterino; sleep 15; "
-                                 "systemctl --user --no-pager status nanterino nanterino-stt nanterino-llm | grep -E '●|Active'; "
-                                 "read -p 'Entrée pour fermer'"]),
-    ("📁  Fiches du corpus", ["xdg-open", f"{ROOT}/fiches"]),
-    ("📜  Logs (/var/log/robot)", ["xdg-open", "/var/log/robot"]),
+    ("🔄  Redémarrer Nanterino", ["gnome-terminal", "--", "bash", RESTART_SCRIPT]),
+    ("📁  Fiches du corpus", [PY, "-m", "nanterino_ui.corpus"]),
+    ("🗂  Explorateur", [PY, "-m", "nanterino_ui.explorer", os.path.expanduser("~")]),
+    ("📜  Logs (/var/log/robot)", [PY, "-m", "nanterino_ui.explorer", "/var/log/robot"]),
 ]
 
 
 def main():
     app = QApplication(sys.argv)
+    si = SingleInstance("hub")
+    if not si.acquire():
+        sys.exit(0)
     w = QWidget()
     w.setWindowTitle("Nanterino")
     lay = QVBoxLayout(w)
@@ -44,7 +50,8 @@ def main():
             subprocess.Popen(c, cwd=ROOT, start_new_session=True)
         b.clicked.connect(launch)
         lay.addWidget(b)
-    w.resize(380, 340)
+    w.resize(380, 420)
+    si.on_raise = lambda: raise_window(w)
     w.show()
     sys.exit(app.exec())
 

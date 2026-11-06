@@ -13,6 +13,7 @@
  */
 import { $, h, ico } from '../core/util.js';
 import { S, KINDS, iconOf, nidToDf, stateColor, stateIcon } from '../core/state.js';
+import { updateWires } from '../canvas/culling.js';
 import { isEnterTrig } from '../inspector/property-picker.js';
 import { dfData, dfNode, model, nidOf } from '../core/api.js';
 import { nodeEl, nodeTheme, summary } from '../canvas/nodes.js';
@@ -97,7 +98,13 @@ export function treeChains() {
   Object.keys(data).forEach((df) => { const id = data[df].data.model.id; if (!reached.has(id)) out.push({ df, nid: id, ids: [id], orphan: true }); });
   return out;
 }
-function chainHost(df) { const b = nodeBox(df); return dropTargetAt({ x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }); }
+// S2: a chain hidden by a fold stays under its own column (its sub-groups), whatever slid over its position.
+function chainHost(df) {
+  const b = nodeBox(df), pt = { x: (b.x0 + b.x1) / 2, y: (b.y0 + b.y1) / 2 }, el = nodeEl(df), m = model(df);
+  const col = m && m.group && el && el.parentElement && el.parentElement.classList.contains('fold-hide') ? frameById('auto-' + m.group) : null;
+  if (col) return dropTargetAt(pt, null, new Set([col.id].concat(descendantFrames(col).map((g) => g.id)))) || col;
+  return dropTargetAt(pt);
+}
 // Reference of the chain a node belongs to (first chain reaching it, else the node alone), for moveInto / fileMenu.
 export function chainRef(nid) {
   const all = treeChains(), c = all.find((x) => !x.orphan && x.ids.includes(nid)) || all.find((x) => x.ids.includes(nid));
@@ -416,7 +423,7 @@ export function moveInto(ref, target) {
     nd.pos_x += dx; nd.pos_y += dy;
     if (el) { el.style.left = nd.pos_x + 'px'; el.style.top = nd.pos_y + 'px'; }
   });
-  mv.dfids.forEach((d) => S.editor.updateConnectionNodes('node-' + d));
+  updateWires(mv.dfids);                // S3: one pass
   const moved = { x0: box.x0 + dx, y0: box.y0 + dy, x1: box.x1 + dx, y1: box.y1 + dy };
   let nb = moved, f = target, guard = 0;
   while (f && guard++ < 200) {          // the target (then each parent) encloses the moved box, columns included

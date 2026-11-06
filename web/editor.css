@@ -655,3 +655,33 @@ input[type=color]{width:56px;height:28px;padding:0 2px;background:transparent;bo
 #jumpbar .jdom.folded{opacity:.75;font-style:italic}
 #jumpbar .jdom:hover{filter:brightness(1.15)}
 #tree .hrow.h-domain .hlab{font-weight:800}
+/* lot S2: semantic zoom level 3 = domain cards (below DOM_ZOOM, #drawflow.domzoom; text scaled by --zinv = 1 / zoom so
+   it keeps its screen size; click = zoom into the domain), the minimap's resize grip (top-left corner: the map is
+   anchored bottom-right) and its own zoom indicator / reset button. */
+.dregion .dzcard{display:none}
+#drawflow.domzoom #domains{z-index:30}
+#drawflow.domzoom .dregion .dzcard{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:calc(10px * var(--zinv,1));
+  position:absolute;inset:0;padding:4%;box-sizing:border-box;overflow:hidden;text-align:center;border-radius:24px;
+  background:color-mix(in srgb,var(--c) 34%,#0d1117);color:#fff;pointer-events:auto;cursor:zoom-in}
+#drawflow.domzoom .dregion .dzcard:hover{background:color-mix(in srgb,var(--c) 46%,#0d1117)}
+/* the text keeps ~26 / 15 px on screen, but never outgrows a small region (container units of the card) */
+#drawflow.domzoom .dregion{container-type:size}
+#drawflow.domzoom .dzcard .dzname{display:flex;align-items:center;gap:.4em;font-weight:800;line-height:1.1;max-width:100%;
+  font-size:min(calc(26px * var(--zinv,1)),22cqh,11cqw)}
+#drawflow.domzoom .dzcard .dzname .ico{width:1em;height:1em;flex:none}
+#drawflow.domzoom .dzcard .dzstat{display:flex;flex-wrap:wrap;gap:.5em;justify-content:center;align-items:center;max-width:100%;
+  font-size:min(calc(15px * var(--zinv,1)),13cqh,7cqw)}
+#drawflow.domzoom .frame.auto .fcard{display:none}
+#drawflow.domzoom .dregion .dtitle,#drawflow.domzoom .dregion .dcard{visibility:hidden}
+#drawflow.domzoom .dregion{border-color:var(--c)}
+#minimap .mhead{display:flex;gap:4px;align-items:center}
+#minimap .mzreset{font-size:11px;padding:2px 6px}
+#minimap .mwrap{position:relative}
+#minimap .mresize{position:absolute;left:-5px;top:-5px;width:14px;height:14px;box-sizing:border-box;border-radius:4px;background:#58a6ff;
+  border:2px solid #0d1117;cursor:nwse-resize;touch-action:none;display:none}
+#minimap.open .mresize{display:block}
+@media (pointer:coarse){#minimap .mresize{width:24px;height:24px;left:-10px;top:-10px}}
+
+/* lot S3: off-screen culling (canvas/culling.js): a node wrapper / wire outside the view (and every node under the
+   semantic card levels) is not styled, laid out or painted at all. Layout-dependent code shows them first (withShown). */
+.parent-node.cull,svg.connection.cull,#frames .frame.cull,#notes .postit.cull{display:none!important}

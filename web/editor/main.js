@@ -88,6 +88,11 @@
  *           layout only): one region per domain behind the column frames, hierarchy top level = domains, jump bar on two
  *           levels (domain chip ▸ its column chips), a domain or a column folds into a card (node count + badges, the
  *           folded content and its wires hidden), a column row dropped on a domain row moves the column there.
+ *           S2 (2026-11-04, plan "espace sans limite" A2 + A3): semantic zoom on three levels (normal; column cards below
+ *           0.25; domain cards below 0.1, click = zoom into the domain), minimum zoom derived from the world, column /
+ *           chain focus fit-to-target (readable), a minimap that scales (domains, columns, aggregated dots; resizable,
+ *           collapsible, its own zoom / pan), a geometry cache (canvas/geometry.js: node sizes by ResizeObserver, no
+ *           layout read per frame), folds that reclaim space (row neighbours / region grid repacked, unfold restores).
  * Module map (web/editor/):
  *   core/util.js                  Editor core: tiny DOM helpers.
  *   tooltips/tooltips.js          Editor tooltips (lot L5): one lightweight component for the whole page.
@@ -102,6 +107,8 @@
  *   diagnostics/analysis.js       Diagnostics: structural client hints (not the validator).
  *   diagnostics/check.js          Diagnostics: branch order, server dry run and badges.
  *   canvas/view.js                Canvas: view helpers.
+ *   canvas/geometry.js            Canvas: geometry cache (lot S2): node sizes, viewport, no layout read per frame.
+ *   canvas/culling.js             Canvas: off-screen culling (lot S3): display:none for nodes / wires outside the view.
  *   canvas/wires.js               Canvas: wires.
  *   minimap/overview.js           Overview (L7): zoom-scaled frame titles, semantic zoom, jump bar.
  *   minimap/minimap.js            Minimap navigation (lot L8).
@@ -154,11 +161,15 @@ import { computeChains } from './core/chains.js';
 import { analyze } from './diagnostics/analysis.js';
 import { diagCycle, diagNodes, freshCheck, runCheck } from './diagnostics/check.js';
 import { paintWires } from './canvas/wires.js';
-import { clearJumpbar } from './minimap/overview.js';
+import { DOM_ZOOM, READABLE, SEM_ZOOM, clearJumpbar, drawMinimap, miniZoomAt, resetMiniZoom, setMiniSize } from './minimap/overview.js';
+import { geoStats } from './canvas/geometry.js';
+import { applyCull, cullStats, setCullEnabled } from './canvas/culling.js';
+import { focusChainIds } from './minimap/minimap.js';
+import { nodeBox } from './canvas/view.js';
 import { frameById, frames } from './frames/groups.js';
 import {
   addFrame, adoptLegacy, deleteFrame, descendantFrames, drawFrames, editFrame, editFrameTitle, fit, focusBand,
-  focusFrame, focusNode, focusRect, selectFrame, setView
+  focusFrame, focusNode, focusRect, selectFrame, setView, updateZoomMin
 } from './frames/nesting.js';
 import { addNote, deleteNote, editNote, notes, selectNote, setNoteDisplay } from './frames/notes.js';
 import { setHand, setLock, toggleHelp } from './canvas/navigation.js';
@@ -182,7 +193,10 @@ import { loadJournal, loadVersions } from './panels/history-panels.js';
 import { boot } from './core/boot.js';
 import { exportOpts, startExport, toggleExport } from './export/export.js';
 import { progressInfo, startTask } from './core/progress.js';
-import { domainById, domainRect, focusDomain, foldColumn, foldDomain, foldSets, moveColumnToDomain } from './domains/domains.js';
+import {
+  domainById, domainRect, domainStats, focusDomain, foldColumn, foldDomain, foldSets, moveColumnToDomain, packPositions, packRegions,
+  worldBounds
+} from './domains/domains.js';
 
 // ---------- test hooks (used by the verification scenarios; harmless in normal use) ----------
 window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () => Object.keys(dfData()).length,
@@ -208,7 +222,8 @@ window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () =
   // lot L8 test hooks: node bubble text, minimap mapping / viewport, nesting helpers
   nodeTip: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodeTipOf(nodeEl(df)); },
   nodePath: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodePath(model(df)); },
-  miniMap: () => (S.miniEl ? { map: S.miniEl._map, view: S.miniEl._view, dragging: !!S.miniDrag } : null),
+  miniMap: () => (S.miniEl ? { map: S.miniEl._map, view: S.miniEl._view, dragging: !!S.miniDrag, size: S.miniSize, mz: S.miniView.mz,
+    agg: S.miniEl._agg, doms: S.miniEl._doms, open: S.miniEl.classList.contains('open') } : null),
   descendants: (id) => { const f = frameById(id); return f ? descendantFrames(f).map((g) => g.id) : null; },
   focusRect, adoptLegacy: () => { const c = adoptLegacy(); if (c) drawFrames(); return c; }, undo, redo,
   // lot L5 test hook: merge `params` into a node's params (null value = delete the key), then redraw + re-analyse
@@ -221,6 +236,14 @@ window.__editor = { serialize, postDoc, loadAll, errors: errLog, nodeCount: () =
   // lot S1 test hooks: domains above the columns (region rectangle by id, fold, move a column, what a fold hides)
   domainRect: (id) => { const d = domainById(id); return d ? domainRect(d) : null; }, focusDomain, foldDomain, foldColumn, moveColumnToDomain,
   foldHidden: () => { const f = foldSets(); return { nodes: f.nodes.size, frames: [...f.frames], notes: [...f.notes] }; },
+  // lot S2 test hooks: zoom levels / range, geometry cache counters, node box by node id, world, minimap size / zoom,
+  // region packing, domain card stats, a full frame redraw
+  zoomLevels: () => ({ sem: SEM_ZOOM, dom: DOM_ZOOM, readable: READABLE, min: S.editor.zoom_min, max: S.editor.zoom_max }),
+  geoStats, nodeBoxOf: (nid) => { const df = nidToDf.get(nid); return df == null ? null : nodeBox(df); }, worldBounds, updateZoomMin,
+  setMiniSize, miniZoomAt, resetMiniZoom, packRegions, packPositions, domainStats: (id) => { const d = domainById(id); return d ? domainStats(d) : null; },
+  redraw: () => drawFrames(), focusChainIds,
+  drawMinimap,    // lot S3 test hook: one synchronous minimap frame (timed by scenario `bigworld`)
+  perf: () => S.perf, cullStats, setCullEnabled, applyCull,    // lot S3 test hooks: culling counters, switch, forced pass
   dfState: () => ({ drag: S.editor.drag, editorSel: S.editor.editor_selected, ele: S.editor.ele_selected ? (S.editor.ele_selected.id || S.editor.ele_selected.className) : null }) };   // L4 test hook: load a (legacy) document without touching the server
 
 boot().catch((e) => { errLog.push(String(e)); dbg('BOOT ' + e + '\n' + (e.stack || '')); toast('Erreur au démarrage : ' + e, 'err'); });

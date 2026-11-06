@@ -19,6 +19,7 @@ import { markNode, paintDiagWires, paintOrderBadges, renderMsgs, scheduleCheck }
 import { drawBands } from '../canvas/view.js';
 import { paintWires } from '../canvas/wires.js';
 import { scheduleMinimap } from '../minimap/overview.js';
+import { refreshDomainCards } from '../domains/domains.js';
 import { REQUIRED_ARGS } from '../inspector/arg-fields.js';
 import { varsUi } from '../variables/panel.js';
 
@@ -169,4 +170,5 @@ export function analyze() {
   paintWires();
   renderMsgs();
   scheduleMinimap();       // L6: minimap diagnostic dots follow the badges
+  refreshDomainCards();    // S2: so do the badges of the domain cards
 }

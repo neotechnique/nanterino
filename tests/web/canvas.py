@@ -45,7 +45,9 @@ def sc_nodes(wd):
     time.sleep(0.6)
     fz = js(wd, "const t=document.querySelector('.frame.auto .ftitle'); const r=t.getBoundingClientRect(); return [document.querySelector('#drawflow > .drawflow').style.transform, r.height, document.querySelector('#drawflow').classList.contains('semzoom'), document.querySelector('.frame.auto .fcard .fcname') ? document.querySelector('.frame.auto .fcard .fcname').getBoundingClientRect().height : 0]")
     print("FIT", fz)
-    check("fit: frame titles >= ~14 px on screen, column cards readable", fz[1] >= 16 and (not fz[2] or fz[3] >= 20), str(fz))
+    # CHANGED (lot S2): at the fit of the whole robot (zoom < 0.1) the DOMAIN cards replace the column cards (domzoom)
+    dz = js(wd, "const e=document.querySelector('.dregion[data-dom=dialogue] .dzcard'); return document.querySelector('#drawflow').classList.contains('domzoom') && e ? parseFloat(getComputedStyle(e.querySelector('.dzname')).fontSize)*window.__editor.nav().zoom : null")
+    check("fit: frame titles >= ~14 px on screen, column cards (or S2 domain cards) readable", fz[1] >= 16 and (not fz[2] or fz[3] >= 20 or (dz or 0) >= 18), str(fz) + " " + str(dz))
     wd.shot("editor7-fit.png")
     # jump bar: one chip per state + Globales; a click fits the column at 0.6-0.8
     chips = js(wd, "return [...document.querySelectorAll('#jumpbar .jchip')].map(e=>e.textContent.trim())")
@@ -55,7 +57,8 @@ def sc_nodes(wd):
     jz = js(wd, """const r=document.querySelector('.frame[data-fid=auto-ecoute] .ftitle').getBoundingClientRect(), s=document.querySelector('#drawflow').getBoundingClientRect();
       const tr=document.querySelector('#drawflow > .drawflow').style.transform; return [tr, r.x>=s.x&&r.right<=s.right&&r.y>=s.y&&r.bottom<=s.bottom]""")
     zval = float(jz[0].split("scale(")[1].rstrip(")"))
-    check("chip click: Écoute column at zoom 0.6-0.8, its title in view", 0.59 <= zval <= 0.81 and jz[1], str(jz))
+    # CHANGED (lot S2): column focus is fit-to-target between READABLE (0.5) and 1 (was a fixed 0.6-0.8 range)
+    check("chip click: Écoute column at a readable zoom (0.5-1), its title in view", 0.5 - 1e-6 <= zval <= 1 + 1e-6 and jz[1], str(jz))
     wd.shot("editor7-jumpbar.png")
     mm = js(wd, "const m=document.querySelector('#minimap'); return [!!m, m&&m.classList.contains('open'), !!(m&&m.querySelector('canvas'))]")
     check("minimap present and open by default", all(mm), str(mm))
@@ -506,7 +509,39 @@ def sc_wiredrag(wd):
 
 
 # Scenario registry read by tests/web/run.py (order = order of the former single file).
+
+def sc_switch(wd):
+    """L34: dashboard <-> graph editor switch buttons; a dirty editor document keeps its beforeunload guard."""
+    open_editor(wd)
+    check("editor toolbar has the dashboard button", js(wd, "return !!document.querySelector('#btnDash')"))
+    check("dashboard button carries a tooltip text", "Tableau" in (js(wd, "return document.querySelector('#btnDash').title") or "") or "tableau" in (js(wd, "return document.querySelector('#btnDash').title") or ""))
+    # clean document: beforeunload must not be armed
+    pre = js(wd, "const e=new Event('beforeunload',{cancelable:true}); window.dispatchEvent(e); return [window.__editor.isDirty(), e.defaultPrevented]")
+    check("clean editor: beforeunload not armed", pre == [False, False], repr(pre))
+    # dirty document (an added post-it, never saved): the guard is armed and the button does not bypass it
+    js(wd, "document.querySelector('#btnNote').click()")
+    time.sleep(1.0)
+    post = js(wd, "const e=new Event('beforeunload',{cancelable:true}); window.dispatchEvent(e); return [window.__editor.isDirty(), e.defaultPrevented]")
+    check("dirty editor: beforeunload armed via isDirty()", post == [True, True], repr(post))
+    # clean again -> the button navigates to /dash
+    open_editor(wd)
+    js(wd, "document.querySelector('#btnDash').click()")
+    time.sleep(1.5)
+    url = js(wd, "return location.pathname")
+    check("editor button opens /dash in the same tab", url == "/dash", repr(url))
+    check("dashboard loaded", js(wd, "return !!document.querySelector('#state')"))
+    check("dashboard has the editor link", js(wd, "const a=document.querySelector('#editorlink'); return !!a && a.getAttribute('href')==='/editor' && /Éditeur du graphe/.test(a.textContent)"))
+    vis = js(wd, "const r=document.querySelector('#editorlink').getBoundingClientRect(); return r.width>40 && r.height>16 && r.right<=innerWidth")
+    check("dashboard link visible in the header", vis)
+    js(wd, "document.querySelector('#editorlink').click()")
+    time.sleep(2.0)
+    url = js(wd, "return location.pathname")
+    check("dashboard link opens /editor in the same tab", url == "/editor", repr(url))
+    check("editor loaded", js(wd, "return !!document.querySelector('#btnDash')"))
+
+
 SCENARIOS = {
+    "switch": sc_switch,
     "nodes": sc_nodes,
     "wires": sc_wires,
     "buttons": sc_buttons,

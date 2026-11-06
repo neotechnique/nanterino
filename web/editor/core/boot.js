@@ -11,13 +11,13 @@
  *            canvas/wires.js, minimap/overview.js, minimap/minimap.js, frames/nesting.js, frames/notes.js,
  *            canvas/navigation.js, menu/context-menu.js, clipboard/clipboard.js, menu/node-menu.js, hierarchy/tree.js,
  *            inspector/inspector.js, core/ui.js, core/actions.js, panels/live.js, panels/history-panels.js,
- *            canvas/trigger-guard.js, export/export.js, core/debug.js, core/progress.js
+ *            canvas/trigger-guard.js, export/export.js, core/debug.js, core/progress.js, canvas/culling.js, canvas/wiredraw.js (S3)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h } from './util.js';
 import { installTips } from '../tooltips/tooltips.js';
 import { S, linkKey, linkProblem, nidToDf } from './state.js';
-import { AUTO_DELAY_MS, api, model, postJson } from './api.js';
+import { AUTO_DELAY_MS, api, dfData, model, postJson } from './api.js';
 import { commitSoon, isDirty, redo, undo } from './history.js';
 import { diagCycle, freshCheck } from '../diagnostics/check.js';
 import { installRetHover, paintDragWire, paintWires, retVisible, setRetVisible } from '../canvas/wires.js';
@@ -43,6 +43,9 @@ import { installTriggerDropGuard } from '../canvas/trigger-guard.js';
 import { toggleExport } from '../export/export.js';
 import { runDebug } from './debug.js';
 import { startTask, track } from './progress.js';
+import { bumpGeo, setGeoListener } from '../canvas/geometry.js';
+import { applyCull } from '../canvas/culling.js';
+import { fastUpdate, markWiresDirty } from '../canvas/wiredraw.js';
 
 // ---------- boot ----------
 export async function boot() {
@@ -60,11 +63,13 @@ async function bootSteps(task) {
   if (hold) document.body.append(h('img', { src: 'http://127.0.0.1:' + hold + '/hold.gif', width: 1, height: 1 }));
   S.editor = new Drawflow($('#drawflow'));
   S.editor.reroute = false;
-  S.editor.zoom_min = 0.03; S.editor.zoom_max = 1.6;
+  // S2: zoom_min is derived from the world (frames/nesting.js updateZoomMin, after every frame redraw); 0.01 until then
+  S.editor.zoom_min = 0.01; S.editor.zoom_max = 1.6;
   S.editor.start();
   S.editor.on('nodeSelected', (id) => {
     clearChainSel();
     S.selDf = id; S.selConn = null;
+    applyCull();                                // S3: a node selected from the hierarchy / a search may be culled
     if (S.selFrame) { S.selFrame = null; drawFrames(); }
     if (S.selNote) { S.selNote = null; noteEls.forEach((el) => el.classList.remove('sel')); }
     renderInspector(); if (innerWidth <= 900) document.body.classList.remove('hide-right');
@@ -76,9 +81,10 @@ async function bootSteps(task) {
     renderInspector(); if (innerWidth <= 900) document.body.classList.remove('hide-right');
   });
   S.editor.on('connectionUnselected', () => { S.selConn = null; renderInspector(); });
-  S.editor.on('nodeMoved', commitSoon);
-  S.editor.on('nodeRemoved', (id) => { if (S.loading) return; for (const [k, v] of nidToDf) if (String(v) === String(id)) nidToDf.delete(k); S.selDf = null; renderInspector(); commitSoon(); });
+  S.editor.on('nodeMoved', () => { bumpGeo(); commitSoon(); });   // S2: node boxes moved: cached world stale
+  S.editor.on('nodeRemoved', (id) => { markWiresDirty(); if (S.loading) return; for (const [k, v] of nidToDf) if (String(v) === String(id)) nidToDf.delete(k); S.selDf = null; renderInspector(); commitSoon(); });
   S.editor.on('connectionCreated', (c) => {
+    markWiresDirty();                           // S3: the wire list of the culling pass
     if (S.loading) return;
     const a = model(c.output_id), b = model(c.input_id), why = a && b ? linkProblem(a, b) : null;
     if (why) {                                  // same rules as the server; the wire is dropped at once
@@ -88,6 +94,7 @@ async function bootSteps(task) {
     commitSoon();
   });
   S.editor.on('connectionRemoved', (c) => {
+    markWiresDirty();
     const a = model(c.output_id), b = model(c.input_id);
     if (a && b) { const idx = +c.output_class.split('_')[1]; S.linkMeta.delete(linkKey(a.id, a.kind === 'condition' ? (idx === 1 ? 'true' : 'false') : 'out', b.id)); }
     if (S.selConn && String(S.selConn.out) === String(c.output_id) && String(S.selConn.in) === String(c.input_id)) S.selConn = null;
@@ -95,7 +102,13 @@ async function bootSteps(task) {
   });
   // Wires are repainted (gradient from the source kind colour to the target kind colour) whenever Drawflow redraws them.
   const origUpdate = S.editor.updateConnectionNodes.bind(S.editor);
-  S.editor.updateConnectionNodes = (id) => { origUpdate(id); paintWires(id); };
+  // S3: Drawflow's getModuleFromNodeId walks EVERY node of every module, twice per addConnection: the load of a 10x graph
+  // was quadratic (8 s for 1,800 wires). The editor has a single module, so a node of the current one answers at once.
+  const origModule = S.editor.getModuleFromNodeId.bind(S.editor);
+  S.editor.getModuleFromNodeId = (id) => (dfData()[id] ? S.editor.module : origModule(id));
+  // S3: wires are drawn from the cached geometry (canvas/wiredraw.js; Drawflow's own version scans the DOM and reads
+  // rectangles per wire, and reads garbage for a culled node); `origUpdate` only serves wires with reroute points
+  S.editor.updateConnectionNodes = (id) => { if (S.loading) return; fastUpdate(origUpdate, id); paintWires(id); };   // loading: wires are drawn at their first view
   // L3: the dragged wire starts with its source node's kind colour (not the red / green port pastille), and a
   // freshly linked wire is painted at once (Drawflow does not redraw a node's wires when a link is created).
   S.editor.on('connectionStart', (c) => { const m = model(c.output_id); S.dragSrcKind = m ? m.kind : null; paintDragWire(); });
@@ -115,7 +128,8 @@ async function bootSteps(task) {
   window.addEventListener('mouseup', finishOutside);
   window.addEventListener('touchend', finishOutside);
   installRetHover();
-  S.editor.on('zoom', zoomVars); S.editor.on('translate', scheduleMinimap);
+  S.editor.on('zoom', zoomVars); S.editor.on('translate', (p) => { scheduleMinimap(); applyCull(false, p); });   // S3: Drawflow passes the NEW translation (canvas_x / y are stored after the event)
+  setGeoListener(scheduleMinimap);    // S2: a node size change seen by the geometry observer redraws the minimap
   setRetVisible(retVisible());
   // Vars L2: no returning wires any more (no hubs); the toggle stays wired only if a page still has the button
   if ($('#btnRet')) $('#btnRet').onclick = () => setRetVisible(!document.body.classList.contains('ret-visible'));
@@ -192,6 +206,8 @@ async function bootSteps(task) {
     const src = r.json.source ? 'Source : ' + r.json.source + '\n\n' : '';
     modal('Graphe actif (YAML, lecture seule)', h('pre', {}, src + toYaml(r.json)), [{ label: 'Fermer' }]);
   };
+  // Same-tab switch to the robot dashboard; unsaved edits are protected by the beforeunload handler below.
+  $('#btnDash').onclick = () => { location.href = '/dash'; };
   $('#btnReset').onclick = () => modal('Revenir au graphe par défaut ?',
     h('p', {}, 'Le graphe actuel est sauvegardé, puis remplacé par celui livré avec le robot. Vos positions de nœuds sont effacées.'
       + (isDirty() ? ' Les modifications non enregistrées de cette page (nœuds, groupes, post-it) seront perdues.' : '')),

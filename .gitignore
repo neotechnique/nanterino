@@ -13,3 +13,4 @@ state/
 
 # Graph PNG exports (lot L14): cache of the editor "Exporter l'image" captures, regenerated on demand
 exports/
+fiches/.corbeille/

@@ -14,6 +14,7 @@ import { S } from './state.js';
 import { rebuild, serialize } from './serialize.js';
 import { analyze } from '../diagnostics/analysis.js';
 import { editBlocked } from '../canvas/navigation.js';
+import { bumpGeo } from '../canvas/geometry.js';
 
 // ---------- history ----------
 export const snap = () => JSON.stringify(serialize());
@@ -48,6 +49,7 @@ export function commit() {
     if (S.hist.length > 100) S.hist.shift();
     S.histIdx = S.hist.length - 1;
   }
+  bumpGeo();                 // S2: an edit may move / add / remove nodes: the cached minimap world is stale
   analyze(); updateBar();
 }
 export function undo() { if (editBlocked()) return; if (S.histIdx > 0) { S.histIdx--; rebuild(JSON.parse(S.hist[S.histIdx]), true); updateBar(); } }

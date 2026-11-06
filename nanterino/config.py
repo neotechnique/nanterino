@@ -60,6 +60,19 @@ DEFAULTS = {
     # trips when no tick was processed for watchdog_s seconds (stuck handler). See nanterino/graph.py.
     "heartbeat_hz": 10,
     "watchdog_s": 5,
+    # Robot body backend (lot C3): sim (kinematic simulator, default until the hardware is chosen) | mujoco (lot B3)
+    # | real (servos, plan B4). An unavailable backend falls back to sim with a dashboard banner (nanterino/body).
+    "body_backend": "sim",
+    # 360-degree sound (lot C2, nanterino/sound): mono (default: today's single USB mic, level only, NO direction) | sim
+    # (virtual sources) | array (N-mic array, geometry in sound_array_geometry) | vendor (array that reports its own
+    # direction, sound_vendor_model "xvf3800") | xvf3800 (reSpeaker, lot L44) | auto (xvf3800 if plugged in, else mono).
+    # An unavailable backend falls back to mono (dashboard message with the reason).
+    "sound_backend": "auto",   # L44: auto = reSpeaker XVF3800 when plugged in (on-chip DOA over USB), else mono
+    "sound_xvf_sign": 1,       # -1 mirrors the XVF3800 rotation sense if the dashboard beam turns the wrong way
+    "sound_xvf_hz": 15,
+    "sound_array_geometry": f"{ROOT}/nanterino/sound/array.yaml",
+    "sound_vendor_model": None,
+    "sound_min_level_db": -50,
     # Optional dialogue graph override (YAML, French); invalid -> logged, default graph.yaml used.
     "graph_file": f"{ROOT}/graph.yaml",
     "vad_silence_ms": 800,

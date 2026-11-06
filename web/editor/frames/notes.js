@@ -6,7 +6,7 @@
  *            single-file editor.js (lot M6).
  * Depends :  core/util.js, core/state.js, core/api.js, core/history.js, canvas/view.js, frames/groups.js,
  *            frames/nesting.js, canvas/navigation.js, hierarchy/tree.js, inspector/fields.js, inspector/inspector.js,
- *            core/ui.js, domains/domains.js (S1: applyFold after a redraw)
+ *            core/ui.js, domains/domains.js (S1: applyFold after a redraw), canvas/culling.js (S3)
  * Test    :  l7 editor scenarios (scripts/l7_scenarios.sh) through the window.__editor hooks.
  */
 import { $, h, ico } from '../core/util.js';
@@ -25,6 +25,10 @@ import { areaCtl, field, selectCtl, textCtl } from '../inspector/fields.js';
 import { renderInspector } from '../inspector/inspector.js';
 import { toast } from '../core/ui.js';
 import { applyFold } from '../domains/domains.js';
+import { applyCull } from '../canvas/culling.js';
+
+// S3: same bound as the server (graph_visual.MAX_NOTES; a 10x graph holds ~470 post-its)
+const MAX_NOTES = 1000;
 
 // ---------- post-it notes ----------
 // meta.notes = [{id, text, color, x, y, w, h, title?}] lives in the document (serialize() copies meta), so undo/redo, the
@@ -53,6 +57,14 @@ function growNote(el) {   // full mode: the text area takes the height of its te
   const ta = el && el.querySelector('.ptext');
   if (!ta || el.classList.contains('compact')) return;
   ta.style.height = 'auto'; ta.style.height = ta.scrollHeight + 'px';
+}
+// S3: many post-its at once (drawNotes): all heights reset, ONE layout read pass, then all heights written (growNote per
+// note forced a layout per note: 1.4 s for 470 post-its).
+function growNotes(els) {
+  const tas = els.map((el) => el.querySelector('.ptext')).filter((ta, i) => ta && !els[i].classList.contains('compact'));
+  tas.forEach((ta) => { ta.style.height = 'auto'; });
+  const hs = tas.map((ta) => ta.scrollHeight);
+  tas.forEach((ta, i) => { ta.style.height = hs[i] + 'px'; });
 }
 function refreshNoteText(n, el) {
   const pl = el.querySelector('.pline'); if (pl) pl.textContent = noteFirstLine(n) || '(vide)';
@@ -96,9 +108,10 @@ export function drawNotes() {
     head.addEventListener('dblclick', () => { selectNote(n.id); const t = $('#inspector input.ntitleinp'); if (t) t.focus(); });
     noteEls.set(n.id, el);
     root.append(el);
-    growNote(el);
   });
+  growNotes([...noteEls.values()]);
   applyFold();             // lot S1: a post-it inside a folded column / domain stays hidden after a redraw
+  applyCull(true);         // S3: the new post-it elements are culled by the same rule as the nodes
 }
 export function selectNote(id, keepFocus) {
   if (S.selNote === id) return;
@@ -187,7 +200,7 @@ export function deleteNote(id) {
 // New note at a canvas point (default: centre of the view). Returns the note.
 export function addNote(pt) {
   if (editBlocked()) return null;
-  if (notes().length >= 200) { toast('200 post-it au plus.', 'err'); return null; }
+  if (notes().length >= MAX_NOTES) { toast(MAX_NOTES + ' post-it au plus.', 'err'); return null; }
   if (!pt) { const st = $('#stage').getBoundingClientRect(); pt = canvasPoint(st.x + st.width / 2 - 110, st.y + st.height / 2 - 80); }
   const used = new Set(notes().map((n) => n.id));
   let k = 1; while (used.has('p' + k)) k++;

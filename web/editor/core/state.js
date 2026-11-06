@@ -180,6 +180,9 @@ export const S = {
   jumpEl: null,
   miniEl: null,
   miniRaf: 0,
+  miniSize: null,   // S2: CSS size of the minimap canvas {w, h} (persisted per browser)
+  miniView: { mz: 1, cx: null, cy: null, vc: null },   // S2: minimap's own zoom / centre, last main-view centre seen
+  miniGeoC: null,   // S2: cached minimap world {ver, doms, rects, b} (canvas/geometry.js geoVer)
   // minimap/minimap.js
   miniDrag: null,
   // frames/groups.js
